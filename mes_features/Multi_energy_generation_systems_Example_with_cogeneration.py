@@ -56,10 +56,10 @@
 # In[1]:
 
 
-import nbimporter
+# import nbimporter
 
 def add_Boiler(model):
-    mes = __import__('Multi-energy generation systems - Example with gas boiler')
+    from mes_features import Multi_energy_generation_systems_Example_with_gas_boiler as mes
     return mes.add_Boiler(model)
 
 

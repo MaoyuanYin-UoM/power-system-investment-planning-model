@@ -49,11 +49,11 @@
 
 
 import pyomo.environ as pyo
-import nbimporter
+# import nbimporter
 import copy
 import numpy as np
-import ipywidgets as widgets
-from ipywidgets import interact
+# import ipywidgets as widgets
+# from ipywidgets import interact
 
 
 # In addition, several tools developed in other notebooks are needed, specifically:
@@ -64,7 +64,7 @@ from ipywidgets import interact
 
 
 # From the notebook titled: Multi-energy generation systems - Example with cogeneration
-mes_CoG = __import__('Multi-energy generation systems - Example with cogeneration')
+from mes_features import Multi_energy_generation_systems_Example_with_cogeneration as mes_CoG
 build_MES_Cogeneration_Model = mes_CoG.build_MES_Cogeneration_Model
 plot_MES = mes_CoG.plot_MES
 sankey_MES_Cogeneration = mes_CoG.sankey_MES_Cogeneration
@@ -72,7 +72,7 @@ flexibility_MES_Cogeneration = mes_CoG.flexibility_MES_Cogeneration
 build_MES_CG = mes_CoG.build_MES_CG
 
 # From the notebook titled: 'Integrated networks modelling - Electricity'
-Power_Network = __import__('Integrated networks modelling - Electricity')
+from mes_features import Integrated_networks_modelling_Electricity as Power_Network
 Elec_Model = Power_Network.Elec_Model
 
 
