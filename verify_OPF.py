@@ -29,7 +29,7 @@ def create_dc_opf_network():
             max_i_ka=branch["max_i_ka"]
         )
 
-    # Add generators with cost coefficients
+    # Add generators
     generators = [
         {"bus": 0, "p_mw": 0, "vm_pu": 1.0, "max_p_mw": 200, "min_p_mw": 0, "cost": 10},
         {"bus": 1, "p_mw": 0, "vm_pu": 1.0, "max_p_mw": 150, "min_p_mw": 0, "cost": 15},
@@ -44,8 +44,18 @@ def create_dc_opf_network():
             p_mw=gen["p_mw"],
             vm_pu=gen["vm_pu"],  # DC: Voltage fixed to 1.0 p.u.
             max_p_mw=gen["max_p_mw"],
-            min_p_mw=gen["min_p_mw"],
-            cost_per_mw=gen["cost"]
+            min_p_mw=gen["min_p_mw"]
+        )
+
+    # Add polynomial costs
+    for i, gen in enumerate(generators):
+        pp.create_poly_cost(
+            net,
+            element=i,
+            et="gen",
+            cp1_eur_per_mw=gen["cost"],
+            cp2_eur_per_mw2=0,
+            cp0_eur=0
         )
 
     # Add loads
@@ -59,11 +69,20 @@ def create_dc_opf_network():
     for load in loads:
         pp.create_load(net, bus=load["bus"], p_mw=load["p_mw"])
 
-    # Add slack bus (ext grid)
-    pp.create_ext_grid(net, bus=2, vm_pu=1.0, va_degree=0.0)  # Slack at Bus 4 (index 3)
+    # Add slack bus (ext grid) and cost for the grid
+    pp.create_ext_grid(net, bus=2, vm_pu=1.0, va_degree=0.0)
+    net.ext_grid.loc[0, "min_p_mw"] = 0  # Prevent exporting power
+    net.ext_grid.loc[0, "max_p_mw"] = 1000  # Allow up to 1000 MW import
+    pp.create_poly_cost(
+        net,
+        element=0,  # External grid index
+        et="ext_grid",
+        cp1_eur_per_mw=1000,  # Cost per MW from the external grid
+        cp2_eur_per_mw2=0,
+        cp0_eur=0
+    )
 
     return net
-
 
 
 def solve_dc_opf(net):
@@ -81,8 +100,14 @@ def print_opf_results(net):
     print(net.res_gen[["p_mw"]])
     print("\nLine Flows (MW):")
     print(net.res_line[["p_from_mw", "p_to_mw"]])
+
     print("\nTotal Generation Cost ($):")
     print(f"{net.res_cost:.2f}")
+
+    # # Calculate and display total generation cost manually
+    # total_cost = sum(net.res_gen.loc[i, "p_mw"] * gen["cost"] for i, gen in enumerate(generators))
+    # print("\nManually Calculated Total Generation Cost ($):")
+    # print(f"{total_cost:.2f}")
 
 
 

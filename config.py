@@ -25,7 +25,7 @@ class NetConfig:
 
         # 1) bus data
         self.data.net.bus = [1, 2, 3, 4, 5]  # bus No.
-        self.data.net.slack_bus = 3  # select slack bus
+        self.data.net.slack_bus = 4  # select slack bus
         self.data.net.bus_coords = None
         self.data.net.demand_active = [300, 200, 0, 150, 0]
         self.data.net.demand_reactive = [0, 0, 0, 0, 0]  # unused for DC power flow
@@ -43,10 +43,9 @@ class NetConfig:
         self.data.net.gen_reactive_max = [0, 0, 0, 0, 0]  # unused for DC power flow
         self.data.net.gen_reactive_min = [0, 0, 0, 0, 0]  # unused for DC power flow
         # self.data.net.gen_cost_model = 2
-        self.data.net.gen_cost_coef = [[10, 0], [15, 0], [20, 0], [25, 0], [5, 0]]  # coefficients for the generation
-                                                                                     # cost function
-                                                                                     # e.g., for coefficient [a, b, c]:
-                                                                                     # gen_cost = a*x^2 + b*x + c
+        self.data.net.gen_cost_coef = [[0, 10], [0, 15], [0, 20], [0, 25], [0, 5]]
+            # coefficients for the generation cost function e.g., for coefficient [a, b, c]: gen_cost = a + b*x + c*x^2
+            # Note that all elements (lists) contained in "gen_cost_coef" should have same length
 
 
 # -------------------- Windstorm Configurations --------------------
