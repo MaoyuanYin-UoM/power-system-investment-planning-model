@@ -16,7 +16,7 @@ LIM_LAT2 = 55
 
 class NetConfig:
     # Define the parameters for the network model
-    def __init__(self):
+    def __init__(self) -> object:
         # create object for data storage
         self.data = Object()
 
@@ -25,9 +25,9 @@ class NetConfig:
 
         # 1) bus data
         self.data.net.bus = [1, 2, 3, 4, 5]  # bus No.
-        self.data.net.slack_bus = 4  # select slack bus
+        self.data.net.slack_bus = 3  # select slack bus
         self.data.net.bus_coords = None
-        self.data.net.demand_active = [0, 0, 0, 0, 0]
+        self.data.net.demand_active = [300, 200, 0, 150, 0]
         self.data.net.demand_reactive = [0, 0, 0, 0, 0]  # unused for DC power flow
 
         # 2) branch data
@@ -38,12 +38,12 @@ class NetConfig:
 
         # 3) generator data
         self.data.net.gen = [1, 2, 3, 4, 5]  # which bus the gen is attached to
-        self.data.net.gen_active_max = [40, 170, 323.49, 0, 466.51]
-        self.data.net.gen_active_min = [-40, -170, -323.49, 0, -466.51]
+        self.data.net.gen_active_max = [200, 150, 300, 100, 250]
+        self.data.net.gen_active_min = [0, 0, 0, 0, 0]
         self.data.net.gen_reactive_max = [0, 0, 0, 0, 0]  # unused for DC power flow
         self.data.net.gen_reactive_min = [0, 0, 0, 0, 0]  # unused for DC power flow
-        self.data.net.gen_cost_model = 2  # number of coefficients in the generation cost function
-        self.data.net.gen_cost_coef = [[14, 0], [15, 0], [30, 0], [40, 0], [10, 0]]  # coefficients for the generation
+        # self.data.net.gen_cost_model = 2
+        self.data.net.gen_cost_coef = [[10, 0], [15, 0], [20, 0], [25, 0], [5, 0]]  # coefficients for the generation
                                                                                      # cost function
                                                                                      # e.g., for coefficient [a, b, c]:
                                                                                      # gen_cost = a*x^2 + b*x + c

@@ -26,7 +26,7 @@ class NetworkClass:
             setattr(self, pars, getattr(obj, pars))
 
 
-    def _build_dc_opf_model(self):
+    def build_dc_opf_model(self):
         """The model that calculates DC optimal power flow based on the pyomo optimisation package"""
         # Define a concrete model
         model = pyo.ConcreteModel()
@@ -37,34 +37,35 @@ class NetworkClass:
         model.Set_gen = pyo.Set(initialize=range(1, len(self.data.net.gen)+1))
 
         # 2. Parameters:
-        model.demand = pyo.Param(model.Set_Bus, initialize={i+1: d for i, d in
+        model.demand = pyo.Param(model.Set_bus, initialize={i+1: d for i, d in
                                                                     enumerate(self.data.net.demand_active)})
-        model.gen_cost_model = pyo.Param(model.Set_gen, initialize={i+1: gcm for i, gcm in
-                                                                    enumerate(self.data.net.gen_cost_model)})
 
-        model.gen_cost_coef = pyo.Param(model.Set_Gen, initialize={
-                                                                    (i+1, j+1): self.data.net.gen_cost_model[i][j]
-                                                                    for i in range(len(self.data.net.gen_cost_model))
-                                                                    for j in range(len(self.data.net.gen_cost_model[i]))
-                                                                    })
+        # model.gen_cost_model = pyo.Param(model.Set_gen, initialize=self.data.net.gen_cost_model)
 
-        model.gen_active_max = pyo.Param(model.Set_Gen, initialize={i+1: g for i, g in
+        model.gen_cost_coef = pyo.Param(model.Set_gen, range(len(self.data.net.gen_cost_coef[0])),
+                                        initialize={
+                                            (i + 1, j): self.data.net.gen_cost_coef[i][j]
+                                            for i in range(len(self.data.net.gen_cost_coef))
+                                            for j in range(len(self.data.net.gen_cost_coef[i]))})
+
+
+        model.gen_active_max = pyo.Param(model.Set_gen, initialize={i+1: g for i, g in
                                                                             enumerate(self.data.net.gen_active_max)})
 
-        model.gen_active_min = pyo.Param(model.Set_Gen, initialize={i+1: g for i, g in
+        model.gen_active_min = pyo.Param(model.Set_gen, initialize={i+1: g for i, g in
                                                                             enumerate(self.data.net.gen_active_min)})
 
 
-        model.bch_cap = pyo.Param(model.Set_Bch, initialize={i+1: bc for i, bc in
+        model.bch_cap = pyo.Param(model.Set_bch, initialize={i+1: bc for i, bc in
                                                                      enumerate(self.data.net.bch_cap)})
 
         # calculate susceptance B for each line (under the assumption of DC power flow)
-        model.bch_B = pyo.Param(model.Set_Bch, initialize={i+1: 1/X for i, X in
+        model.bch_B = pyo.Param(model.Set_bch, initialize={i+1: 1/X for i, X in
                                                                    enumerate(self.data.net.bch_X)})
         
         # 3. Variables:
-        model.theta = pyo.Var(model.Set_bus, within=pyo.NonNegativeReals)
-        model.P_gen = pyo.Var(model.Set_bus, within=pyo.Reals)
+        model.theta = pyo.Var(model.Set_bus, within=pyo.Reals)
+        model.P_gen = pyo.Var(model.Set_gen, within=pyo.Reals)
         model.P_flow = pyo.Var(model.Set_bch, within=pyo.Reals)
 
         
@@ -81,21 +82,29 @@ class NetworkClass:
         # 2) Line flow constraints
         def line_flow_rule(model, line_idx):
             i, j = self.data.net.bch[line_idx-1]
-            return model.P_flow[line_idx] == model.B[line_idx] * (model.theta[i] - model.theta[j])
+            return model.P_flow[line_idx] == model.bch_B[line_idx] * (model.theta[i] - model.theta[j])
 
         model.Constraint_LineFlow = pyo.Constraint(model.Set_bch, rule=line_flow_rule)
 
         # 3) Line limit constraints
-        def line_limit_rule(model, line_idx):
-            return abs(model.P_flow[line_idx]) <= model.bch_cap[line_idx]
+        def line_upper_limit_rule(model, line_idx):
+            return model.P_flow[line_idx] <= model.bch_cap[line_idx]
 
-        model.Constraint_LineLimit = pyo.Constraint(model.Set_bch, rule=line_limit_rule)
+        def line_lower_limit_rule(model, line_idx):
+            return model.P_flow[line_idx] >= -model.bch_cap[line_idx]
+
+        model.Constraint_LineUpperLimit = pyo.Constraint(model.Set_bch, rule=line_upper_limit_rule)
+        model.Constraint_LineLowerLimit = pyo.Constraint(model.Set_bch, rule=line_lower_limit_rule)
 
         # 4) Generator limit constraints:
-        def gen_limit_rule(model, gen_idx):
-            return model.gen_active_min[gen_idx] <= model.P_gen[gen_idx] <= model.gen_active_max[gen_idx]
+        def gen_lower_limit_rule(model, gen_idx):
+            return model.P_gen[gen_idx] >= model.gen_active_min[gen_idx]
 
-        model.Constraint_GenCapacity = pyo.Constraint(model.Set_gen, rule=gen_limit_rule)
+        def gen_upper_limit_rule(model, gen_idx):
+            return model.P_gen[gen_idx] <= model.gen_active_max[gen_idx]
+
+        model.Constraint_GenLowerLimit = pyo.Constraint(model.Set_gen, rule=gen_lower_limit_rule)
+        model.Constraint_GenUpperLimit = pyo.Constraint(model.Set_gen, rule=gen_upper_limit_rule)
 
         # 5) Slack bus constraint (zero phase angle at slack bus):
         def slack_bus_rule(model):
@@ -107,44 +116,43 @@ class NetworkClass:
 
         # 5. Objective function (minimise total generation cost)
         def Objective_rule(model):
-            total_gen_cost = 0
-            gen_idx = 0
-            for i in self.data.net.gen_cost_coef:
-                bus_idx = self.data.net.gen[gen_idx]
-                gen_cost = sum(self.data.net.gen_cost_coef[i-1][j] * (model.P_gen[bus_idx]**j)
-                           for j in range(self.data.net.gen_cost_coef[0]))  # sum: coef[j] * x^j over all coefficients j
-                total_gen_cost += gen_cost
-                gen_idx += 1
-            return total_gen_cost
+            return sum(
+                sum(model.gen_cost_coef[g, c] * (model.P_gen[g] ** c)
+                    for c in range(len(self.data.net.gen_cost_coef[0])))
+                for g in model.Set_gen
+            )
 
         model.Objective_MinimiseTotalGenCost = pyo.Objective(rule=Objective_rule, sense=1)
 
         return model
 
 
-    def _solve_dc_opf(self, solver='glpk'):
+    def solve_dc_opf(self, solver='glpk'):
         """Solve the DC OPF model"""
-        model = self._build_dc_opf_model()
+        model = self.build_dc_opf_model()
         solver = SolverFactory(solver)
         results = solver.solve(model)
 
         # Extract results and print some of them
         if results.solver.status == 'ok' and results.solver.termination_condition == 'optimal':
-            print("Optimal solution found!")
-            print("Generation values:")
-            print({g: model.P_gen[g].value for g in model.Set_gen})
+            # Display optimization results
+            print(results)
 
-            minimised_total_cost = model.Objective_MinimiseTotalGenCost()
-            print("Total generation cost:")
-            print(minimised_total_cost)
+            # Display variable values
+            for v in model.component_objects(pyo.Var, active=True):
+                print(f"Variable {v.name}:")
+                var_object = getattr(model, v.name)
+                for index in var_object:
+                    print(f"  Index {index}: Value = {var_object[index].value}")
+
+            # Display objective value
+            for obj in model.component_objects(pyo.Objective, active=True):
+                print(f"Objective {obj.name}: Value = {pyo.value(obj)}")
 
         else:
             print("Solver failed to find an optimal solution.")
 
         return results
-
-
-
 
 
 
