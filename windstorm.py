@@ -2,6 +2,7 @@
 
 import math
 import random
+import numpy as np
 
 from config import WindConfig
 from utils import *
@@ -21,91 +22,64 @@ class WindClass:
             setattr(self, pars, getattr(obj, pars))
 
         # Get parameters
-        max_ws_yr = self._get_max_ws_yr()
+        max_num_ws_prd = self._get_max_num_ws_prd()
         lim_max_v_ws = self._get_lim_max_v_ws()
         lim_min_v_ws = self._get_lim_min_v_ws()
         lim_lng_ws = self._get_lim_lng_ws()
 
-        # Store Monte Carlo parameters
+        # Settings for Monte Carlo simulation
         self.MC = Object()
 
         # MC.WS samples and stores windstorm parameters
         self.MC.WS = Object()
-        # 1) sample number of windstorms per year
-        self.MC.WS.num_yr = [random.randint(1, max_ws_yr) for i in range(self.data.MC.num_trials)]
+        # 1) sample number of windstorms for each simulation (period)
+        self.MC.WS.num_ws_prd = [random.randint(1, max_num_ws_prd) for i in range(self.data.MC.num_prds)]
         # total number of events
-        self.MC.WS.num_yr_total = sum(self.MC.WS.num_yr)
+        self.MC.WS.num_ws_total = sum(self.MC.WS.num_ws_prd)
         # 2) sample max and min wind speed for each event
-        self.MC.WS.v = \
+        self.MC.WS.lim_v_ws_all = \
             [[lim_max_v_ws[0] + random.random() *
-              (lim_max_v_ws[1] - lim_max_v_ws[0])
-              for i in range(self.MC.WS.num_yr_total)],
-             [lim_min_v_ws[0] + random.random() *
-              (lim_min_v_ws[1] - lim_min_v_ws[0])
-              for i in range(self.MC.WS.num_yr_total)]]
+              (lim_max_v_ws[1] - lim_max_v_ws[0]),
+              lim_min_v_ws[0] + random.random() *
+              (lim_min_v_ws[1] - lim_min_v_ws[0])]
+              for i in range(self.MC.WS.num_ws_total)]
         # 3) Sample duration for each windstorm
         self.MC.WS.lng = \
             [random.randint(lim_lng_ws[0], lim_lng_ws[1])
-             for i in range(self.MC.WS.num_yr_total)]
+             for i in range(self.MC.WS.num_ws_total)]
 
 
-    def _init_ws_path0(self):
-        '''Preparations to define starting point of wind storm'''
+    def crt_bgn_hr(self):
+        """Define hour when windstorm begins per year"""
         # Gets
-        cp_start_connectivity = self._get_cp_start_connectivity()
-        cp_lat = self._get_cp_lat()
-        cp_lon = self._get_cp_lon()
+        lim_lng_ws = self._get_lim_lng_ws()
+        lim_ttr = self._get_lim_ttr()
+        max_num_ws_prd = self._get_max_num_ws_prd()
+        num_ws_prd = self._get_num_ws_prd()
+        num_hrs_prd = self._get_num_hrs_prd()
 
-        # Getting distances for each segment of the contour
-        cp_num = len(cp_start_connectivity)
-        dis = [0 for i in range(cp_num + 1)]
+        max_lng = max(lim_lng_ws) + max(lim_ttr)
+        bgn_hrs_ws_prd = np.zeros((len(num_ws_prd), max_num_ws_prd))  # empty a space to store beginning hours
+        
+        for i in range(len(num_ws_prd)):
+            for j in range(num_ws_prd[i]):
+                # Find initial point in the range
+                if j == 0:
+                    rn1 = 1  # set the beginning hour of the first event in each period to be 1
+                else:
+                    rn1 = bgn_hrs_ws_prd[i][j-1] + max_lng
+                # Find final point in the range
+                rn2 = num_hrs_prd - (num_ws_prd[i] - j+1)*max_lng
+                rn1 = int(rn1)
+                rn2 = int(rn2)
+                # Generate random hour
+                bgn_hrs_ws_prd[i][j] = random.randint(rn1, rn2)
 
-        for i in range(cp_num):
-            f = cp_start_connectivity[i][0] - 1
-            t = cp_start_connectivity[i][1] - 1
-            d = self._getDistance(cp_lon[f], cp_lat[f], cp_lon[t], cp_lat[t])
-            dis[i + 1] = dis[i] + d
-        self.data.WS.contour.num = cp_num
-        self.data.WS.contour.dis = [dis[i] / dis[cp_num] for i in range(cp_num + 1)]
-
-
-    def _init_ws_path(self, NumWS):
-        '''Defining starting point and direction of wind storm'''
-        # Gets
-        cp_start_lon = self._get_cp_start_lon()
-        cp_start_lat = self._get_cp_start_lat()
-        cp_end_lon = self._get_cp_end_lon()
-        cp_end_lat_coef = self._get_cp_end_lat_coef()
-        cp_dis_aggregated = self._get_cp_dis_aggregated()
-        rand_location = [random.random() for i in range(NumWS)]
-        rand_direction = [random.random() for i in range(NumWS)]
-
-        # Random starting point
-        start_lon = [0 for i in range(NumWS)]
-        start_lat = [0 for i in range(NumWS)]
-        for i in range(NumWS):
-            j = 1
-            while rand_location[i] > cp_dis_aggregated[j]:
-                j += 1
-
-            aux = (rand_location[i] - cp_dis_aggregated[j - 1]) / \
-                  (cp_dis_aggregated[j] - cp_dis_aggregated[j - 1])
-            start_lon[i] = cp_start_lon[j - 1] + aux * (cp_start_lon[j] - cp_start_lon[j - 1])
-            start_lat[i] = cp_start_lat[j - 1] + aux * (cp_start_lat[j] - cp_start_lat[j - 1])
-
-        # Random direction
-        end_lon = [0 for i in range(NumWS)]
-        end_lat = [0 for i in range(NumWS)]
-        for i in range(NumWS):
-            end_lon[i] = cp_end_lon[1] - \
-                       rand_direction[i] * (cp_end_lon[1] - cp_end_lon[0])
-            end_lat[i] = end_lon[i] * cp_end_lat_coef[0] + cp_end_lat_coef[1]
-
-        return start_lon, start_lat, end_lon, end_lat
+        self.MC.WS.bgn_hrs_ws_prd = bgn_hrs_ws_prd
 
 
-    def _getDistance(self, Lon1, Lat1, Lon2, Lat2):
-        '''Get distance between two coordinates [km]'''
+    def get_distance(self, Lon1, Lat1, Lon2, Lat2):
+        """Get distance between two coordinates [km]"""
         R = 6371000  # Earth Radious [m]
         L1 = Lat1 * math.pi / 180  # Radians
         L2 = Lat2 * math.pi / 180  # Radians
@@ -121,8 +95,8 @@ class WindClass:
         return d
 
 
-    def _getBearing(self, Lon1, Lat1, Lon2, Lat2):
-        '''Get the geographical bearing between two coordinates in radian'''
+    def get_bearing(self, Lon1, Lat1, Lon2, Lat2):
+        """Get the geographical bearing between two coordinates in radian"""
         phi_1 = Lat1 * math.pi / 180  # Radians
         phi_2 = Lat2 * math.pi / 180  # Radians
         lambda_1 = Lon1 * math.pi / 180  # Radians
@@ -140,9 +114,9 @@ class WindClass:
         return alpha  # Radians
 
 
-    def _getDestination(self, Lon1, Lat1, bearing, distance):
-        '''Get the destination's coordinates based on the starting point's coordinates,
-        the travelling direction and distance [m]'''
+    def get_destination(self, Lon1, Lat1, bearing, distance):
+        """Get the destination's coordinates based on the starting point's coordinates,
+        the travelling direction and distance [m]"""
         max_trials = 10
         tolerance = 1e-3
 
@@ -200,8 +174,67 @@ class WindClass:
         return d_lon_lat
 
 
+    def init_ws_path0(self):
+        """Preparations to define starting points of windstorms"""
+        # Gets
+        cp_start_connectivity = self._get_cp_start_connectivity()
+        cp_lat = self._get_cp_start_lat()
+        cp_lon = self._get_cp_start_lon()
+
+        # Getting distances for each segment of the contour
+        cp_num = len(cp_start_connectivity)
+        dis = [0 for i in range(cp_num + 1)]
+
+        for i in range(cp_num):
+            f = cp_start_connectivity[i][0] - 1
+            t = cp_start_connectivity[i][1] - 1
+            d = self.get_distance(cp_lon[f], cp_lat[f], cp_lon[t], cp_lat[t])
+            dis[i + 1] = dis[i] + d
+        self.data.WS.contour.num = cp_num
+        self.data.WS.contour.dis = [dis[i] / dis[cp_num] for i in range(cp_num + 1)]
+
+
+    def init_ws_path(self, num_ws):
+        """
+        Defining starting point and direction (ending) point of the windstorm
+        Note: The direction (ending) point is the ending point of the directional path (the path without damping),
+              not the actual path. The actual path is generated by "crt_ws_path(self)"
+        """
+        # Gets
+        cp_start_lon = self._get_cp_start_lon()
+        cp_start_lat = self._get_cp_start_lat()
+        cp_end_lon = self._get_cp_end_lon()
+        cp_end_lat_coef = self._get_cp_end_lat_coef()
+        cp_dis_aggregated = self._get_cp_dis_aggregated()
+        rand_location = [random.random() for i in range(num_ws)]
+        rand_direction = [random.random() for i in range(num_ws)]
+
+        # Random starting point
+        start_lon = [0 for i in range(num_ws)]
+        start_lat = [0 for i in range(num_ws)]
+        for i in range(num_ws):
+            j = 1
+            while rand_location[i] > cp_dis_aggregated[j]:
+                j += 1
+
+            aux = (rand_location[i] - cp_dis_aggregated[j - 1]) / \
+                  (cp_dis_aggregated[j] - cp_dis_aggregated[j - 1])
+            start_lon[i] = cp_start_lon[j - 1] + aux * (cp_start_lon[j] - cp_start_lon[j - 1])
+            start_lat[i] = cp_start_lat[j - 1] + aux * (cp_start_lat[j] - cp_start_lat[j - 1])
+
+        # Random direction
+        end_lon = [0 for i in range(num_ws)]
+        end_lat = [0 for i in range(num_ws)]
+        for i in range(num_ws):
+            end_lon[i] = cp_end_lon[1] - \
+                       rand_direction[i] * (cp_end_lon[1] - cp_end_lon[0])
+            end_lat[i] = end_lon[i] * cp_end_lat_coef[0] + cp_end_lat_coef[1]
+
+        return start_lon, start_lat, end_lon, end_lat
+
+
     def linear_interpolate(self, start, end, num_points):
-        ''' Linearly interpolate between start and end '''
+        """ Linearly interpolate between start and end """
         return [start + i * (end - start) / (num_points - 1) for i in range(num_points)]
 
 
@@ -218,39 +251,43 @@ class WindClass:
         return cs
 
 
-    def _crt_ws_path(self, Lon1, Lat1, Lon2, Lat2, Num_hrs):
-        '''Create the propagation path of a windstorm on an hourly basis'''
+    def crt_ws_path(self, Lon1, Lat1, Lon2, Lat2, lng_ws):
+        """Create the propagation path of a windstorm on an hourly basis"""
         # trajectory of windstorm
-        dir_lon = self.linear_interpolate(Lon1, Lon2, Num_hrs + 1)
+        dir_lon = self.linear_interpolate(Lon1, Lon2, lng_ws + 1)
         cs = self.cubic_interpolate(Lon1, Lat1, Lon2, Lat2)
         dir_lat = cs(dir_lon)
 
-        path_ws = [[0, 0] for _ in range(Num_hrs + 1)]
+        path_ws = [[0, 0] for _ in range(lng_ws + 1)]
         path_ws[0] = [Lon1, Lat1]
 
-        for hr in range(1, Num_hrs + 1):
-            dist_hr = 24000 - 8000 * (hr - 1) / Num_hrs
-            brg_hr = self._getBearing(dir_lon[hr - 1], dir_lat[hr - 1], dir_lon[hr], dir_lat[hr])
-            path_ws[hr] = self._getDestination(path_ws[hr - 1][0], path_ws[hr - 1][1], brg_hr, dist_hr)
+        # get initial and final propagation speeds (in km/h)
+        init_v = self.data.WS.init_propagation_speed
+        final_v = self.data.WS.final_propagation_speed
+
+        for hr in range(1, lng_ws + 1):
+            dist_hr = init_v*1e3 - final_v*1e3 * (hr - 1) / lng_ws  # assume the propagation speed decays linearly with time
+            brg_hr = self.get_bearing(dir_lon[hr - 1], dir_lat[hr - 1], dir_lon[hr], dir_lat[hr])
+            path_ws[hr] = self.get_destination(path_ws[hr - 1][0], path_ws[hr - 1][1], brg_hr, dist_hr)
 
         return path_ws
 
 
-    def _crt_ws_v(self, lim_v_ws, Num_hrs):
-        '''wind gust speeds of a wind storm at each hour'''
-        a = math.log(lim_v_ws[1] / lim_v_ws[0]) / (Num_hrs - 1)
+    def crt_ws_v(self, lim_v_ws, lng_ws):
+        """wind gust speeds of a windstorm at each hour"""
+        a = math.log(lim_v_ws[1] / lim_v_ws[0]) / (lng_ws - 1)
 
-        v_ws = [lim_v_ws[0] * math.exp(a * i) for i in range(Num_hrs)]
+        v_ws = [lim_v_ws[0] * math.exp(a * i) for i in range(lng_ws)]
 
         return v_ws
 
 
-    def _compare_circle(self, epicentre, rad_ws, gis_bgn, gis_end, Num_bch):
-        '''identify whether an asset falls within the impact zone
-        marked by a radius [km] around the epicentre'''
+    def compare_circle(self, epicentre, rad_ws, gis_bgn, gis_end, num_bch):
+        """identify whether an asset falls within the impact zone
+        marked by a radius [km] around the epicentre"""
 
-        Flgs = [False] * Num_bch
-        for xt in range(Num_bch):
+        Flgs = [False] * num_bch
+        for xt in range(num_bch):
             if gis_bgn[xt][0] == gis_end[xt][0]:  # Special case, vertical line
                 x = gis_bgn[xt][0]
                 aux = max(gis_bgn[xt][1], gis_end[xt][1])
@@ -275,219 +312,168 @@ class WindClass:
                         x = aux
                 y = a + b * x
             # Calculate distance and check if within radius
-            if self._getDistance(epicentre[0], epicentre[1], x, y) < rad_ws:
+            if self.get_distance(epicentre[0], epicentre[1], x, y) < rad_ws:
                 Flgs[xt] = True
         return Flgs
 
 
-    def _crt_envelope(self, epicentre, epicentre1, rad_ws):
-        '''Create an envelope of coordinates around a path defined by two points'''
-        evlp_pts = []
-
-        # Calculate initial bearing from the epicentre to epicentre1
-        alpha_0 = self._getBearing(epicentre[0], epicentre[1], epicentre1[0], epicentre1[1])
-
-        # Calculate envelope points
-        rad_ws = rad_ws * 1000  # change to [meters]
-        evlp_pts.append(self._getDestination(epicentre[0], epicentre[1], alpha_0 - 90 * math.pi / 180, rad_ws))
-        evlp_pts.append(self._getDestination(epicentre[0], epicentre[1], alpha_0 + 90 * math.pi / 180, rad_ws))
-        evlp_pts.append(self._getDestination(epicentre1[0], epicentre1[1], alpha_0 - 90 * math.pi / 180, rad_ws))
-        evlp_pts.append(self._getDestination(epicentre1[0], epicentre1[1], alpha_0 + 90 * math.pi / 180, rad_ws))
-
-        return evlp_pts
+    # def compute_wind_speed(self):
+    #     """Compute the wind speed values at the lines"""
 
 
-    def _compare_envelope(self, evlp, gis_bgn, gis_end, Num_bch):
-        '''Identify groups of lines that are within the envelope'''
+    def _fragility_curve(self, hzd_int):
+        """Calculate the asset's probability of failure based on a fragility curve"""
 
-        # Assumed sequence
-        evlp_sequence = [0, 2, 3, 1, 0]
-        evlp = np.array(evlp)
+        from scipy.stats import lognorm
 
-        x = evlp[evlp_sequence, 0]
-        y = evlp[evlp_sequence, 1]
+        # Gets
+        mu = self._get_frg_mu()
+        sigma = self._get_frg_sigma()
+        thrd_1 = self._get_frg_thrd_1()
+        thrd_2 = self._get_frg_thrd_2()
+        shift_f = self._get_frg_shift_f()
 
-        # Get line equations and angle between lines
-        aux = np.array([[1, 0], [2, 1], [3, 2], [4, 3]])
-        for i in np.where(x[1:] == x[:-1])[0]:
-            x[aux[i, 0]] -= 0.000001
-            x[aux[i, 1]] += 0.000001
+        f_hzd_int = hzd_int - shift_f
 
-        for i in np.where(y[1:] == x[:-1])[0]:
-            y[aux[i, 0]] -= 0.000001
-            y[aux[i, 1]] += 0.000001
+        if f_hzd_int < thrd_1:
+            pof = 0
+        elif f_hzd_int > thrd_2:
+            pof = 1
+        else:
+            # Convert mu and sigma for lognormal distribution
+            shape = sigma
+            scale = np.exp(mu)
+            # Calculate the cumulative distribution function (CDF) of the lognormal distribution
+            pof = lognorm.cdf(f_hzd_int, s=shape, scale=scale)
 
-        b = (y[1:] - y[:-1]) / (x[1:] - x[:-1])
-        a = y[:-1] - b * x[:-1]
-
-        # XY range of each line
-        aux1 = np.column_stack((x, np.roll(x, -1)))
-        aux2 = np.column_stack((y, np.roll(y, -1)))
-        xy_range = np.column_stack(
-            (np.min(aux1, axis=1), np.max(aux1, axis=1), np.min(aux2, axis=1), np.max(aux2, axis=1)))
-
-        flgs = np.zeros(Num_bch, dtype=bool)
-        for i in range(Num_bch):
-            flgs[i] = self._compare_envelope_line(xy_range, a, b, gis_bgn[i], gis_end[i])
-
-        return flgs
+        return pof
 
 
-    def _compare_envelope_line(self, xy_range, a, b, bgn, end):
-        '''Auxiliary function to identify if a line is within an envelope'''
+    def sample_bch_failure(self, timestep, flgs_bch_status, flgs_impacted_bch, wind_speed):
+        """
+        Sample if the impacted bchs fail under the wind speed.
+        For each failed branch, sample the time to repair and set the corresponding branch-status flags to False
+        """
 
-        bgn = list(bgn)
-        end = list(end)
+        import random
 
-        # Adjusting values to avoid division by zero
-        if end[0] == bgn[0]:
-            end[0] = end[0] + 0.00001
-            bgn[0] = bgn[0] - 0.00001
+        ttr = self._get_ttr()  # get lower and upper bounds for sampling the time to repair
+        ts = timestep
 
-        d = (end[1] - bgn[1]) / (end[0] - bgn[0])
-        c = end[1] - d * end[0]
+        for b in range(len(flgs_bch_status)):  # loop over each branch
+             if flgs_impacted_bch[b] & flgs_bch_status[b][ts]:  # check if the branch is both operating and impacted at this timestep
+                # get failure probability from the fragility curve
+                pof = self._fragility_curve(wind_speed)
+                if random.random() < pof:  # sample if it fails
+                    # if it fails, sample the time to repair
+                    time_to_repair = random.randint(ttr[0], ttr[1])
+                    for t in range(ts, min(ts + time_to_repair, len(flgs_bch_status[0]))):  # loop over each hour before being repaired
+                        # set branch status to 0 (False) for each hour until it's repaired
+                        flgs_bch_status[b][t] = False
 
-        # Intersection points
-        x = (a - c) / (d - b)
-        y = a + b * x
+        return flgs_bch_status
 
-        flg = np.zeros((6, 4))
-        xy_line_range = [np.min([bgn[0], end[0]]),  # Min longitude
-                         np.max([bgn[0], end[0]]),  # Max longitude
-                         np.min([bgn[1], end[1]]),  # Min latitude
-                         np.max([bgn[1], end[1]])]  # Max latitude
-
-        for i in range(4):
-            if xy_range[i, 0] <= x[i] <= xy_range[i, 1]:
-                flg[2, i] = 1
-                if xy_line_range[0] <= x[i] <= xy_line_range[1]:
-                    flg[0, i] = 1
-                elif x[i] >= xy_line_range[1]:
-                    flg[4, i] = 1
-                elif x[i] <= xy_line_range[0]:
-                    flg[4, i] = -1
-
-            if xy_range[i, 2] <= y[i] <= xy_range[i, 3]:
-                flg[3, i] = 1
-                if xy_line_range[2] <= y[i] <= xy_line_range[3]:
-                    flg[1, i] = 1
-                elif y[i] >= xy_line_range[3]:
-                    flg[5, i] = 1
-                elif y[i] <= xy_line_range[2]:
-                    flg[5, i] = -1
-
-            in_out = False
-            if np.sum(flg[0:2, :]) > 0:
-                in_out = True
-            elif np.sum(flg[2, :]) > 0:
-                if np.min(flg[4, flg[2, :] == 1]) == -1 and np.max(flg[4, flg[2, :] == 1]) == 1:
-                    in_out = True
-            elif np.sum(flg[4, :]) > 0:
-                if np.min(flg[5, flg[3, :] == 1]) == -1 and np.max(flg[5, flg[3, :] == 1]) == 1:
-                    in_out = True
-
-            return in_out
 
     # Gets:
-    def _get_bgn_hr_ws_yr(self):
-        '''Get bgn_hr_ws_yr'''
-        return self.MC.WS.hrs_yr
+    def _get_bgn_hrs_ws_prd(self):
+        """Get bgn_hrs_ws_prd"""
+        return self.MC.WS.bgn_hrs_ws_prd
 
     def _get_cp_end_lat_coef(self):
-        '''Get cp_lat_n'''
+        """Get cp_end_lat"""
         return self.data.WS.contour.end_lat_coef
 
     def _get_cp_end_lon(self):
-        '''Get cp_lon_n'''
+        """Get cp_end_lon"""
         return self.data.WS.contour.end_lon
 
     def _get_lim_lng_ws(self):
-        '''Get lim_lng_ws'''
+        """Get lim_lng_ws"""
         return self.data.WS.event.lng
 
     def _get_lim_max_v_ws(self):
-        '''Get lim_max_v_ws'''
+        """Get lim_max_v_ws"""
         return self.data.WS.event.max_v
 
     def _get_lim_min_v_ws(self):
-        '''Get lim_max_v_ws'''
+        """Get lim_min_v_ws"""
         return self.data.WS.event.min_v
 
     def _get_lim_ttr(self):
-        '''Get lim_ttr'''
+        """Get lim_ttr"""
         return self.data.WS.event.ttr
 
     def _get_lng_ws(self):
-        '''Get lng_ws'''
+        """Get lng_ws"""
         return self.MC.WS.lng
 
     def _get_cp_dis_aggregated(self):
-        '''Get cp_dis_aggregated'''
+        """Get cp_dis_aggregated"""
         return self.data.WS.contour.dis
 
     def _get_cp_start_connectivity(self):
-        '''Get cp_from_to'''
+        """Get cp_start_connectivity"""
         return self.data.WS.contour.start_connectivity
 
     def _get_cp_start_lat(self):
-        '''Get cp_lat'''
+        """Get cp_start_lat"""
         return self.data.WS.contour.start_lat
 
     def _get_cp_start_lon(self):
-        '''Get cp_lon'''
+        """Get cp_start_lon"""
         return self.data.WS.contour.start_lon
 
     def _get_cp_num(self):
-        '''Get cp_num'''
+        """Get cp_num"""
         return self.data.WS.contour.num
 
-    def _get_lim_v_ws(self):
-        '''Get lim_v_ws'''
-        return self.MC.WS.v
+    def _get_lim_v_ws_all(self):
+        """Get lim_v_ws"""
+        return self.MC.WS.lim_v_ws_all
 
-    def _get_max_ws_yr(self):
-        '''Get max_ws_yr'''
-        return self.data.WS.event.max_yr
+    def _get_max_num_ws_prd(self):
+        """Get max_num_ws_prd"""
+        return self.data.WS.event.max_num_ws_prd
 
-    def _get_num_hrs_yr(self):
-        '''Get num_hrs_yr'''
-        return self.data.num_hrs_yr
+    def _get_num_hrs_prd(self):
+        """Get the number of hours in the selected simulation period"""
+        return self.data.MC.prd_to_hrs[self.data.MC.lng_prd]
 
-    def _get_NumWS_total(self):
-        '''Get NumWS_total'''
-        return self.MC.WS.total
+    def _get_num_ws_prd(self):
+        """Get num_ws_prd"""
+        return self.MC.WS.num_ws_prd
 
-    def _get_NumWS_yr(self):
-        '''Get NumWS_yr'''
-        return self.MC.WS.num_yr
+    def _get_num_ws_total(self):
+        """Get num_ws_total"""
+        return self.MC.WS.num_ws_total
 
-    def _get_mcs_yr(self):
-        '''Get num_mcs_yr'''
-        return self.data.MC.trials
-
-    def _get_lng_ws(self):
-        '''Get lng_ws'''
-        return self.MC.WS.lng
+    def _get_mcs_prd(self):
+        """Get num_prds"""
+        return self.data.MC.num_prds
 
     def _get_frg_mu(self):
-        '''Get frg_mu'''
+        """Get frg_mu"""
         return self.data.frg.mu
 
     def _get_frg_sigma(self):
-        '''Get frg_sigma'''
+        """Get frg_sigma"""
         return self.data.frg.sigma
 
     def _get_frg_thrd_1(self):
-        '''Get frg_thrd_1'''
+        """Get frg_thrd_1"""
         return self.data.frg.thrd_1
 
     def _get_frg_thrd_2(self):
-        '''Get frg_thrd_2'''
+        """Get frg_thrd_2"""
         return self.data.frg.thrd_2
 
     def _get_frg_shift_f(self):
-        '''Get frg_shift_f'''
+        """Get frg_shift_f"""
         return self.data.frg.shift_f
+
+    def _get_ttr(self):
+        """Get ttr"""
+        return self.data.WS.event.ttr
 
 
 

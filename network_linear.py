@@ -156,9 +156,48 @@ class NetworkClass:
 
 
 
-    # Gets:
+    # Gets and Sets:
     def _get_resistance(self):
         return self.data.net.bch_R
 
     def _get_reactance(self):
         return self.data.net.bch_X
+
+    def _get_bch(self):
+        return self.data.net.bch
+
+    def _get_bus_lon(self):
+        """Get bus_lon"""
+        return self.data.net.bus_lon
+
+    def _get_bus_lat(self):
+        """Get bus_lat"""
+        return self.data.net.bus_lat
+
+
+    def set_all_bus_coords_in_tuple(self):
+        """Get all bus coordinates in the form of [(lon1, lat1), (lon2, lat2), ...]"""
+        self.data.net.all_bus_coords_in_tuple = \
+            [(self.data.net.bus_lon[i], self.data.net.bus_lat[i]) for i in range(len(self.data.net.bus_lon))]
+
+    def set_gis_data(self):
+        """Set gis_bgn and gis_end for functions such as "compare_circle" """
+        bch = self._get_bch()
+        self.set_all_bus_coords_in_tuple()
+        gis_bgn = []
+        gis_end = []
+        for b in range(len(bch)):
+            gis_bgn.append( self.data.net.all_bus_coords_in_tuple[ bch[b][0] - 1 ] )
+            gis_end.append( self.data.net.all_bus_coords_in_tuple[ bch[b][1] - 1 ] )
+
+        self.data.net.bch_gis_bgn = gis_bgn
+        self.data.net.bch_gis_end = gis_end
+
+
+    def _get_bch_gis_bgn(self):
+        """Get bch_gis_bgn"""
+        return self.data.net.bch_gis_bgn
+
+    def _get_bch_gis_end(self):
+        """Get bch_gis_end"""
+        return self.data.net.bch_gis_end

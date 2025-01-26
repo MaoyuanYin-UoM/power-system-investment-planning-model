@@ -26,9 +26,13 @@ class NetConfig:
         # 1) bus data
         self.data.net.bus = [1, 2, 3, 4, 5]  # bus No.
         self.data.net.slack_bus = 4  # select slack bus
-        self.data.net.bus_coords = None
         self.data.net.demand_active = [300, 200, 0, 150, 0]
         self.data.net.demand_reactive = [0, 0, 0, 0, 0]  # unused for DC power flow
+        self.data.net.bus_lon = [-3.2, -3.8, -2.5, -4.0, -2.0]  # longitudes of buses
+        self.data.net.bus_lat = [55.2, 54.8, 54.2, 53.7, 52.5]  # latitudes of buses
+        self.data.net.all_bus_coords_in_tuple = None
+        self.data.net.bch_gis_bgn = None
+        self.data.net.bch_gis_end = None
 
         # 2) branch data
         self.data.net.bch = [[1,2],[1,4],[1,5],[2,3],[3,4],[4,5]]  # branch indicated by its start and end bus
@@ -53,23 +57,26 @@ class NetConfig:
 class WindConfig:
     # Define parameters for windstorm generation
     def __init__(self):
-        # create data as an object for data storage (and same below)
+        # Create data as an object for data storage (and same below)
         self.data = Object()
 
-        self.data.num_hr_year = 8760  # set constants
-        self.data.num_hr_week = 144
-        self.data.num_hr_day = 24
+        self.data.num_hrs_year = 8760  # set constants
+        self.data.num_hrs_week = 144
+        self.data.num_hrs_day = 24
 
-        # data.WS stores parameters of the windstorm
+
+        # 1. data.WS stores parameters related to windstorms
         self.data.WS = Object()
 
+        # 1) parameters of windstorm event generation:
         self.data.WS.event = Object()
-        self.data.WS.event.max_num_year = 3  # maximum number of windstorms per year
+        self.data.WS.event.max_num_ws_prd = 3  # maximum number of windstorms per year
         self.data.WS.event.max_v = [20, 55]  # lower and upper bounds for peak gust speed
         self.data.WS.event.min_v = [15, 20]
         self.data.WS.event.lng = [4, 48]  # lower and upper bounds for windstorm duration
         self.data.WS.event.ttr = [24, 168]  # lower and upper bounds for line repair (time to restoration)
 
+        # 2) define the contours where windstorms start and end (it impacts windstorms' path):
         self.data.WS.contour = Object()
         self.data.WS.contour.start_lon = [-2.0, -3.3, -3.3, -4.8, -4.8, -3.2, -2.2,
                                      -5.4, -3.2, -5.4, -5.4, 0.4]  # Longitude for starting-point contour
@@ -83,11 +90,23 @@ class WindConfig:
         self.data.WS.contour.end_lat_coef = [-17/18, 54.183333]  # Coefficients for a linear relation between
                                                             # end_lon and end_lat (e.g., y = ax + b)
                                                             # --> end_lat = coef[0] * end_lon + coef[1]
-        # data.MC stores parameters of Monte Carlo
-        self.data.MC = Object()
-        self.data.MC.num_trials = 1
+        # 3) define the properties of windstorm itself
+        self.data.WS.radius = 20  # radius in km
+        self.data.WS.init_propagation_speed = 24  # speed in km/h
+        self.data.WS.final_propagation_speed = 8  # speed in km/h
 
-        # data.frg stores fragility curve information
+
+        # 2. data.MC stores parameters related to Monte Carlo simulation
+        self.data.MC = Object()
+
+        self.data.MC.num_prds = 1  #  number of periods (i.e., number of monte carlo simulations)
+        self.data.MC.lng_prd = 'year'  # select which period (year, week, day) will be used for each MC simulation
+
+        self.data.MC.prd_to_hrs = {  # define the mapping between periods name to the number of hours
+            "year": 8760,
+        }
+
+        # 3. data.frg stores parameters for fragility modelling (e.g., fragility curve)
         self.data.frg = Object()
         self.data.frg.mu = 3.8
         self.data.frg.sigma = 0.122
