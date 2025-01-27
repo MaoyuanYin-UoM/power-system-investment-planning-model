@@ -8,12 +8,6 @@ class Object(object):
 
 # -------------------- Power System Configurations --------------------
 
-# upper and lower limits of longitude and latitude for randomly generated substation coordinates
-LIM_LON1 = -5
-LIM_LON2 = -1
-LIM_LAT1 = 50
-LIM_LAT2 = 55
-
 class NetConfig:
     # Define the parameters for the network model
     def __init__(self) -> object:
@@ -71,9 +65,9 @@ class WindConfig:
         # 1) parameters of windstorm event generation:
         self.data.WS.event = Object()
         self.data.WS.event.max_num_ws_prd = 3  # maximum number of windstorms per year
-        self.data.WS.event.max_v = [20, 55]  # lower and upper bounds for peak gust speed
-        self.data.WS.event.min_v = [15, 20]
-        self.data.WS.event.lng = [4, 48]  # lower and upper bounds for windstorm duration
+        self.data.WS.event.max_v = [40, 80]  # lower and upper bounds for peak gust speed
+        self.data.WS.event.min_v = [30, 35]
+        self.data.WS.event.lng = [12, 48]  # lower and upper bounds for windstorm duration
         self.data.WS.event.ttr = [24, 168]  # lower and upper bounds for line repair (time to restoration)
 
         # 2) define the contours where windstorms start and end (it impacts windstorms' path):
@@ -108,7 +102,9 @@ class WindConfig:
 
         # 3. data.frg stores parameters for fragility modelling (e.g., fragility curve)
         self.data.frg = Object()
+        # self.data.frg.mu = 3.8
         self.data.frg.mu = 3.8
+        # self.data.frg.sigma = 0.122
         self.data.frg.sigma = 0.122
         self.data.frg.thrd_1 = 20
         self.data.frg.thrd_2 = 90

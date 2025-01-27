@@ -361,6 +361,7 @@ class WindClass:
         ts = timestep
 
         for b in range(len(flgs_bch_status)):  # loop over each branch
+
              if flgs_impacted_bch[b] & flgs_bch_status[b][ts]:  # check if the branch is both operating and impacted at this timestep
                 # get failure probability from the fragility curve
                 pof = self._fragility_curve(wind_speed)

@@ -1,6 +1,8 @@
 # This script is to test the windstorm generation features
 
 import numpy as np
+import json
+import os
 from config import *
 from utils import *
 from visualization import *
@@ -32,14 +34,13 @@ for prd in range(len(num_ws_prd)):  # loop over each simulation
     num_hrs_prd = ws._get_num_hrs_prd()
     flgs_bch_status = np.ones((num_bch, num_hrs_prd), dtype=bool)  # initialise an array to store branch status data
 
-    ts = 0  # initialise timestep to 0
-
     # Initialise paths for all windstorm events in this simulation
     start_lon, start_lat, end_lon, end_lat = ws.init_ws_path(num_ws_prd[prd])
 
     for i in range(num_ws_prd[prd]):  # loop over each windstorm event in this simulation
         # set current timestep to the beginning hour of the current windstorm event
         ts = ws.MC.WS.bgn_hrs_ws_prd[prd][i]
+        ts = int(ts)
 
         # create windstorm path (in an hourly basis)
         lng_ws = ws._get_lng_ws()[i]
@@ -58,6 +59,12 @@ for prd in range(len(num_ws_prd)):  # loop over each simulation
             # if a branch is impacted, sample if it fails (from fragility curve)
             flgs_bch_status = ws.sample_bch_failure(ts+t, flgs_bch_status, flgs_impacted_bch, wind_speed)
             # if a branch fails, sample the time to repair
+
+    # Save the results:
+    file_name = f"Results/flgs_bch_status_{prd + 1}.json"
+    with open(file_name, "w") as f:
+        json.dump(flgs_bch_status.tolist(), f)  # Convert NumPy array to list before saving
+    print(f"Results saved to {file_name}")
 
 
 
