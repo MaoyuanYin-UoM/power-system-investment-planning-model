@@ -2,7 +2,10 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
 from scipy.stats import lognorm
+import json
+import math
 
 
 def visualize_ws_contour(WindConfig):
@@ -81,7 +84,7 @@ def visualize_fragility_curve(WindConfig):
     plt.show()
 
 
-def visualize_bch_and_ws_contour(WindConfig, NetworkConfig):
+def visualize_bch_and_ws_contour():
     """
     Visualize the branches along with the starting- and ending-points contour for windstorm path generation.
 
@@ -89,19 +92,23 @@ def visualize_bch_and_ws_contour(WindConfig, NetworkConfig):
     - WindConfig: Configuration object containing windstorm data.
     - NetworkConfig: Configuration object containing network data.
     """
+    from network_linear import NetworkClass
+    from windstorm import WindClass
+
     # Windstorm data
-    wcon = WindConfig
-    start_lon = wcon.data.WS.contour.start_lon
-    start_lat = wcon.data.WS.contour.start_lat
-    start_concty = wcon.data.WS.contour.start_connectivity
-    end_lon = wcon.data.WS.contour.end_lon
-    end_lat_coef = wcon.data.WS.contour.end_lat_coef
+    ws = WindClass()
+    start_lon = ws.data.WS.contour.start_lon
+    start_lat = ws.data.WS.contour.start_lat
+    start_concty = ws.data.WS.contour.start_connectivity
+    end_lon = ws.data.WS.contour.end_lon
+    end_lat_coef = ws.data.WS.contour.end_lat_coef
     end_lat = [end_lat_coef[0] * x + end_lat_coef[1] for x in end_lon]
 
     # Branch data
-    ncon = NetworkConfig
-    bch_gis_bgn = ncon.data.net.bch_gis_bgn
-    bch_gis_end = ncon.data.net.bch_gis_end
+    net = NetworkClass()
+    net.set_gis_data()
+    bch_gis_bgn = net._get_bch_gis_bgn()
+    bch_gis_end = net._get_bch_gis_end()
 
     # Validate branch data
     if not bch_gis_bgn or not bch_gis_end:
@@ -124,10 +131,97 @@ def visualize_bch_and_ws_contour(WindConfig, NetworkConfig):
     for bgn, end in zip(bch_gis_bgn, bch_gis_end):
         ax.plot([bgn[0], end[0]], [bgn[1], end[1]], 'g-', alpha=0.8, zorder=1, label='Branch' if bgn == bch_gis_bgn[0] else "")
 
+    # Set axis limits
+    ax.set_xlim(-6, 2.5)
+    ax.set_ylim(49.5, 56)
+
     # Labels, title, and legend
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
     ax.set_title("Branches and Windstorm Contours")
+    ax.legend()
+    ax.grid(True)
+
+    plt.show()
+
+
+
+def visualize_windstorm_event(file_path, scenario_number, event_number):
+    """
+    Visualizes the path of a windstorm event from the stored simulation results.
+
+    Parameters:
+    - file_path (str): Path to the JSON file containing the windstorm scenario data.
+    - scenario_number (int): The scenario index (1-based).
+    - event_number (int): The event index within the scenario (1-based).
+    - network_config (NetConfig): The network configuration object to retrieve branch coordinates.
+    """
+    from network_linear import NetworkClass
+    from windstorm import WindClass
+    net = NetworkClass()
+    ws = WindClass()
+
+    # Load the JSON file
+    with open(file_path, "r") as f:
+        all_results = json.load(f)
+
+    # Find the correct scenario
+    scenario_index = scenario_number - 1  # Convert 1-based to 0-based index
+    if scenario_index >= len(all_results):
+        print(f"Scenario {scenario_number} not found!")
+        return
+
+    scenario = all_results[scenario_index]
+
+    # Find the correct event
+    event_index = event_number - 1
+    if event_index >= len(scenario["events"]):
+        print(f"Event {event_number} not found in Scenario {scenario_number}!")
+        return
+
+    event = scenario["events"][event_index]
+
+    # Extract windstorm data
+    epicentres = np.array(event["epicentre"])  # Convert to NumPy array
+    radius_km = event["radius"]  # Windstorm radius at each timestep
+
+    # Convert radius from km to degrees for plotting
+    radius_deg = []
+    for i, (lon, lat) in enumerate(epicentres):
+        lat_factor = 111  # Assumption: 1 degree latitude ≈ 111 km
+        lon_factor = 111 * math.cos(math.radians(lat))  # Longitude factor varies with latitude
+
+        # Convert km to degrees using latitude scaling
+        r_deg = radius_km[i] / lat_factor  # Using latitude for scaling
+        radius_deg.append(r_deg)
+
+    # Extract branch data from network
+    net.set_gis_data()  # Ensure GIS data is set
+    bch_gis_bgn = net.data.net.bch_gis_bgn
+    bch_gis_end = net.data.net.bch_gis_end
+
+    # Plot the network branches
+    fig, ax = plt.subplots(figsize=(10, 8))
+    for bgn, end in zip(bch_gis_bgn, bch_gis_end):
+        ax.plot([bgn[0], end[0]], [bgn[1], end[1]], 'g-', alpha=0.7, label="Branch" if bgn == bch_gis_bgn[0] else "")
+
+    # Plot the windstorm path
+    ax.plot(epicentres[:, 0], epicentres[:, 1], 'bo-', label="Windstorm Path", alpha=0.8)
+
+    # Plot epicentres and circles for each timestep
+    for i, (lon, lat) in enumerate(epicentres):
+        ax.scatter(lon, lat, color="blue", s=40, zorder=3)  # Epicentre
+        circle = Circle((lon, lat), radius_deg[i], color='blue', alpha=0.2, fill=True)
+        ax.add_patch(circle)  # Windstorm radius
+
+    # Set axis limits
+    ax.set_xlim(-6, 2.5)
+    ax.set_ylim(49.5, 56)
+
+    # Labels, title, and legend
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    ax.set_title(f"Windstorm Path - Scenario {scenario_number}, Event {event_number}")
     ax.legend()
     ax.grid(True)
 

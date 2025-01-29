@@ -261,20 +261,37 @@ class WindClass:
         path_ws = [[0, 0] for _ in range(lng_ws + 1)]
         path_ws[0] = [Lon1, Lat1]
 
-        # get initial and final propagation speeds (in km/h)
-        init_v = self.data.WS.init_propagation_speed
-        final_v = self.data.WS.final_propagation_speed
+        # sample initial and final propagation speeds (in km/h)
+        lim_max_prop_v_ws = self._get_lim_max_prop_v_ws()
+        lim_min_prop_v_ws = self._get_lim_min_prop_v_ws()
+        init_prop_v_ws = random.uniform(lim_max_prop_v_ws[0], lim_max_prop_v_ws[1])
+        final_prop_v_ws = random.uniform(lim_min_prop_v_ws[0], lim_min_prop_v_ws[1])
 
+        # compute windstorm path (assume the propagation speed decays linearly with time):
         for hr in range(1, lng_ws + 1):
-            dist_hr = init_v*1e3 - final_v*1e3 * (hr - 1) / lng_ws  # assume the propagation speed decays linearly with time
+            dist_hr = init_prop_v_ws*1e3 - final_prop_v_ws*1e3 * (hr - 1) / lng_ws
             brg_hr = self.get_bearing(dir_lon[hr - 1], dir_lat[hr - 1], dir_lon[hr], dir_lat[hr])
             path_ws[hr] = self.get_destination(path_ws[hr - 1][0], path_ws[hr - 1][1], brg_hr, dist_hr)
 
         return path_ws
 
 
+    def crt_ws_radius(self, lng_ws):
+        """Create radius of a windstorm at each hour"""
+        # Assumption: radius decreases linearly with time
+        # Gets:
+        lim_max_r_ws = self._get_lim_max_r_ws()
+        lim_min_r_ws = self._get_lim_min_r_ws()
+        # Randomly sample the initial and final radius
+        init_r_ws = random.uniform(lim_max_r_ws[0], lim_max_r_ws[1])
+        end_r_ws = random.uniform(lim_min_r_ws[0], lim_min_r_ws[1])
+        # Create radius for all timesteps
+        radius = np.linspace(init_r_ws, end_r_ws, lng_ws + 1)
+        return radius
+
+
     def crt_ws_v(self, lim_v_ws, lng_ws):
-        """wind gust speeds of a windstorm at each hour"""
+        """Create gust speeds of a windstorm at each hour"""
         a = math.log(lim_v_ws[1] / lim_v_ws[0]) / (lng_ws - 1)
 
         v_ws = [lim_v_ws[0] * math.exp(a * i) for i in range(lng_ws)]
@@ -349,6 +366,7 @@ class WindClass:
         return pof
 
 
+    # this function is currently deprecated:
     def sample_bch_failure(self, timestep, flgs_bch_status, flgs_impacted_bch, wind_speed):
         """
         Sample if the impacted bchs fail under the wind speed.
@@ -381,7 +399,7 @@ class WindClass:
         return self.MC.WS.bgn_hrs_ws_prd
 
     def _get_cp_end_lat_coef(self):
-        """Get cp_end_lat"""
+        """Get end_lat_coef"""
         return self.data.WS.contour.end_lat_coef
 
     def _get_cp_end_lon(self):
@@ -399,6 +417,22 @@ class WindClass:
     def _get_lim_min_v_ws(self):
         """Get lim_min_v_ws"""
         return self.data.WS.event.min_v
+
+    def _get_lim_max_r_ws(self):
+        """Get lim_min_v_ws"""
+        return self.data.WS.event.max_r
+
+    def _get_lim_min_r_ws(self):
+        """Get lim_min_v_ws"""
+        return self.data.WS.event.min_r
+
+    def _get_lim_max_prop_v_ws(self):
+        """Get lim_max_prop_v_ws"""
+        return self.data.WS.event.max_prop_v
+
+    def _get_lim_min_prop_v_ws(self):
+        """Get lim_min_prop_v_ws"""
+        return self.data.WS.event.min_prop_v
 
     def _get_lim_ttr(self):
         """Get lim_ttr"""
@@ -475,6 +509,3 @@ class WindClass:
     def _get_ttr(self):
         """Get ttr"""
         return self.data.WS.event.ttr
-
-
-

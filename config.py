@@ -22,14 +22,14 @@ class NetConfig:
         self.data.net.slack_bus = 4  # select slack bus
         self.data.net.demand_active = [300, 200, 0, 150, 0]
         self.data.net.demand_reactive = [0, 0, 0, 0, 0]  # unused for DC power flow
-        self.data.net.bus_lon = [-3.2, -3.8, -2.5, -4.0, -2.0]  # longitudes of buses
-        self.data.net.bus_lat = [55.2, 54.8, 54.2, 53.7, 52.5]  # latitudes of buses
+        self.data.net.bus_lon = [-2, -3, -1, -3, -1]  # longitudes of buses
+        self.data.net.bus_lat = [55, 53, 54, 51, 51]  # latitudes of buses
         self.data.net.all_bus_coords_in_tuple = None
         self.data.net.bch_gis_bgn = None
         self.data.net.bch_gis_end = None
 
         # 2) branch data
-        self.data.net.bch = [[1,2],[1,4],[1,5],[2,3],[3,4],[4,5]]  # branch indicated by its start and end bus
+        self.data.net.bch = [[1,2],[1,3],[2,3],[2,5],[3,5],[4,5]]  # branch indicated by its start and end bus
         self.data.net.bch_R = [0.00281,0.00304,0.00064,0.00108,0.00297,0.00297]
         self.data.net.bch_X = [0.00281,0.00304,0.00064,0.00108,0.00297,0.00297]
         self.data.net.bch_cap = [400, 400, 400, 400, 400, 400]
@@ -65,8 +65,13 @@ class WindConfig:
         # 1) parameters of windstorm event generation:
         self.data.WS.event = Object()
         self.data.WS.event.max_num_ws_prd = 3  # maximum number of windstorms per year
-        self.data.WS.event.max_v = [40, 80]  # lower and upper bounds for peak gust speed
-        self.data.WS.event.min_v = [30, 35]
+        self.data.WS.event.max_v = [40, 80]  # upper and lower bounds for initial gust speed
+        self.data.WS.event.min_v = [30, 35]  # upper and lower bounds for final gust speed
+        self.data.WS.event.max_r = [20, 25]  # upper and lower bounds for initial radius
+        self.data.WS.event.min_r = [15, 10]  # upper and lower bounds for final radius
+        self.data.WS.event.max_prop_v = [22, 26]  # upper and lower bounds for initial windstorm propagation speed
+        self.data.WS.event.min_prop_v = [8, 10]  # upper and lower bounds for final windstorm propagation speed
+
         self.data.WS.event.lng = [12, 48]  # lower and upper bounds for windstorm duration
         self.data.WS.event.ttr = [24, 168]  # lower and upper bounds for line repair (time to restoration)
 
@@ -84,8 +89,9 @@ class WindConfig:
         self.data.WS.contour.end_lat_coef = [-17/18, 54.183333]  # Coefficients for a linear relation between
                                                             # end_lon and end_lat (e.g., y = ax + b)
                                                             # --> end_lat = coef[0] * end_lon + coef[1]
-        # 3) define the properties of windstorm itself
-        self.data.WS.radius = 20  # radius in km
+        # 3) define the properties of the windstorm
+        self.data.WS.init_radius = 20  # radius in km
+        self.data.WS.final_radius = 10  # radius in km
         self.data.WS.init_propagation_speed = 24  # speed in km/h
         self.data.WS.final_propagation_speed = 8  # speed in km/h
 

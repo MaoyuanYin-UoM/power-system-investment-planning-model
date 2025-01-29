@@ -22,17 +22,30 @@ ws.init_ws_path0()
 num_ws_prd = ws.MC.WS.num_ws_prd
 num_ws_total = ws._get_num_ws_total()
 
+# Create a list to store all results
+all_results = []
+
 for prd in range(len(num_ws_prd)):  # loop over each simulation
 
     # prepare parameters:
-    rad_ws = ws.data.WS.radius
     net.set_gis_data()
     bch_gis_bgn = net._get_bch_gis_bgn()
     bch_gis_end = net._get_bch_gis_end()
     num_bch = len(net.data.net.bch)
 
     num_hrs_prd = ws._get_num_hrs_prd()
-    flgs_bch_status = np.ones((num_bch, num_hrs_prd), dtype=bool)  # initialise an array to store branch status data
+
+    # Initialize storage for each simulation
+    sim_results = {
+        "simulation_id": prd + 1,
+        "events": []
+
+    }
+
+    # sample random numbers
+    bch_rand_nums = np.random.rand(num_bch, num_hrs_prd)
+    # initialize storage
+    flgs_impacted_bch = np.zeros((num_bch, num_hrs_prd), dtype=bool)
 
     # Initialise paths for all windstorm events in this simulation
     start_lon, start_lat, end_lon, end_lat = ws.init_ws_path(num_ws_prd[prd])
@@ -44,7 +57,10 @@ for prd in range(len(num_ws_prd)):  # loop over each simulation
 
         # create windstorm path (in an hourly basis)
         lng_ws = ws._get_lng_ws()[i]
-        path_ws = ws.crt_ws_path(start_lon[i], start_lat[i], end_lon[i], end_lon[i], lng_ws)  # obtain windstorm path
+        path_ws = ws.crt_ws_path(start_lon[i], start_lat[i], end_lon[i], end_lat[i], lng_ws)  # obtain windstorm path
+
+        # create windstorm radius
+        radius_ws = ws.crt_ws_radius(lng_ws)
 
         # create the windstorm gust speeds for each path
         lim_v_ws = ws._get_lim_v_ws_all()[i]
@@ -53,19 +69,35 @@ for prd in range(len(num_ws_prd)):  # loop over each simulation
         duration = ws.MC.WS.lng[i]
         for t in range(duration):  # during the i-th windstorm, loop over each timestep t
             epicentre = path_ws[t]
-            wind_speed = v_ws[t]
-            # determine if any branch is impacted by the windstorm
-            flgs_impacted_bch = ws.compare_circle(epicentre, rad_ws, bch_gis_bgn, bch_gis_end, num_bch)
-            # if a branch is impacted, sample if it fails (from fragility curve)
-            flgs_bch_status = ws.sample_bch_failure(ts+t, flgs_bch_status, flgs_impacted_bch, wind_speed)
-            # if a branch fails, sample the time to repair
+            gust_speed = v_ws[t]
+            radius = radius_ws[t]
+            # determine if any branch is impacted by the windstorm at this timestep
+            flgs_impacted_bch[:, ts+t] = ws.compare_circle(epicentre, radius, bch_gis_bgn, bch_gis_end, num_bch)
+            # store the epicentre and gust speed at this timestep
+
+
+        # Store event results
+        sim_results["events"].append({
+            "event_id": i + 1,
+            "epicentre": path_ws,
+            "radius": radius_ws.tolist(),  # note radius_ws is a numpy array so that it needs be converted to a list
+            "gust_speed": v_ws
+        })
+
+    # append
+    sim_results["flgs_impacted_bch"] = flgs_impacted_bch.tolist()
+    sim_results["bch_rand_nums"] = bch_rand_nums.tolist()
+
+    # Append simulation results to all results
+    all_results.append(sim_results)
+
+
 
     # Save the results:
-    file_name = f"Results/flgs_bch_status_{prd + 1}.json"
+    file_name = "Results/all_scenarios.json"
     with open(file_name, "w") as f:
-        json.dump(flgs_bch_status.tolist(), f)  # Convert NumPy array to list before saving
-    print(f"Results saved to {file_name}")
-
+        json.dump(all_results, f, indent=4)  # Save in a .JSON file with formatting
+    print(f"All results saved to {file_name}")
 
 
 
