@@ -6,7 +6,7 @@ import numpy as np
 class Object(object):
     pass
 
-# -------------------- Power System Configurations --------------------
+# -------------------- Power Network Configurations --------------------
 
 class NetConfig:
     # Define the parameters for the network model
@@ -20,8 +20,8 @@ class NetConfig:
         # 1) bus data
         self.data.net.bus = [1, 2, 3, 4, 5]  # bus No.
         self.data.net.slack_bus = 4  # select slack bus
-        self.data.net.demand_active = [300, 200, 0, 150, 0]
-        self.data.net.demand_reactive = [0, 0, 0, 0, 0]  # unused for DC power flow
+        self.data.net.max_demand_active = [300, 200, 100, 150, 250]
+        self.data.net.max_demand_reactive = [0, 0, 0, 0, 0]  # unused for DC power flow
         self.data.net.bus_lon = [-2, -3, -1, -3, -1]  # longitudes of buses
         self.data.net.bus_lat = [55, 53, 54, 51, 51]  # latitudes of buses
         self.data.net.all_bus_coords_in_tuple = None
@@ -51,7 +51,7 @@ class NetConfig:
 class WindConfig:
     # Define parameters for windstorm generation
     def __init__(self):
-        # Create data as an object for data storage (and same below)
+        # # create object for data storage
         self.data = Object()
 
         self.data.num_hrs_year = 8760  # set constants
@@ -117,3 +117,21 @@ class WindConfig:
         self.data.frg.shift_f = 0
 
 
+# -------------------- Investment Model Configurations --------------------
+
+class InvestmentConfig:
+    def __init__(self):
+        # create object for data storage
+        self.data = Object()
+
+        # hardening cost for each branch to shift the fragility curve for per m/s wind speed
+        self.data.cost_bch_hrdn = [5000, 5000, 5000, 5000, 5000, 5000]
+
+        # repair cost for each branch
+        self.data.cost_bch_rep = [1000, 1000, 1000, 1000, 1000]
+
+        # load shedding cost per kW demand per hour at each bus
+        self.data.cost_bus_ls = [100, 100, 100, 100, 100, 100]
+
+        # total budget for line hardening
+        self.data.budget_bch_hrdn = 20000

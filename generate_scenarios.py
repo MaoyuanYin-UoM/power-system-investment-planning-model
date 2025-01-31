@@ -91,8 +91,6 @@ for prd in range(len(num_ws_prd)):  # loop over each simulation
     # Append simulation results to all results
     all_results.append(sim_results)
 
-
-
     # Save the results:
     file_name = "Results/all_scenarios.json"
     with open(file_name, "w") as f:

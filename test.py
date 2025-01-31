@@ -13,7 +13,7 @@ ws = WindClass(wcon)
 ncon = NetConfig()
 net = NetworkClass(ncon)
 
-# visualize_fragility_curve(wcon)
+visualize_fragility_curve(wcon)
 visualize_bch_and_ws_contour()
 
 file_path = "Results/all_scenarios.json"

@@ -7,9 +7,9 @@ import scipy.sparse
 import pyomo.environ as pyo
 from pyomo.contrib.mpc.examples.cstr.model import initialize_model
 from pyomo.opt import SolverFactory
-from traitlets import Float
 
 from config import NetConfig
+from windstorm import WindClass
 
 class Object(object):
     pass
@@ -36,9 +36,12 @@ class NetworkClass:
         model.Set_bch = pyo.Set(initialize=range(1, len(self.data.net.bch)+1))
         model.Set_gen = pyo.Set(initialize=range(1, len(self.data.net.gen)+1))
 
+        ws = WindClass()
+        model.Set_ts = pyo.Set(initialize=range(ws._get_num_hrs_prd()))  # Timesteps in a period
+
         # 2. Parameters:
         model.demand = pyo.Param(model.Set_bus, initialize={i+1: d for i, d in
-                                                                    enumerate(self.data.net.demand_active)})
+                                                                    enumerate(self.data.net.max_demand_active)})
 
         # model.gen_cost_model = pyo.Param(model.Set_gen, initialize=self.data.net.gen_cost_model)
 
@@ -127,9 +130,8 @@ class NetworkClass:
         return model
 
 
-    def solve_dc_opf(self, solver='glpk'):
+    def solve_dc_opf(self, model, solver='glpk'):
         """Solve the DC OPF model"""
-        model = self.build_dc_opf_model()
         solver = SolverFactory(solver)
         results = solver.solve(model)
 

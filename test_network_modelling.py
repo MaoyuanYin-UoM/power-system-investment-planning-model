@@ -9,8 +9,8 @@ net_config = NetConfig()
 
 net = NetworkClass(net_config)
 
-net.build_dc_opf_model()
-results = net.solve_dc_opf()
+model = net.build_dc_opf_model()
+results = net.solve_dc_opf(model)
 
 
 
