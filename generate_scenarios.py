@@ -88,12 +88,13 @@ for prd in range(len(num_ws_prd)):  # loop over each simulation
 
     # Sample time to repair values (prepared for all branches at all timesteps)
     ttr_min, ttr_max = ws.data.WS.event.ttr[0], ws.data.WS.event.ttr[1]  # get lower and upper bounds for ttr sampling
-    bch_ttr = np.random.randint(ttr_min, ttr_max, size=(num_bch, num_hrs_prd))  # sample and store in a numpy array
+    bch_ttr = np.random.randint(ttr_min, ttr_max, size=num_bch)  # sample and store in a numpy array
 
     # Convert numpy array to python list before saving
+    sim_results["bch_ttr"] = bch_ttr.tolist()
     sim_results["flgs_impacted_bch"] = flgs_impacted_bch.tolist()
     sim_results["bch_rand_nums"] = bch_rand_nums.tolist()
-    sim_results["bch_ttr"] = bch_ttr.tolist()
+
 
     # Append simulation results to all results
     all_results.append(sim_results)

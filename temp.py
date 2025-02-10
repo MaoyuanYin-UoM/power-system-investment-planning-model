@@ -100,9 +100,9 @@ class InvestmentClass():
 
         # 2.3) initialize time to repair values
         # create dictionary
-        ttr_data = {(l, t): all_results[0]["bch_ttr"][l - 1][t - 1] for l in model.Set_bch for t in model.Set_ts}
+        ttr_data = {l: all_results[0]["bch_ttr"][l - 1] for l in model.Set_bch}
         # assign dictionary
-        model.branch_ttr = pyo.Param(model.Set_bch, model.Set_ts, initialize=ttr_data)
+        model.branch_ttr = pyo.Param(model.Set_bch, initialize=ttr_data)
 
 
         # 3) Initialize investment parameters (budget and costs):
@@ -123,9 +123,15 @@ class InvestmentClass():
         model.load_shed = pyo.Var(model.Set_bus, model.Set_ts, within=pyo.NonNegativeReals)  # Load shedding
         model.theta = pyo.Var(model.Set_bus, model.Set_ts, within=pyo.Reals)  # Bus voltage angle
         model.P_flow = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Reals)  # Power flow on branches
-        model.branch_status = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)  # Branch availability
+
         model.shifted_gust_speed = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.NonNegativeReals)
-        model.failure_prob = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.NonNegativeReals)
+        model.fail_prob = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.NonNegativeReals)
+
+        model.branch_status = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)
+        model.fail_indicator = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)
+        model.fail_applies = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)
+        model.repair_applies = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)
+        model.repair_complete = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)
 
 
         # 4. Constraints
@@ -187,42 +193,118 @@ class InvestmentClass():
         # 8) Piecewise Linear Fragility Approximation
         # generate breakpoints and fragility function values
         fragility_data = self.piecewise_linearize_fragility(ws, num_pieces=10)
-        # use the break points and corresponding values to link "failure_prob" with "shifted_gust_speed"
+        # use the break points and corresponding values to link "fail_prob" with "shifted_gust_speed"
         model.Piecewise_Fragility = pyo.Piecewise(
             model.Set_bch, model.Set_ts,
-            model.failure_prob,
+            model.fail_prob,
             model.shifted_gust_speed,
             pw_pts=fragility_data["gust_speeds"],
-            f_rule=fragility_data["failure_probs"],
+            f_rule=fragility_data["fail_probs"],
             pw_constr_type='CC'
         )
 
-        # 9) Line failure constraint
-        # Big-M Constraint for Line Failure (the line fails if "rand_num" exceeds "failure_prob")
+
+        # 9) Line failure and repair constraints
         BigM = 1e6
 
-        def line_failure_rule(model, l, t):
-            if t > 1:
-                return model.branch_status[l, t] <= model.branch_status[l, t - 1] - BigM * (
-                            model.rand_num[l, t] <= model.failure_prob[l, t])
-            else:
-                return model.branch_status[l, t] <= 1 - BigM * (model.rand_num[l, t] <= model.failure_prob[l, t])
+        def fail_indicator_rule_1(model, l, t):
+            """
+            Ensures fail_indicator[l, t] is 1 if rand_num[l, t] <= fail_prob[l, t].
+            Uses Big-M to enforce the binary condition.
+            """
+            return model.fail_indicator[l, t] * BigM >= model.fail_prob[l, t] - model.rand_num[l, t]
 
-        model.Constraint_LineFailure = pyo.Constraint(model.Set_bch, model.Set_ts, rule=line_failure_rule)
+        def fail_indicator_rule_2(model, l, t):
+            """ Ensures fail_indicator[l, t] is 0 if rand_num[l, t] > fail_prob[l, t] """
+            return model.fail_indicator[l, t] <= (model.fail_prob[l, t] - model.rand_num[l, t]) + 1
 
-        # Repair constraint: Ensures failed branches stay down for 'branch_ttr' timesteps
-        def repair_rule(model, l, t):
+        model.Constraint_FailIndicator1 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_indicator_rule_1)
+        model.Constraint_FailIndicator2 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_indicator_rule_2)
+
+        def fail_activation_rule_1(model, l, t):
+            """ fail_applies can be 1 only if both branch_status at timestep 't-1' is 1 """
             if t > 1:
-                return model.branch_status[l, t] >= model.branch_status[l, t - 1] - BigM * (t < model.branch_ttr[l, t])
+                return model.fail_applies[l, t] <= model.branch_status[l, t - 1]
             else:
                 return pyo.Constraint.Skip
 
+        def fail_activation_rule_2(model, l, t):
+            """ fail_applies can be 1 only if fail_indicator is 1 """
+            return model.fail_applies[l, t] <= model.fail_indicator[l, t]
+
+        def fail_activation_rule_3(model, l, t):
+            """ If both conditions are met, fail_applies must be 1 """
+            return model.fail_applies[l, t] >= model.branch_status[l, t - 1] + model.fail_indicator[l, t] - 1
+
+        model.Constraint_FailActivation1 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_activation_rule_1)
+        model.Constraint_FailActivation2 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_activation_rule_2)
+        model.Constraint_FailActivation3 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_activation_rule_3)
+
+        def line_failure_rule(model, l, t):
+            """ Forces a line to fail if fail_applies[l, t] = 1 """
+            if t > 1:
+                return model.branch_status[l, t] <= 1 - model.fail_applies[l, t]
+            else:
+                return model.branch_status[l, t] <= 1 - model.fail_indicator[l, t]  # Initial timestep case
+
+        model.Constraint_LineFailure = pyo.Constraint(model.Set_bch, model.Set_ts, rule=line_failure_rule)
+
+        def repair_activation_rule_1(model, l, t):
+            """ repair_applies can be 1 only if the branch was failed at the last timestep """
+            if t > 1:
+                return model.repair_applies[l, t] <= 1 - model.branch_status[l, t - 1]
+            else:
+                return pyo.Constraint.Skip
+
+        def repair_activation_rule_2(model, l, t):
+            """ repair_applies can be 1 only if repair_complete[l, t] is 1 """
+            return model.repair_applies[l, t] <= model.repair_complete[l, t]
+
+        def repair_activation_rule_3(model, l, t):
+            """ If both conditions are met, repair_applies must be 1 """
+            return model.repair_applies[l, t] >= (1 - model.branch_status[l, t - 1]) + model.repair_complete[l, t] - 1
+
+        model.Constraint_RepairActivation1 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=repair_activation_rule_1)
+        model.Constraint_RepairActivation2 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=repair_activation_rule_2)
+        model.Constraint_RepairActivation3 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=repair_activation_rule_3)
+
+        def repair_rule(model, l, t):
+            """ Forces a branch to be restored when repair_applies is 1 """
+            if t > 1:
+                return model.branch_status[l, t] >= model.repair_applies[l, t]
+            else:
+                return pyo.Constraint.Skip  # No repairs at t=1
+
         model.Constraint_Repair = pyo.Constraint(model.Set_bch, model.Set_ts, rule=repair_rule)
 
-        # def line_failure_rule(model, l, t):
-        #     return model.branch_status[l, t] * BigM <= BigM * (model.rand_num[l, t] - model.failure_prob[l, t] + 1)
-        #
-        # model.Constraint_LineFailure = pyo.Constraint(model.Set_bch, model.Set_ts, rule=line_failure_rule)
+        def repair_complete_rule_1(model, l, t):
+            """
+            Ensures repair_complete[l, t] can be 1 only if the line status was failed at 'branch_ttr' timesteps ago.
+            """
+            if t > model.branch_ttr[l]:  # Ensure valid indexing
+                return model.repair_complete[l, t] <= (1 - model.branch_status[l, t - model.branch_ttr[l]])
+            else:
+                return pyo.Constraint.Skip
+
+        def repair_complete_rule_2(model, l, t):
+            """
+            Ensures repair_complete[l, t] can be 1 only if the line status is still failed at the current timestep 't'.
+            This, combined with 'repair_complete_rule_1', ensures the line has been failed for 'branch_ttr' timesteps.
+            """
+            return model.repair_complete[l, t] <= (1 - model.branch_status[l, t])
+
+        model.Constraint_RepairComplete1 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=repair_complete_rule_1)
+        model.Constraint_RepairComplete2 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=repair_complete_rule_2)
+
+        def failure_repair_exclusivity_rule(model, l, t):
+            """
+            A line cannot both fail and be repaired at the same timestep.
+            """
+            return model.fail_applies[l, t] + model.repair_applies[l, t] <= 1
+
+        model.Constraint_ExclusiveFailRepair = pyo.Constraint(model.Set_bch, model.Set_ts,
+                                                              rule=failure_repair_exclusivity_rule)
+
 
 
         # 5. Objective Function: Minimize Total Cost
@@ -274,7 +356,7 @@ class InvestmentClass():
 
         # Generate breakpoints for linearization
         gust_speeds = np.linspace(thrd_1, thrd_2, num_pieces)
-        failure_probs = []
+        fail_probs = []
 
         # Compute failure probabilities at each breakpoint
         shape = sigma
@@ -283,15 +365,15 @@ class InvestmentClass():
         for speed in gust_speeds:
             adjusted_speed = speed - shift_f
             if adjusted_speed < thrd_1:
-                failure_probs.append(0.0)
+                fail_probs.append(0.0)
             elif adjusted_speed > thrd_2:
-                failure_probs.append(1.0)
+                fail_probs.append(1.0)
             else:
                 pof = lognorm.cdf(adjusted_speed, s=shape, scale=scale)
-                failure_probs.append(pof)
+                fail_probs.append(pof)
 
         # Return piecewise linear data
-        return {"gust_speeds": gust_speeds.tolist(), "failure_probs": failure_probs}
+        return {"gust_speeds": gust_speeds.tolist(), "fail_probs": fail_probs}
 
 
     def _get_cost_bch_hrdn(self):
