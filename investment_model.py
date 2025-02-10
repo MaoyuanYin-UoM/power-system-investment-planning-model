@@ -1,5 +1,7 @@
+import numpy as np
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
+from scipy.stats import lognorm
 from network_linear import NetworkClass
 from windstorm import WindClass
 from config import InvestmentConfig
@@ -36,15 +38,23 @@ class InvestmentClass():
         model = pyo.ConcreteModel()
 
         # 1. Sets
+        model.Set_bus = pyo.Set(initialize=net.data.net.bus)  # Buses
         model.Set_bch = pyo.Set(initialize=range(1, len(net.data.net.bch) + 1))  # Branches
         model.Set_gen = pyo.Set(initialize=range(1, len(net.data.net.gen) + 1))  # Generators
-        model.Set_bus = pyo.Set(initialize=net.data.net.bus)  # Buses
-        model.Set_ts = pyo.Set(initialize=range(ws._get_num_hrs_prd()))  # Timesteps in a period
+        model.Set_ts = pyo.Set(initialize=range(1, ws._get_num_hrs_prd() + 1))  # Timesteps in a period
 
 
         # 2. Parameters
         # 1) Initialize network parameters:
-        model.demand = pyo.Param(model.Set_bus, model.Set_ts, initialize={})
+
+        # Convert the demand profiles into a dictionary and initialize Pyomo demand profile parameters
+        demand_dict = {
+            (bus, ts): net.data.net.demand_profile_active[bus - 1][ts - 1]
+            for bus in range(1, len(net.data.net.demand_profile_active) + 1)  # Iterate over buses (1-indexed)
+            for ts in range(1, len(net.data.net.demand_profile_active[0]) + 1)  # Iterate over timesteps (1-indexed)
+        }
+
+        model.demand = pyo.Param(model.Set_bus, model.Set_ts, initialize=demand_dict)
 
         model.gen_cost_coef = pyo.Param(model.Set_gen, range(len(net.data.net.gen_cost_coef[0])),
                                         initialize={
@@ -119,20 +129,46 @@ class InvestmentClass():
         model.Constraint_LineLowerLimit = pyo.Constraint(model.Set_bch, rule=line_lower_limit_rule)
 
         # 5) Generator limit constraints:
-        def gen_lower_limit_rule(model, gen_idx):
-            return model.P_gen[gen_idx] >= model.gen_active_min[gen_idx]
-
         def gen_upper_limit_rule(model, gen_idx):
             return model.P_gen[gen_idx] <= model.gen_active_max[gen_idx]
 
-        model.Constraint_GenLowerLimit = pyo.Constraint(model.Set_gen, rule=gen_lower_limit_rule)
-        model.Constraint_GenUpperLimit = pyo.Constraint(model.Set_gen, rule=gen_upper_limit_rule)
+        def gen_lower_limit_rule(model, gen_idx):
+            return model.P_gen[gen_idx] >= model.gen_active_min[gen_idx]
 
-        # 6) Slack Bus Constraint
+        model.Constraint_GenUpperLimit = pyo.Constraint(model.Set_gen, rule=gen_upper_limit_rule)
+        model.Constraint_GenLowerLimit = pyo.Constraint(model.Set_gen, rule=gen_lower_limit_rule)
+
+        # 6) Slack bus constraint
         def slack_bus_rule(model, t):
             return model.theta[net.data.net.slack_bus, t] == 0
 
         model.Constraint_SlackBus = pyo.Constraint(model.Set_ts, rule=slack_bus_rule)
+
+
+        # 7) Line failure constraint
+        # Generate the piecewise linear approximations of the fragility curve
+        pw_frag_curve = self.piecewise_linearize_fragility(ws, 10)
+
+        model.failure_prob = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.UnitInterval)
+
+        model.PiecewiseFragility = pyo.Piecewise(
+            model.Set_bch, model.Set_ts,
+            model.failure_prob,
+            gust_input,
+            pw_pts=fragility_data["gust_speeds"],
+            f_rule=fragility_data["failure_probs"],
+            pw_constr_type='CC'
+        )
+
+        # Big-M Constraint for Line Failure
+        BigM = 1e6
+
+        # The line failure rule
+        def line_failure_rule(model, l, t):
+            rand_num = all_results[0]["bch_rand_nums"][l - 1][t - 1]
+            return model.branch_status[l, t] <= (rand_num >= model.failure_prob[l, t]) * BigM
+
+        model.Constraint_LineFailure = pyo.Constraint(model.Set_bch, model.Set_ts, rule=line_failure_rule)
 
 
         # 5. Objective Function: Minimize Total Cost
@@ -161,6 +197,47 @@ class InvestmentClass():
                 print(f"  Index {index}: Value = {var_object[index].value}")
 
         return results
+
+
+    def piecewise_linearize_fragility(self, ws, num_pieces):
+        """
+        Piecewise linearize the fragility curve function
+
+        Parameters:
+        - ws: Instance of WindClass (contains fragility curve data).
+        - num_pieces: Number of linear segments for approximation.
+
+        Returns:
+        - A dictionary containing piecewise linear points (gust speed vs failure probability).
+        """
+
+        # Extract fragility parameters
+        mu = ws._get_frg_mu()
+        sigma = ws._get_frg_sigma()
+        thrd_1 = ws._get_frg_thrd_1()
+        thrd_2 = ws._get_frg_thrd_2()
+        shift_f = ws._get_frg_shift_f()
+
+        # Generate breakpoints for linearization
+        gust_speeds = np.linspace(thrd_1, thrd_2, num_pieces)
+        failure_probs = []
+
+        # Compute failure probabilities at each breakpoint
+        shape = sigma
+        scale = np.exp(mu)
+
+        for speed in gust_speeds:
+            adjusted_speed = speed - shift_f
+            if adjusted_speed < thrd_1:
+                failure_probs.append(0.0)
+            elif adjusted_speed > thrd_2:
+                failure_probs.append(1.0)
+            else:
+                pof = lognorm.cdf(adjusted_speed, s=shape, scale=scale)
+                failure_probs.append(pof)
+
+        # Return piecewise linear data
+        return {"gust_speeds": gust_speeds.tolist(), "failure_probs": failure_probs}
 
 
     def _get_cost_bch_hrdn(self):

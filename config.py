@@ -22,6 +22,8 @@ class NetConfig:
         self.data.net.slack_bus = 4  # select slack bus
         self.data.net.max_demand_active = [300, 200, 100, 150, 250]
         self.data.net.max_demand_reactive = [0, 0, 0, 0, 0]  # unused for DC power flow
+        self.data.net.demand_profile_active = None
+        self.data.net.demand_profile_reactive = None  # unused for DC power flow
         self.data.net.bus_lon = [-2, -3, -1, -3, -1]  # longitudes of buses
         self.data.net.bus_lat = [55, 53, 54, 51, 51]  # latitudes of buses
         self.data.net.all_bus_coords_in_tuple = None

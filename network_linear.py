@@ -2,6 +2,7 @@
 
 
 import numpy as np
+import pandas as pd
 import cmath, math
 import scipy.sparse
 import pyomo.environ as pyo
@@ -9,6 +10,7 @@ from pyomo.contrib.mpc.examples.cstr.model import initialize_model
 from pyomo.opt import SolverFactory
 
 from config import NetConfig
+from normalize_demand_profile import file_path
 from windstorm import WindClass
 
 class Object(object):
@@ -40,8 +42,8 @@ class NetworkClass:
         model.Set_ts = pyo.Set(initialize=range(ws._get_num_hrs_prd()))  # Timesteps in a period
 
         # 2. Parameters:
-        model.demand = pyo.Param(model.Set_bus, initialize={i+1: d for i, d in
-                                                                    enumerate(self.data.net.max_demand_active)})
+        file_path = "Demand_Profile/normalized_hourly_demand_profile.xlsx"
+        model.demand = pyo.Param(model.Set_bus, model.Set_ts, initialize={})
 
         # model.gen_cost_model = pyo.Param(model.Set_gen, initialize=self.data.net.gen_cost_model)
 
@@ -157,15 +159,40 @@ class NetworkClass:
         return results
 
 
+    def read_normalized_profile(self, file_path):
+        """Read normalized demand profile from given file path into a Python list"""
+        # read into a pandas dataframe
+        demand_profile_df = pd.read_excel(file_path)
+        # convert it into a python list
+        demand_profile = demand_profile_df.iloc[:, 0].tolist()
+
+        return demand_profile
+
+
+    def set_scaled_profile_for_buses(self, normalized_profile):
+        """Set scaled demand profiles for each bus based on the normalized profile"""
+        max_demands = self.data.net.max_demand_active
+        bus_profiles = []
+        # Loop over each bus and scale the profile
+        for max_demand in enumerate(max_demands):
+            # Scale the normalized profile by the maximum demand
+            scaled_profile = [value * max_demand for value in normalized_profile]
+            bus_profiles.append(scaled_profile)
+        # Set profiles into the instance
+        self.data.net.demand_profile_active = bus_profiles
+
 
     # Gets and Sets:
     def _get_resistance(self):
+        """Get bch_R"""
         return self.data.net.bch_R
 
     def _get_reactance(self):
+        """Get bch_X"""
         return self.data.net.bch_X
 
     def _get_bch(self):
+        """Get bch"""
         return self.data.net.bch
 
     def _get_bus_lon(self):

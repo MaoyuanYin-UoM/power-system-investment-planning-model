@@ -366,31 +366,35 @@ class WindClass:
         return pof
 
 
-    # this function is currently deprecated:
-    def sample_bch_failure(self, timestep, flgs_bch_status, flgs_impacted_bch, wind_speed):
-        """
-        Sample if the impacted bchs fail under the wind speed.
-        For each failed branch, sample the time to repair and set the corresponding branch-status flags to False
-        """
+    # this function is deprecated:
+    # def sample_bch_failure(self, timestep, flgs_bch_status, flgs_impacted_bch, wind_speed):
+    #     """
+    #     Sample if the impacted bchs fail under the wind speed.
+    #     For each failed branch, sample the time to repair and set the corresponding branch-status flags to False
+    #     """
+    #
+    #     import random
+    #
+    #     ttr = self._get_ttr()  # get lower and upper bounds for sampling the time to repair
+    #     ts = timestep
+    #
+    #     for b in range(len(flgs_bch_status)):  # loop over each branch
+    #
+    #          if flgs_impacted_bch[b] & flgs_bch_status[b][ts]:  # check if the branch is both operating and impacted at this timestep
+    #             # get failure probability from the fragility curve
+    #             pof = self._fragility_curve(wind_speed)
+    #             if random.random() < pof:  # sample if it fails
+    #                 # if it fails, sample the time to repair
+    #                 time_to_repair = random.randint(ttr[0], ttr[1])
+    #                 for t in range(ts, min(ts + time_to_repair, len(flgs_bch_status[0]))):  # loop over each hour before being repaired
+    #                     # set branch status to 0 (False) for each hour until it's repaired
+    #                     flgs_bch_status[b][t] = False
+    #
+    #     return flgs_bch_status
 
-        import random
 
-        ttr = self._get_ttr()  # get lower and upper bounds for sampling the time to repair
-        ts = timestep
 
-        for b in range(len(flgs_bch_status)):  # loop over each branch
 
-             if flgs_impacted_bch[b] & flgs_bch_status[b][ts]:  # check if the branch is both operating and impacted at this timestep
-                # get failure probability from the fragility curve
-                pof = self._fragility_curve(wind_speed)
-                if random.random() < pof:  # sample if it fails
-                    # if it fails, sample the time to repair
-                    time_to_repair = random.randint(ttr[0], ttr[1])
-                    for t in range(ts, min(ts + time_to_repair, len(flgs_bch_status[0]))):  # loop over each hour before being repaired
-                        # set branch status to 0 (False) for each hour until it's repaired
-                        flgs_bch_status[b][t] = False
-
-        return flgs_bch_status
 
 
     # Gets:

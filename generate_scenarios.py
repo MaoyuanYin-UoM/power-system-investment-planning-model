@@ -79,14 +79,21 @@ for prd in range(len(num_ws_prd)):  # loop over each simulation
         # Store event results
         sim_results["events"].append({
             "event_id": i + 1,
+            "bgn_hr": int(ws.MC.WS.bgn_hrs_ws_prd[prd][i]),
+            "duration": duration,
             "epicentre": path_ws,
             "radius": radius_ws.tolist(),  # note radius_ws is a numpy array so that it needs be converted to a list
             "gust_speed": v_ws
         })
 
-    # append
+    # Sample time to repair values (prepared for all branches at all timesteps)
+    ttr_min, ttr_max = ws.data.WS.event.ttr[0], ws.data.WS.event.ttr[1]  # get lower and upper bounds for ttr sampling
+    bch_ttr = np.random.randint(ttr_min, ttr_max, size=(num_bch, num_hrs_prd))  # sample and store in a numpy array
+
+    # Convert numpy array to python list before saving
     sim_results["flgs_impacted_bch"] = flgs_impacted_bch.tolist()
     sim_results["bch_rand_nums"] = bch_rand_nums.tolist()
+    sim_results["bch_ttr"] = bch_ttr.tolist()
 
     # Append simulation results to all results
     all_results.append(sim_results)
