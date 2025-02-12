@@ -13,22 +13,22 @@ ws = WindClass(wcon)
 
 ncon = NetConfig()
 net = NetworkClass(ncon)
-
-icon = InvestmentConfig()
-inv = InvestmentClass(icon)
+#
+# icon = InvestmentConfig()
+# inv = InvestmentClass(icon)
 
 # print(net.data.net.demand_profile_active)
 # print(len(net.data.net.demand_profile_active))
 # print(len(net.data.net.demand_profile_active[0]))
 
-print(inv.piecewise_linearize_fragility(ws, num_pieces=10))
+# print(inv.piecewise_linearize_fragility(ws, num_pieces=10))
 
 
-#
-# visualize_fragility_curve(wcon)
+
+visualize_fragility_curve(wcon)
 # visualize_bch_and_ws_contour()
 #
-# file_path = "Results/all_scenarios.json"
+# file_path = "Results/all_scenarios_month.json"
 # scenario_number = 1
 # event_number = 1
 # visualize_windstorm_event(file_path, scenario_number, event_number)

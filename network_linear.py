@@ -27,10 +27,18 @@ class NetworkClass:
         for pars in obj.__dict__.keys():
             setattr(self, pars, getattr(obj, pars))
 
+        # Import windclass
+        ws = WindClass()
+
         # Set scaled demand profiles for all buses
-        DP_file_path = "Demand_Profile/normalized_hourly_demand_profile.xlsx"
-        df = pd.read_excel(DP_file_path, header=0)
-        normalized_profile = df.iloc[:, 0].tolist()  # Extract the single column as a list
+        DP_file_path = "Demand_Profile/normalized_hourly_demand_profile_year.xlsx"
+        df = pd.read_excel(DP_file_path, header=0)  # ignore any header row
+        if ws.data.MC.lng_prd == 'year':
+            normalized_profile = df.iloc[:, 0].tolist()  # Extract the whole column (1 year) and convert to list
+        elif ws.data.MC.lng_prd == 'month':
+            normalized_profile = df.iloc[0:720, 0].tolist()  # Extract the first month
+        elif ws.data.MC.lng_prd == 'week':
+            normalized_profile = df.iloc[0:168, 0].tolist()  # Extract the first week
         self.set_scaled_profile_for_buses(normalized_profile)
 
 
