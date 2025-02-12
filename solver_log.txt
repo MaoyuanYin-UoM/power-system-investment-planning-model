@@ -3,12 +3,12 @@ Solver command line: ['D:\\gurobi1201\\win64\\bin\\gurobi.bat']
 Set parameter Username
 Set parameter LicenseID to value 2621303
 Academic license - for non-commercial use only - expires 2026-02-12
-Read LP format model from file C:\Users\MAOYUA~1\AppData\Local\Temp\tmpywc2gwx3.pyomo.lp
-Reading time = 0.33 seconds
+Read LP format model from file C:\Users\MAOYUA~1\AppData\Local\Temp\tmp9yuotfgu.pyomo.lp
+Reading time = 0.32 seconds
 x1: 126922 rows, 126726 columns, 709082 nonzeros
 Set parameter MIPGap to value 0.005
 Set parameter TimeLimit to value 60
-Gurobi Optimizer version 12.0.1 build v12.0.1rc0 (win64 - Windows 11.0 (22631.2))
+Gurobi Optimizer version 12.0.1 build v12.0.1rc0 (win64 - Windows 11.0 (26100.2))
 
 CPU model: Intel(R) Core(TM) Ultra 9 185H, instruction set [SSE2|AVX|AVX2]
 Thread count: 16 physical cores, 22 logical processors, using up to 22 threads
@@ -29,12 +29,12 @@ Warning: Model contains large matrix coefficient range
          Consider reformulating model or setting NumericFocus parameter
          to avoid numerical issues.
 Presolve removed 108847 rows and 112318 columns
-Presolve time: 0.14s
+Presolve time: 0.07s
 Presolved: 18075 rows, 14408 columns, 53985 nonzeros
 Variable types: 11976 continuous, 2432 integer (2432 binary)
 Performing another presolve...
 Presolve removed 15204 rows and 12069 columns
-Presolve time: 0.12s
+Presolve time: 0.13s
 Found heuristic solution: objective 2.142607e+07
 Found heuristic solution: objective 2.049049e+07
 
@@ -45,7 +45,7 @@ Root relaxation: interrupted, 1132 iterations, 0.00 seconds (0.00 work units)
 
      0     0          -    0      2.0490e+07 2.0433e+07  0.28%     -    0s
 
-Explored 1 nodes (1132 simplex iterations) in 0.36 seconds (0.34 work units)
+Explored 1 nodes (1132 simplex iterations) in 0.33 seconds (0.34 work units)
 Thread count was 22 (of 22 available processors)
 
 Solution count 3: 2.04905e+07 2.04905e+07 2.14261e+07 
