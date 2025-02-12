@@ -31,7 +31,7 @@ class InvestmentClass():
         net = NetworkClass()
 
         # Load windstorm scenarios from JSON file
-        with open("Results/all_scenarios.json", "r") as f:
+        with open("Results/all_scenarios_month.json", "r") as f:
             all_results = json.load(f)
 
         # Define Pyomo model
@@ -147,10 +147,10 @@ class InvestmentClass():
 
         # 2) Power Balance Constraint
         def power_balance_rule(model, b, t):
-            total_gen = sum(model.P_gen[g, t] for g in model.Set_gen if net.data.net.gen[g - 1] == b)
+            total_gen_at_bus = sum(model.P_gen[g, t] for g in model.Set_gen if net.data.net.gen[g - 1] == b)
             inflow = sum(model.P_flow[l, t] for l in model.Set_bch if net.data.net.bch[l - 1][1] == b)
             outflow = sum(model.P_flow[l, t] for l in model.Set_bch if net.data.net.bch[l - 1][0] == b)
-            return total_gen + inflow - outflow + model.load_shed[b, t] == model.demand[b, t]
+            return total_gen_at_bus + inflow - outflow + model.load_shed[b, t] == model.demand[b, t]
 
         model.Constraint_PowerBalance = pyo.Constraint(model.Set_bus, model.Set_ts, rule=power_balance_rule)
 
@@ -160,7 +160,7 @@ class InvestmentClass():
         def power_flow_rule_upper(model, l, t):
             """ Upper bound on power flow considering line failures """
             i, j = net.data.net.bch[l - 1]
-            # if branch_status is 0, this constraint is relaxed and let the "flow_limit_rule" below to take control
+            # if branch_status is 0, this constraint is relaxed and let the rules "flow_limit_rule_*" to take control
             return model.P_flow[l, t] <= model.bch_B[l] * (model.theta[i, t] - model.theta[j, t]) + BigM * (
                         1 - model.branch_status[l, t])
 
@@ -181,7 +181,7 @@ class InvestmentClass():
 
         def flow_limit_rule_lower(model, l, t):
             """ Lower bound on power flow considering line failures """
-            return model.P_flow[l, t] >= -model.bch_cap[l] * model.branch_status[l, t]
+            return model.P_flow[l, t] >= -1 * model.bch_cap[l] * model.branch_status[l, t]
 
         model.Constraint_FlowLimit_Upper = pyo.Constraint(model.Set_bch, model.Set_ts, rule=flow_limit_rule_upper)
         model.Constraint_FlowLimit_Lower = pyo.Constraint(model.Set_bch, model.Set_ts, rule=flow_limit_rule_lower)
@@ -202,7 +202,6 @@ class InvestmentClass():
 
         model.Constraint_SlackBus = pyo.Constraint(model.Set_ts, rule=slack_bus_rule)
 
-
         # 6) Shifted gust speed constraint
         def shifted_gust_speed_rule(model, l, t):
             return model.shifted_gust_speed[l, t] == model.gust_speed[t] - model.bch_hrdn[l]
@@ -212,6 +211,13 @@ class InvestmentClass():
         # 7) Piecewise Linear Fragility Approximation
         # generate breakpoints and fragility function values
         fragility_data = self.piecewise_linearize_fragility(ws, num_pieces=10)
+
+        threshold = 1e-5  # Avoid numeric issues due to near-zero values
+        fragility_data["fail_probs"] = [max(val, threshold) for val in fragility_data["fail_probs"]]
+
+        print("Breakpoints (pw_pts):", fragility_data["gust_speeds"])
+        print("Failure Probabilities (f_rule):", fragility_data["fail_probs"])
+
         # use the break points and corresponding values to link "fail_prob" with "shifted_gust_speed"
         model.Piecewise_Fragility = pyo.Piecewise(
             model.Set_bch, model.Set_ts,
@@ -220,7 +226,7 @@ class InvestmentClass():
             pw_pts=fragility_data["gust_speeds"],  # x-values (ensure they're sorted in ascending order)
             f_rule={(bch, ts): fragility_data["fail_probs"] for bch in model.Set_bch for ts in model.Set_ts},
             pw_constr_type='EQ',  # Exact match
-            pw_repn='INC',  # Ensure a monotonic increasing function
+            pw_repn='DCC'
         )
 
 

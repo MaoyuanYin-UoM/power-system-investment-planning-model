@@ -36,7 +36,7 @@ print("Length of the Normalized Profile:", len(normalized_profile))
 normalized_df = pd.DataFrame(normalized_profile, columns=["Normalized_Half_Hourly_England_Wales_Demand_2024"])
 
 # Write to a new Excel file
-output_file_path = "Demand_Profile/normalized_half_hourly_demand_profile.xlsx"
+output_file_path = "Demand_Profile/normalized_half_hourly_demand_profile_year.xlsx"
 normalized_df.to_excel(output_file_path, index=False)
 
 # Debug: Confirm the file has been saved
@@ -57,7 +57,7 @@ print("Length of the Hourly Normalized Profile:", len(hourly_normalized_profile)
 hourly_normalized_df = pd.DataFrame(hourly_normalized_profile, columns=["Normalized_Hourly_England_Wales_Demand_2024"])
 
 # Write the hourly profile to a new Excel file
-hourly_output_file_path = "Demand_Profile/normalized_hourly_demand_profile.xlsx"
+hourly_output_file_path = "Demand_Profile/normalized_hourly_demand_profile_year.xlsx"
 hourly_normalized_df.to_excel(hourly_output_file_path, index=False)
 
 # Debug: Confirm the file has been saved
