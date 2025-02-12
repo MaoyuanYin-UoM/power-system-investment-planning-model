@@ -38,7 +38,7 @@ class NetConfig:
 
         # 3) generator data
         self.data.net.gen = [1, 2, 3, 4, 5]  # which bus the gen is attached to
-        self.data.net.gen_active_max = [200, 150, 300, 100, 250]
+        self.data.net.gen_active_max = [400, 300, 300, 350, 500]
         self.data.net.gen_active_min = [0, 0, 0, 0, 0]
         self.data.net.gen_reactive_max = [0, 0, 0, 0, 0]  # unused for DC power flow
         self.data.net.gen_reactive_min = [0, 0, 0, 0, 0]  # unused for DC power flow
@@ -127,7 +127,7 @@ class InvestmentConfig:
         self.data = Object()
 
         # hardening cost for each branch to shift the fragility curve for per m/s wind speed
-        self.data.cost_bch_hrdn = [5000, 5000, 5000, 5000, 5000, 5000]
+        self.data.cost_bch_hrdn = [500, 500, 500, 500, 500, 500]
 
         # repair cost for each branch
         self.data.cost_bch_rep = [1000, 1000, 1000, 1000, 1000, 1000]

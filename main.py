@@ -17,4 +17,5 @@ net = NetworkClass(ncon)
 icon = InvestmentConfig()
 inv = InvestmentClass(icon)
 
-inv.build_investment_model()
+model = inv.build_investment_model()
+inv.solve_investment_model(model, solver='gurobi')

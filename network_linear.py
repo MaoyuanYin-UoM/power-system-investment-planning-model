@@ -48,8 +48,8 @@ class NetworkClass:
         model.Set_ts = pyo.Set(initialize=range(ws._get_num_hrs_prd()))  # Timesteps in a period
 
         # 2. Parameters:
-        file_path = "Demand_Profile/normalized_hourly_demand_profile.xlsx"
-        model.demand = pyo.Param(model.Set_bus, model.Set_ts, initialize={})
+        model.demand = pyo.Param(model.Set_bus, initialize={b + 1: self.data.net.max_demand_active[b]
+                                                            for b in range(len(self.data.net.max_demand_active))})
 
         # model.gen_cost_model = pyo.Param(model.Set_gen, initialize=self.data.net.gen_cost_model)
 

@@ -10,7 +10,7 @@ net_config = NetConfig()
 net = NetworkClass(net_config)
 
 model = net.build_dc_opf_model()
-results = net.solve_dc_opf(model)
+results = net.solve_dc_opf(model, solver='gurobi')
 
 
 
