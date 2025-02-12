@@ -130,10 +130,10 @@ class InvestmentConfig:
         self.data.cost_bch_hrdn = [5000, 5000, 5000, 5000, 5000, 5000]
 
         # repair cost for each branch
-        self.data.cost_bch_rep = [1000, 1000, 1000, 1000, 1000]
+        self.data.cost_bch_rep = [1000, 1000, 1000, 1000, 1000, 1000]
 
         # load shedding cost per kW demand per hour at each bus
-        self.data.cost_bus_ls = [100, 100, 100, 100, 100, 100]
+        self.data.cost_bus_ls = [100, 100, 100, 100, 100]
 
         # total budget for line hardening
         self.data.budget_bch_hrdn = 20000

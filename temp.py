@@ -150,24 +150,39 @@ class InvestmentClass():
 
         model.Constraint_PowerBalance = pyo.Constraint(model.Set_bus, model.Set_ts, rule=power_balance_rule)
 
-        # 3) Line Flow Constraint
-        def line_flow_rule(model, l, t):
+        # 3) Branch power Flow Constraint
+        BigM = 1e6
+
+        def power_flow_rule_upper(model, l, t):
+            """ Upper bound on power flow considering line failures """
             i, j = net.data.net.bch[l - 1]
-            return model.P_flow[l, t] == net.data.net.bch_X[l - 1] ** -1 * (model.theta[i, t] - model.theta[j, t])
+            # if branch_status is 0, this constraint is relaxed and let the "flow_limit_rule" below to take control
+            return model.P_flow[l, t] <= model.bch_B[l] * (model.theta[i, t] - model.theta[j, t]) + BigM * (
+                        1 - model.branch_status[l, t])
 
-        model.Constraint_LineFlow = pyo.Constraint(model.Set_bch, model.Set_ts, rule=line_flow_rule)
+        def power_flow_rule_lower(model, l, t):
+            """ Lower bound on power flow considering line failures """
+            i, j = net.data.net.bch[l - 1]
+            # similar to above
+            return model.P_flow[l, t] >= model.bch_B[l] * (model.theta[i, t] - model.theta[j, t]) - BigM * (
+                        1 - model.branch_status[l, t])
 
-        # 4) Line limit constraints
-        def line_upper_limit_rule(model, line_idx):
-            return model.P_flow[line_idx] <= model.bch_cap[line_idx]
+        model.Constraint_PowerFlow_Upper = pyo.Constraint(model.Set_bch, model.Set_ts, rule=power_flow_rule_upper)
+        model.Constraint_PowerFlow_Lower = pyo.Constraint(model.Set_bch, model.Set_ts, rule=power_flow_rule_lower)
 
-        def line_lower_limit_rule(model, line_idx):
-            return model.P_flow[line_idx] >= -model.bch_cap[line_idx]
+        # If branch_status is 0, below two constraints enforces the branch's power flow to be 0
+        def flow_limit_rule_upper(model, l, t):
+            """ Upper bound on power flow considering line failures """
+            return model.P_flow[l, t] <= model.bch_cap[l] * model.branch_status[l, t]
 
-        model.Constraint_LineUpperLimit = pyo.Constraint(model.Set_bch, rule=line_upper_limit_rule)
-        model.Constraint_LineLowerLimit = pyo.Constraint(model.Set_bch, rule=line_lower_limit_rule)
+        def flow_limit_rule_lower(model, l, t):
+            """ Lower bound on power flow considering line failures """
+            return model.P_flow[l, t] >= -model.bch_cap[l] * model.branch_status[l, t]
 
-        # 5) Generator limit constraints:
+        model.Constraint_FlowLimit_Upper = pyo.Constraint(model.Set_bch, model.Set_ts, rule=flow_limit_rule_upper)
+        model.Constraint_FlowLimit_Lower = pyo.Constraint(model.Set_bch, model.Set_ts, rule=flow_limit_rule_lower)
+
+        # 4) Generator limit constraints:
         def gen_upper_limit_rule(model, gen_idx):
             return model.P_gen[gen_idx] <= model.gen_active_max[gen_idx]
 
@@ -177,20 +192,20 @@ class InvestmentClass():
         model.Constraint_GenUpperLimit = pyo.Constraint(model.Set_gen, rule=gen_upper_limit_rule)
         model.Constraint_GenLowerLimit = pyo.Constraint(model.Set_gen, rule=gen_lower_limit_rule)
 
-        # 6) Slack bus constraint
+        # 5) Slack bus constraint
         def slack_bus_rule(model, t):
             return model.theta[net.data.net.slack_bus, t] == 0
 
         model.Constraint_SlackBus = pyo.Constraint(model.Set_ts, rule=slack_bus_rule)
 
 
-        # 7) Shifted gust speed constraint
+        # 6) Shifted gust speed constraint
         def shifted_gust_speed_rule(model, l, t):
             return model.shifted_gust_speed[l, t] == model.gust_speed[t] - model.bch_hrdn[l]
 
         model.Constraint_ShiftedGustSpeed = pyo.Constraint(model.Set_bch, model.Set_ts, rule=shifted_gust_speed_rule)
 
-        # 8) Piecewise Linear Fragility Approximation
+        # 7) Piecewise Linear Fragility Approximation
         # generate breakpoints and fragility function values
         fragility_data = self.piecewise_linearize_fragility(ws, num_pieces=10)
         # use the break points and corresponding values to link "fail_prob" with "shifted_gust_speed"
@@ -204,7 +219,7 @@ class InvestmentClass():
         )
 
 
-        # 9) Line failure and repair constraints
+        # 8) Line failure and repair constraints
         BigM = 1e6
 
         def fail_indicator_rule_1(model, l, t):
@@ -277,6 +292,7 @@ class InvestmentClass():
 
         model.Constraint_Repair = pyo.Constraint(model.Set_bch, model.Set_ts, rule=repair_rule)
 
+        # Below two constraints ensures branch repair takes place at the correct timestep
         def repair_complete_rule_1(model, l, t):
             """
             Ensures repair_complete[l, t] can be 1 only if the line status was failed at 'branch_ttr' timesteps ago.

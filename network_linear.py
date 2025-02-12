@@ -27,6 +27,12 @@ class NetworkClass:
         for pars in obj.__dict__.keys():
             setattr(self, pars, getattr(obj, pars))
 
+        # Set scaled demand profiles for all buses
+        DP_file_path = "Demand_Profile/normalized_hourly_demand_profile.xlsx"
+        df = pd.read_excel(DP_file_path, header=0)
+        normalized_profile = df.iloc[:, 0].tolist()  # Extract the single column as a list
+        self.set_scaled_profile_for_buses(normalized_profile)
+
 
     def build_dc_opf_model(self):
         """The model that calculates DC optimal power flow based on the pyomo optimisation package"""
@@ -174,7 +180,7 @@ class NetworkClass:
         max_demands = self.data.net.max_demand_active
         bus_profiles = []
         # Loop over each bus and scale the profile
-        for max_demand in enumerate(max_demands):
+        for _, max_demand in enumerate(max_demands):
             # Scale the normalized profile by the maximum demand
             scaled_profile = [value * max_demand for value in normalized_profile]
             bus_profiles.append(scaled_profile)
