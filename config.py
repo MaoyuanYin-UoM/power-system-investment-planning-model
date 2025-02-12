@@ -66,16 +66,16 @@ class WindConfig:
 
         # 1) parameters of windstorm event generation:
         self.data.WS.event = Object()
-        self.data.WS.event.max_num_ws_prd = 3  # maximum number of windstorms per year
-        self.data.WS.event.max_v = [40, 80]  # upper and lower bounds for initial gust speed
-        self.data.WS.event.min_v = [30, 35]  # upper and lower bounds for final gust speed
+        self.data.WS.event.max_num_ws_prd = 1  # maximum number of windstorms per period
+        self.data.WS.event.max_v = [40, 60]  # upper and lower bounds for initial gust speed
+        self.data.WS.event.min_v = [25, 35]  # upper and lower bounds for final gust speed
         self.data.WS.event.max_r = [20, 25]  # upper and lower bounds for initial radius
         self.data.WS.event.min_r = [15, 10]  # upper and lower bounds for final radius
         self.data.WS.event.max_prop_v = [22, 26]  # upper and lower bounds for initial windstorm propagation speed
         self.data.WS.event.min_prop_v = [8, 10]  # upper and lower bounds for final windstorm propagation speed
 
         self.data.WS.event.lng = [12, 48]  # lower and upper bounds for windstorm duration
-        self.data.WS.event.ttr = [24, 168]  # lower and upper bounds for line repair (time to restoration)
+        self.data.WS.event.ttr = [24, 120]  # lower and upper bounds for line repair (time to restoration)
 
         # 2) define the contours where windstorms start and end (it impacts windstorms' path):
         self.data.WS.contour = Object()
@@ -102,17 +102,17 @@ class WindConfig:
         self.data.MC = Object()
 
         self.data.MC.num_prds = 1  #  number of periods (i.e., number of monte carlo simulations)
-        self.data.MC.lng_prd = 'year'  # select which period (year, week, day) will be used for each MC simulation
+        self.data.MC.lng_prd = 'month'  # select which period (year, month, week) to be used for MC simulation
 
         self.data.MC.prd_to_hrs = {  # define the mapping between periods name to the number of hours
             "year": 8760,
+            "month": 720,
+            "week": 168
         }
 
         # 3. data.frg stores parameters for fragility modelling (e.g., fragility curve)
         self.data.frg = Object()
-        # self.data.frg.mu = 3.8
         self.data.frg.mu = 3.8
-        # self.data.frg.sigma = 0.122
         self.data.frg.sigma = 0.122
         self.data.frg.thrd_1 = 20
         self.data.frg.thrd_2 = 90

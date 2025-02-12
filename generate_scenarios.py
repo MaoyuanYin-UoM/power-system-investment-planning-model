@@ -100,7 +100,8 @@ for prd in range(len(num_ws_prd)):  # loop over each simulation
     all_results.append(sim_results)
 
     # Save the results:
-    file_name = "Results/all_scenarios.json"
+    lng_prd = ws.data.MC.lng_prd
+    file_name = "Results/all_scenarios_" + lng_prd + ".json"
     with open(file_name, "w") as f:
         json.dump(all_results, f, indent=4)  # Save in a .JSON file with formatting
     print(f"All results saved to {file_name}")
