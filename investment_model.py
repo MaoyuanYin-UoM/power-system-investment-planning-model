@@ -209,81 +209,32 @@ class InvestmentClass():
         model.Constraint_ShiftedGustSpeed = pyo.Constraint(model.Set_bch, model.Set_ts, rule=shifted_gust_speed_rule)
 
 
-        # # 7) Piecewise Linear Fragility Approximation
-        # # generate breakpoints and fragility function values
-        # fragility_data = self.piecewise_linearize_fragility(ws, num_pieces=10)
-        #
-        # threshold = 1e-5  # Avoid numeric issues due to near-zero values
-        # fragility_data["fail_probs"] = [max(val, threshold) for val in fragility_data["fail_probs"]]
-        #
-        # print("Breakpoints (pw_pts):", fragility_data["gust_speeds"])
-        # print("Failure Probabilities (f_rule):", fragility_data["fail_probs"])
-        #
-        # # use the break points and corresponding values to link "fail_prob" with "shifted_gust_speed"
-        # model.Piecewise_Fragility = pyo.Piecewise(
-        #     model.Set_bch, model.Set_ts,
-        #     model.fail_prob,
-        #     model.shifted_gust_speed,
-        #     pw_pts=fragility_data["gust_speeds"],  # x-values (ensure they're sorted in ascending order)
-        #     f_rule={(bch, ts): fragility_data["fail_probs"] for bch in model.Set_bch for ts in model.Set_ts},
-        #     pw_constr_type='EQ',  # Exact match
-        #     pw_repn='DCC'
-        # )
+        # 7) Piecewise Linear Fragility Approximation
+        # generate breakpoints and fragility function values
+        fragility_data = self.piecewise_linearize_fragility(ws, num_pieces=6)
 
+        # Precompute index map for gust speeds
+        gust_speeds = fragility_data["gust_speeds"]
+        gust_index_map = {x: i for i, x in enumerate(gust_speeds)}
 
-        # 7) Linear approximation of the fragility curve
-                # fail_prob = 0, when shiftec_gust_speed < 30
-                # fail_prob = (shiftec_gust_speed - 30) / (60 - 30), when 30 < shiftec_gust_speed < 60
-                # fail_prob = 1, when shiftec_gust_speed > 60
-        BigM = 1e6
+        # Define a function to return the failure probability for each (bch, ts, x)
+        def fragility_rule(model, bch, ts, x):
+            idx = gust_index_map[x]
+            return fragility_data["fail_probs"][idx]
 
-        model.frag_low = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)  # shiftec_gust_speed < 30
-        model.frag_mid = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)  # 30 ≤ shiftec_gust_speed ≤ 60
-        model.frag_high = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)  # shiftec_gust_speed > 60
+        model.Piecewise_Fragility = pyo.Piecewise(
+            model.Set_bch, model.Set_ts,
+            model.fail_prob,
+            model.shifted_gust_speed,
+            pw_pts=gust_speeds,
+            f_rule=fragility_rule,
+            pw_constr_type='EQ',
+            pw_repn='DCC'
+        )
 
-        def frag_region_constraint(model, l, t):
-            return model.frag_low[l, t] + model.frag_mid[l, t] + model.frag_high[l, t] == 1
-
-        model.Constraint_FragRegion = pyo.Constraint(model.Set_bch, model.Set_ts, rule=frag_region_constraint)
-
-        def frag_activate_low_rule(model, l, t):
-            return model.shifted_gust_speed[l, t] <= 30 + BigM * (1 - model.frag_low[l, t])
-
-        model.Constraint_FragActivateLow = pyo.Constraint(model.Set_bch, model.Set_ts, rule=frag_activate_low_rule)
-
-        def frag_activate_mid_rule_1(model, l, t):
-            return model.shifted_gust_speed[l, t] >= 30 - BigM * (1 - model.frag_mid[l, t])
-
-        def frag_activate_mid_rule_2(model, l, t):
-            return model.shifted_gust_speed[l, t] <= 60 + BigM * (1 - model.frag_mid[l, t])
-
-        model.Constraint_FragActivateMid1 = pyo.Constraint(model.Set_bch, model.Set_ts,
-                                                               rule=frag_activate_mid_rule_1)
-        model.Constraint_FragActivateMid2 = pyo.Constraint(model.Set_bch, model.Set_ts,
-                                                               rule=frag_activate_mid_rule_2)
-
-        def frag_activate_high_rule(model, l, t):
-            return model.shifted_gust_speed[l, t] >= 60 - BigM * (1 - model.frag_high[l, t])
-
-        model.Constraint_FragActivateHigh = pyo.Constraint(model.Set_bch, model.Set_ts, rule=frag_activate_high_rule)
-
-        def fail_prob_low_rule(model, l, t):
-            return model.fail_prob[l, t] <= (1 - model.frag_low[l, t]) * BigM
-
-        model.Constraint_FailProbLow = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_prob_low_rule)
-
-        def fail_prob_mid_rule(model, l, t):
-            return model.fail_prob[l, t] <= model.frag_mid[l, t] * (model.shifted_gust_speed[l, t] - 30) / (60 - 30) + \
-                                            (1 - model.frag_mid[l, t]) * BigM
-
-        model.Constraint_FailProbMid = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_prob_mid_rule)
-
-        def fail_prob_high_rule(model, l, t):
-            return model.fail_prob[l, t] >= model.frag_high[l, t] - (1 - model.frag_high[l, t]) * BigM
-
-        model.Constraint_FailProbHigh = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_prob_high_rule)
 
         # 8) Line failure and repair constraints
+        BigM = 1e3
 
         def fail_indicator_rule_1(model, l, t):
             """
@@ -409,6 +360,10 @@ class InvestmentClass():
         # Solve the model
         solver = SolverFactory(solver)
         results = solver.solve(model, tee=True)
+
+        solver.solve(model, tee=True, keepfiles=True, logfile="gurobi_log.txt", warmstart=True,
+                     symbolic_solver_labels=True)
+        model.write("LP_Models/infeasible_model.lp", io_options={"symbolic_solver_labels": True})
 
         # Display Results
         for v in model.component_objects(pyo.Var, active=True):
