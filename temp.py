@@ -6,6 +6,8 @@ from network_linear import NetworkClass
 from windstorm import WindClass
 from config import InvestmentConfig
 import json
+import os
+import csv
 
 
 class Object(object):
@@ -31,7 +33,7 @@ class InvestmentClass():
         net = NetworkClass()
 
         # Load windstorm scenarios from JSON file
-        with open("Results/all_scenarios.json", "r") as f:
+        with open("Scenario_Results/all_scenarios_month.json", "r") as f:
             all_results = json.load(f)
 
         # Define Pyomo model
@@ -58,7 +60,7 @@ class InvestmentClass():
 
         model.gen_cost_coef = pyo.Param(model.Set_gen, range(len(net.data.net.gen_cost_coef[0])),
                                         initialize={
-                                            (i + 1, j): self.data.net.gen_cost_coef[i][j]
+                                            (i + 1, j): net.data.net.gen_cost_coef[i][j]
                                             for i in range(len(net.data.net.gen_cost_coef))
                                             for j in range(len(net.data.net.gen_cost_coef[i]))})
 
@@ -118,20 +120,33 @@ class InvestmentClass():
 
 
         # 3. Variables
-        model.bch_hrdn = pyo.Var(model.Set_bch, within=pyo.NonNegativeReals)  # Shift in fragility curve
         model.P_gen = pyo.Var(model.Set_gen, model.Set_ts, within=pyo.NonNegativeReals)  # Generator output
         model.load_shed = pyo.Var(model.Set_bus, model.Set_ts, within=pyo.NonNegativeReals)  # Load shedding
-        model.theta = pyo.Var(model.Set_bus, model.Set_ts, within=pyo.Reals)  # Bus voltage angle
+        model.theta = pyo.Var(model.Set_bus, model.Set_ts, within=pyo.Reals,
+                              bounds=(net.data.net.theta_limits[0],
+                                      net.data.net.theta_limits[1]))  # Bus voltage angle
         model.P_flow = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Reals)  # Power flow on branches
+        model.gen_cost = pyo.Var(model.Set_gen, model.Set_ts, within=pyo.NonNegativeReals)
 
-        model.shifted_gust_speed = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.NonNegativeReals)
-        model.fail_prob = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.NonNegativeReals)
+        model.bch_hrdn = pyo.Var(model.Set_bch, within=pyo.NonNegativeReals,
+                                 bounds=(self.data.bch_hrdn_limits[0],
+                                         self.data.bch_hrdn_limits[1]))  # Shift in fragility curve
+
+        model.shifted_gust_speed = pyo.Var(model.Set_bch, model.Set_ts,
+                                           within=pyo.NonNegativeReals,
+                                           bounds=(0, 90))
+                                    # "pyo.Piecewise" function requires the variable to have lower and upper bounds
+
+        model.fail_prob = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.NonNegativeReals, bounds=(0, 1))
 
         model.branch_status = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)
         model.fail_indicator = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)
         model.fail_applies = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)
         model.repair_applies = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)
         model.repair_complete = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Binary)
+
+        # added for debug:
+        model.constraint_slack = pyo.Var(within=pyo.NonNegativeReals)  # Slack variable
 
 
         # 4. Constraints
@@ -143,10 +158,10 @@ class InvestmentClass():
 
         # 2) Power Balance Constraint
         def power_balance_rule(model, b, t):
-            total_gen = sum(model.P_gen[g, t] for g in model.Set_gen if net.data.net.gen[g - 1] == b)
+            total_gen_at_bus = sum(model.P_gen[g, t] for g in model.Set_gen if net.data.net.gen[g - 1] == b)
             inflow = sum(model.P_flow[l, t] for l in model.Set_bch if net.data.net.bch[l - 1][1] == b)
             outflow = sum(model.P_flow[l, t] for l in model.Set_bch if net.data.net.bch[l - 1][0] == b)
-            return total_gen + inflow - outflow == net.data.net.demand_active[b - 1]
+            return total_gen_at_bus + inflow - outflow + model.load_shed[b, t] == model.demand[b, t]
 
         model.Constraint_PowerBalance = pyo.Constraint(model.Set_bus, model.Set_ts, rule=power_balance_rule)
 
@@ -156,7 +171,7 @@ class InvestmentClass():
         def power_flow_rule_upper(model, l, t):
             """ Upper bound on power flow considering line failures """
             i, j = net.data.net.bch[l - 1]
-            # if branch_status is 0, this constraint is relaxed and let the "flow_limit_rule" below to take control
+            # if branch_status is 0, this constraint is relaxed and let the rules "flow_limit_rule_*" to take control
             return model.P_flow[l, t] <= model.bch_B[l] * (model.theta[i, t] - model.theta[j, t]) + BigM * (
                         1 - model.branch_status[l, t])
 
@@ -177,50 +192,66 @@ class InvestmentClass():
 
         def flow_limit_rule_lower(model, l, t):
             """ Lower bound on power flow considering line failures """
-            return model.P_flow[l, t] >= -model.bch_cap[l] * model.branch_status[l, t]
+            return model.P_flow[l, t] >= -1 * model.bch_cap[l] * model.branch_status[l, t]
 
         model.Constraint_FlowLimit_Upper = pyo.Constraint(model.Set_bch, model.Set_ts, rule=flow_limit_rule_upper)
         model.Constraint_FlowLimit_Lower = pyo.Constraint(model.Set_bch, model.Set_ts, rule=flow_limit_rule_lower)
 
         # 4) Generator limit constraints:
-        def gen_upper_limit_rule(model, gen_idx):
-            return model.P_gen[gen_idx] <= model.gen_active_max[gen_idx]
+        def gen_upper_limit_rule(model, gen, ts):
+            return model.P_gen[gen, ts] <= model.gen_active_max[gen]
 
-        def gen_lower_limit_rule(model, gen_idx):
-            return model.P_gen[gen_idx] >= model.gen_active_min[gen_idx]
+        def gen_lower_limit_rule(model, gen, ts):
+            return model.P_gen[gen, ts] >= model.gen_active_min[gen]
 
-        model.Constraint_GenUpperLimit = pyo.Constraint(model.Set_gen, rule=gen_upper_limit_rule)
-        model.Constraint_GenLowerLimit = pyo.Constraint(model.Set_gen, rule=gen_lower_limit_rule)
+        model.Constraint_GenUpperLimit = pyo.Constraint(model.Set_gen, model.Set_ts, rule=gen_upper_limit_rule)
+        model.Constraint_GenLowerLimit = pyo.Constraint(model.Set_gen, model.Set_ts, rule=gen_lower_limit_rule)
 
-        # 5) Slack bus constraint
+        # 5) Generation cost constraint:
+        def gen_cost_rule(model, g, t):
+            return model.gen_cost[g, t] == model.gen_cost_coef[g, 0] + model.gen_cost_coef[g, 1] * model.P_gen[g, t]
+
+        model.Constraint_GenCost = pyo.Constraint(model.Set_gen, model.Set_ts, rule=gen_cost_rule)
+
+        # 6) Slack bus constraint
         def slack_bus_rule(model, t):
             return model.theta[net.data.net.slack_bus, t] == 0
 
         model.Constraint_SlackBus = pyo.Constraint(model.Set_ts, rule=slack_bus_rule)
 
-
-        # 6) Shifted gust speed constraint
+        # 7) Shifted gust speed constraint
         def shifted_gust_speed_rule(model, l, t):
             return model.shifted_gust_speed[l, t] == model.gust_speed[t] - model.bch_hrdn[l]
 
         model.Constraint_ShiftedGustSpeed = pyo.Constraint(model.Set_bch, model.Set_ts, rule=shifted_gust_speed_rule)
 
-        # 7) Piecewise Linear Fragility Approximation
+
+        # 8) Piecewise Linear Fragility Approximation
         # generate breakpoints and fragility function values
-        fragility_data = self.piecewise_linearize_fragility(ws, num_pieces=10)
-        # use the break points and corresponding values to link "fail_prob" with "shifted_gust_speed"
+        fragility_data = self.piecewise_linearize_fragility(ws, num_pieces=6)
+
+        # Precompute index map for gust speeds
+        gust_speeds = fragility_data["gust_speeds"]
+        gust_index_map = {x: i for i, x in enumerate(gust_speeds)}
+
+        # Define a function to return the failure probability for each (bch, ts, x)
+        def fragility_rule(model, bch, ts, x):
+            idx = gust_index_map[x]
+            return fragility_data["fail_probs"][idx]
+
         model.Piecewise_Fragility = pyo.Piecewise(
             model.Set_bch, model.Set_ts,
             model.fail_prob,
             model.shifted_gust_speed,
-            pw_pts=fragility_data["gust_speeds"],
-            f_rule=fragility_data["fail_probs"],
-            pw_constr_type='CC'
+            pw_pts=gust_speeds,
+            f_rule=fragility_rule,
+            pw_constr_type='EQ',
+            pw_repn='DCC'
         )
 
 
-        # 8) Line failure and repair constraints
-        BigM = 1e6
+        # 9) Line failure and repair constraints
+        BigM = 1e3
 
         def fail_indicator_rule_1(model, l, t):
             """
@@ -249,7 +280,10 @@ class InvestmentClass():
 
         def fail_activation_rule_3(model, l, t):
             """ If both conditions are met, fail_applies must be 1 """
-            return model.fail_applies[l, t] >= model.branch_status[l, t - 1] + model.fail_indicator[l, t] - 1
+            if t > 1:
+                return model.fail_applies[l, t] >= model.branch_status[l, t - 1] + model.fail_indicator[l, t] - 1
+            else:
+                return pyo.Constraint.Skip
 
         model.Constraint_FailActivation1 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_activation_rule_1)
         model.Constraint_FailActivation2 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_activation_rule_2)
@@ -264,8 +298,28 @@ class InvestmentClass():
 
         model.Constraint_LineFailure = pyo.Constraint(model.Set_bch, model.Set_ts, rule=line_failure_rule)
 
+        def enforce_line_continuity_rule(model, l, t):
+            """ Ensures a line remains operational if branch_status[l][t-1] = 1 AND fail_applies = 0 """
+            if t > 1:
+                return model.branch_status[l, t] >= model.branch_status[l, t - 1] - model.fail_applies[l, t]
+            else:
+                return pyo.Constraint.Skip
+
+        model.Constraint_LineContinuity = pyo.Constraint(model.Set_bch, model.Set_ts, rule=enforce_line_continuity_rule)
+
+        def enforce_failure_duration_rule(model, l, t):
+            """ Ensures a failed line stays down for branch_ttr[l] timesteps. """
+            if t > model.branch_ttr[l]:
+                return model.branch_status[l, t] <= 1 - sum(
+                    model.fail_applies[l, t_prime] for t_prime in range(t - model.branch_ttr[l], t))
+            else:
+                return pyo.Constraint.Skip
+
+        model.Constraint_FailureDuration = pyo.Constraint(model.Set_bch, model.Set_ts,
+                                                          rule=enforce_failure_duration_rule)
+
         def repair_activation_rule_1(model, l, t):
-            """ repair_applies can be 1 only if the branch was failed at the last timestep """
+            """ repair_applies can be 1 only if the branch status was 'failed' at the last timestep """
             if t > 1:
                 return model.repair_applies[l, t] <= 1 - model.branch_status[l, t - 1]
             else:
@@ -277,7 +331,10 @@ class InvestmentClass():
 
         def repair_activation_rule_3(model, l, t):
             """ If both conditions are met, repair_applies must be 1 """
-            return model.repair_applies[l, t] >= (1 - model.branch_status[l, t - 1]) + model.repair_complete[l, t] - 1
+            if t > 1:
+                return model.repair_applies[l, t] >= (1 - model.branch_status[l, t - 1]) + model.repair_complete[l, t] - 1
+            else:
+                return pyo.Constraint.Skip
 
         model.Constraint_RepairActivation1 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=repair_activation_rule_1)
         model.Constraint_RepairActivation2 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=repair_activation_rule_2)
@@ -328,25 +385,48 @@ class InvestmentClass():
             total_cost_investment = sum(model.cost_bch_hrdn[l] * model.bch_hrdn[l] for l in model.Set_bch)
             total_cost_load_shed = sum(
                 model.cost_load_shed[b] * model.load_shed[b, t] for b in model.Set_bus for t in model.Set_ts)
+            total_cost_gen = sum(model.gen_cost[g, t] for g in model.Set_gen for t in model.Set_ts)
             total_cost_repair = sum(model.cost_repair[l] * (1 - model.bch_hrdn[l]) for l in model.Set_bch)
-            return total_cost_investment + total_cost_load_shed + total_cost_repair
+            return total_cost_investment + total_cost_load_shed + total_cost_gen + total_cost_repair
 
         model.Objective = pyo.Objective(rule=objective_function, sense=pyo.minimize)
+
 
         return model
 
 
-    def solve_investment_model(self, model, solver='glpk'):
+    def solve_investment_model(self, model, solver='gurobi'):
         # Solve the model
         solver = SolverFactory(solver)
-        results = solver.solve(model, tee=True)
+        # solver.options['feasibility relaxation'] = True
+        results = solver.solve(model, tee=True, options={"ResultFile": "feas_relaxed.sol",
+                                                         "MIPGap": 0.01,
+                                                         "TimeLimit": 120,
+                                                         })
 
-        # Display Results
-        for v in model.component_objects(pyo.Var, active=True):
-            print(f"Variable {v.name}:")
-            var_object = getattr(model, v.name)
-            for index in var_object:
-                print(f"  Index {index}: Value = {var_object[index].value}")
+        solver.solve(model, tee=True, keepfiles=True, logfile="gurobi_log.txt", warmstart=True,
+                     symbolic_solver_labels=True)
+        model.write("LP_Models/infeasible_model.lp", io_options={"symbolic_solver_labels": True})
+
+        # Ensure output directory exists
+        output_dir = "Optimization_Results"
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Define output file path
+        output_file = os.path.join(output_dir, "optimization_results.csv")
+
+        # Write results to a CSV file
+        with open(output_file, mode='w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(["Variable", "Index", "Value"])  # Header row
+
+            for v in model.component_objects(pyo.Var, active=True):
+                var_object = getattr(model, v.name)
+                for index in var_object:
+                    writer.writerow([v.name, index, var_object[index].value])
+
+        print(f"\nOptimization results saved to: {output_file}")
+
 
         return results
 
@@ -371,7 +451,7 @@ class InvestmentClass():
         shift_f = ws._get_frg_shift_f()
 
         # Generate breakpoints for linearization
-        gust_speeds = np.linspace(thrd_1, thrd_2, num_pieces)
+        gust_speeds = np.linspace(thrd_1, thrd_2, num_pieces).tolist()  # Convert to list
         fail_probs = []
 
         # Compute failure probabilities at each breakpoint
@@ -379,18 +459,24 @@ class InvestmentClass():
         scale = np.exp(mu)
 
         for speed in gust_speeds:
-            adjusted_speed = speed - shift_f
+            adjusted_speed = float(speed - shift_f)
             if adjusted_speed < thrd_1:
                 fail_probs.append(0.0)
             elif adjusted_speed > thrd_2:
                 fail_probs.append(1.0)
             else:
-                pof = lognorm.cdf(adjusted_speed, s=shape, scale=scale)
+                pof = float(lognorm.cdf(adjusted_speed, s=shape, scale=scale))  # Convert to float
                 fail_probs.append(pof)
 
-        # Return piecewise linear data
-        return {"gust_speeds": gust_speeds.tolist(), "fail_probs": fail_probs}
+        # Add breakpoint at gust_speed = 0 with fail_prob = 0
+        gust_speeds.insert(0, 0)  # Insert 0 at the beginning
+        fail_probs.insert(0, 0)  # Ensure failure probability is 0 at gust_speed = 0
 
+        # Return piecewise linear data
+        return {"gust_speeds": gust_speeds, "fail_probs": fail_probs}
+
+    def _get_bch_hrdn_limits(self):
+        return self.data.bch_hrdn_limits
 
     def _get_cost_bch_hrdn(self):
         return self.data.cost_bch_hrdn

@@ -20,7 +20,8 @@ class NetConfig:
         # 1) bus data
         self.data.net.bus = [1, 2, 3, 4, 5]  # bus No.
         self.data.net.slack_bus = 4  # select slack bus
-        self.data.net.max_demand_active = [300, 200, 100, 150, 250]
+        self.data.net.theta_limits = [-0.5, 0.5]  # allowed lower and upper limits for voltage angle
+        self.data.net.max_demand_active = [500, 400, 300, 350, 500]
         self.data.net.max_demand_reactive = [0, 0, 0, 0, 0]  # unused for DC power flow
         self.data.net.demand_profile_active = None
         self.data.net.demand_profile_reactive = None  # unused for DC power flow
@@ -29,6 +30,8 @@ class NetConfig:
         self.data.net.all_bus_coords_in_tuple = None
         self.data.net.bch_gis_bgn = None
         self.data.net.bch_gis_end = None
+
+
 
         # 2) branch data
         self.data.net.bch = [[1,2],[1,3],[2,3],[2,5],[3,5],[4,5]]  # branch indicated by its start and end bus
@@ -43,7 +46,7 @@ class NetConfig:
         self.data.net.gen_reactive_max = [0, 0, 0, 0, 0]  # unused for DC power flow
         self.data.net.gen_reactive_min = [0, 0, 0, 0, 0]  # unused for DC power flow
         # self.data.net.gen_cost_model = 2
-        self.data.net.gen_cost_coef = [[0, 10], [0, 15], [0, 20], [0, 25], [0, 5]]
+        self.data.net.gen_cost_coef = [[0, 10], [0, 15], [0, 20], [0, 25], [0, 15]]
             # coefficients for the generation cost function e.g., for coefficient [a, b, c]: gen_cost = a + b*x + c*x^2
             # Note that all elements (lists) contained in "gen_cost_coef" should have same length
 
@@ -126,6 +129,9 @@ class InvestmentConfig:
         # create object for data storage
         self.data = Object()
 
+        # upper and lower limit for line hardening amount (in m/s)
+        self.data.bch_hrdn_limits = [0, 20]
+
         # hardening cost for each branch to shift the fragility curve for per m/s wind speed
         self.data.cost_bch_hrdn = [500, 500, 500, 500, 500, 500]
 
@@ -133,7 +139,7 @@ class InvestmentConfig:
         self.data.cost_bch_rep = [1000, 1000, 1000, 1000, 1000, 1000]
 
         # load shedding cost per kW demand per hour at each bus
-        self.data.cost_bus_ls = [100, 100, 100, 100, 100]
+        self.data.cost_bus_ls = [1000, 1000, 1000, 1000, 1000]
 
         # total budget for line hardening
         self.data.budget_bch_hrdn = 20000
