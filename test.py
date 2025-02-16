@@ -25,10 +25,10 @@ net = NetworkClass(ncon)
 
 
 
-visualize_fragility_curve(wcon)
+# visualize_fragility_curve(wcon)
 # visualize_bch_and_ws_contour()
 #
-# file_path = "Results/all_scenarios_month.json"
-# scenario_number = 1
-# event_number = 1
-# visualize_windstorm_event(file_path, scenario_number, event_number)
+file_path = "Scenario_Results/all_scenarios_month.json"
+scenario_number = 1
+event_number = 1
+visualize_windstorm_event(file_path, scenario_number, event_number)

@@ -31,7 +31,7 @@ class InvestmentClass():
         net = NetworkClass()
 
         # Load windstorm scenarios from JSON file
-        with open("Results/all_scenarios_month.json", "r") as f:
+        with open("Scenario_Results/all_scenarios_month.json", "r") as f:
             all_results = json.load(f)
 
         # Define Pyomo model
@@ -359,18 +359,18 @@ class InvestmentClass():
     def solve_investment_model(self, model, solver='glpk'):
         # Solve the model
         solver = SolverFactory(solver)
-        results = solver.solve(model, tee=True)
+        # solver.options['feasibility relaxation'] = True
+        results = solver.solve(model, options={"ResultFile": "feas_relaxed.sol"}, tee=True)
 
         solver.solve(model, tee=True, keepfiles=True, logfile="gurobi_log.txt", warmstart=True,
                      symbolic_solver_labels=True)
         model.write("LP_Models/infeasible_model.lp", io_options={"symbolic_solver_labels": True})
 
-        # Display Results
-        for v in model.component_objects(pyo.Var, active=True):
-            print(f"Variable {v.name}:")
-            var_object = getattr(model, v.name)
-            for index in var_object:
-                print(f"  Index {index}: Value = {var_object[index].value}")
+        # # Correctly display variable values (no getattr needed)
+        # for v in model.component_objects(pyo.Var, active=True):
+        #     print(f"Variable {v.name}:")
+        #     for index in v:
+        #         print(f"  Index {index}: Value = {v[index].value}")
 
         return results
 
