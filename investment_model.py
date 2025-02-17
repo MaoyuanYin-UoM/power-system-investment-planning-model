@@ -31,7 +31,7 @@ class InvestmentClass():
         net = NetworkClass()
 
         # Load windstorm scenarios from JSON file
-        with open("Scenario_Results/all_scenarios_month.json", "r") as f:
+        with open("Scenario_Results/all_scenarios_month_old.json", "r") as f:
             all_results = json.load(f)
 
         # Define Pyomo model

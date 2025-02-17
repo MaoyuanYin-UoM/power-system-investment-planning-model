@@ -45,7 +45,7 @@ for prd in range(len(num_ws_prd)):  # loop over each simulation
     # sample random numbers
     bch_rand_nums = np.random.rand(num_bch, num_hrs_prd)
     # initialize storage
-    flgs_impacted_bch = np.zeros((num_bch, num_hrs_prd), dtype=bool)
+    flgs_impacted_bch = np.zeros((num_bch, num_hrs_prd), dtype=int)
 
     # Initialise paths for all windstorm events in this simulation
     start_lon, start_lat, end_lon, end_lat = ws.init_ws_path(num_ws_prd[prd])
@@ -72,8 +72,8 @@ for prd in range(len(num_ws_prd)):  # loop over each simulation
             gust_speed = v_ws[t]
             radius = radius_ws[t]
             # determine if any branch is impacted by the windstorm at this timestep
-            flgs_impacted_bch[:, ts+t] = ws.compare_circle(epicentre, radius, bch_gis_bgn, bch_gis_end, num_bch)
-            # store the epicentre and gust speed at this timestep
+            flgs_impacted_bch[:, ts+t] = np.array(ws.compare_circle(epicentre, radius,
+                                                                    bch_gis_bgn, bch_gis_end, num_bch), dtype=int)
 
 
         # Store event results

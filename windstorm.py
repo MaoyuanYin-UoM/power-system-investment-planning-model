@@ -298,12 +298,10 @@ class WindClass:
 
         return v_ws
 
-
     def compare_circle(self, epicentre, rad_ws, gis_bgn, gis_end, num_bch):
-        """identify whether an asset falls within the impact zone
-        marked by a radius [km] around the epicentre"""
+        """Identify whether an asset falls within the impact zone marked by a radius [km] around the epicentre."""
 
-        Flgs = [False] * num_bch
+        Flgs = [0] * num_bch  # Ensure explicit 0s instead of False
         for xt in range(num_bch):
             if gis_bgn[xt][0] == gis_end[xt][0]:  # Special case, vertical line
                 x = gis_bgn[xt][0]
@@ -328,9 +326,11 @@ class WindClass:
                     if x < aux:
                         x = aux
                 y = a + b * x
+
             # Calculate distance and check if within radius
             if self.get_distance(epicentre[0], epicentre[1], x, y) < rad_ws:
-                Flgs[xt] = True
+                Flgs[xt] = 1  # Change from True to 1
+
         return Flgs
 
 
