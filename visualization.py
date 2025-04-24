@@ -226,3 +226,30 @@ def visualize_windstorm_event(file_path, scenario_number, event_number):
     ax.grid(True)
 
     plt.show()
+
+
+def visualize_all_windstorm_events(
+    file_path="Scenario_Results/all_full_scenarios_year.json"
+):
+    """
+    Loop through all scenarios/events in the given JSON and
+    visualize each windstorm event in its own figure.
+    """
+    # 1) Load the full-year scenarios
+    with open(file_path, "r") as f:
+        all_results = json.load(f)
+
+    # 2) Loop and plot
+    for scen_idx, scenario in enumerate(all_results, start=1):
+        num_events = len(scenario.get("events", []))
+        if num_events == 0:
+            print(f"Scenario {scen_idx} has no events, skipping.")
+            continue
+
+        for ev_idx in range(1, num_events+1):
+            print(f"Visualizing Scenario {scen_idx}, Event {ev_idx}...")
+            visualize_windstorm_event(
+                file_path=file_path,
+                scenario_number=scen_idx,
+                event_number=ev_idx
+            )
