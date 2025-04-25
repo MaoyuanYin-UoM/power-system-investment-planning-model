@@ -10,7 +10,6 @@ from pyomo.contrib.mpc.examples.cstr.model import initialize_model
 from pyomo.opt import SolverFactory
 
 from config import NetConfig
-from normalize_demand_profile import file_path
 from windstorm import WindClass
 
 class Object(object):

@@ -44,6 +44,7 @@ class InvestmentClass():
         model = pyo.ConcreteModel()
 
         # 1. Sets
+        # 1.1) Single sets:
         model.Set_scn = pyo.Set(initialize=scn_ids)
         model.Set_bus = pyo.Set(initialize=net.data.net.bus)  # Buses
         model.Set_bch = pyo.Set(initialize=range(1, len(net.data.net.bch) + 1))  # Branches
@@ -54,11 +55,44 @@ class InvestmentClass():
                        for sim in all_ws_scenarios}
         model.Set_ts_scn = pyo.Set(model.Set_scn, initialize=scn_ts_dict) # Timesteps are sets indexed over Set_scn
 
+        # 1.2) Tuple sets:
         # -----------------------------------------------------------
-        # Since Pyomo does not support indexed set (the Set timesteps can not be indexed over the Set scenarios),
+        # Since Pyomo does not support indexed set (i.e., the Set of timesteps can not be indexed over the Set of scenarios),
         # tuple sets should be used when parameter is based on both Set_scn and Set_ts simultaneously:
+        # 1.2.1) 2-tuple set for scenario and timestep (sc, t)
+        st_index = [
+            (sc, t)
+            for sc in scn_ids
+            for t in scn_ts_dict[sc]
+        ]
+        model.Set_st = pyo.Set(initialize=st_index, dimen=2)
 
+        # 1.2.2) 3-tuple set for scenario, bus, and timestep (sc, b, t)
+        sbt_index = [
+            (sc, b, t)
+            for sc in scn_ids
+            for b in net.data.net.bus
+            for t in scn_ts_dict[sc]
+        ]
+        model.Set_sbt = pyo.Set(initialize=sbt_index, dimen=3)
 
+        # 1.2.3) 3-tuple set for scenario, branch, and timestep (sc, l, t)
+        slt_index = [
+            (sc, l, t)
+            for sc in scn_ids
+            for l in range(1, len(net.data.net.bch) + 1)
+            for t in scn_ts_dict[sc]
+        ]
+        model.Set_slt = pyo.Set(initialize=slt_index, dimen=3)
+
+        # 1.2.4) 3-tuple set for scenario, gen, and timestep (sc, g, t)
+        sgt_index = [
+            (sc, g, t)
+            for sc in scn_ids
+            for g in range(1, len(net.data.net.gen)+1)
+            for t in scn_ts_dict[sc]
+        ]
+        model.Set_sgt = pyo.Set(initialize=sgt_index, dimen=3)
 
         # 2. Parameters
         # 2.1) Initialize scenario parameters:
@@ -76,8 +110,7 @@ class InvestmentClass():
                     abs_t = abs_bgn + t - 1
                     demand = net.data.net.demand_profile_active[b - 1][abs_t - 1]
                     demand_dict[(sc, b, t)] = demand
-        model.demand = pyo.Param(model.Set_scn, model.Set_bus, model.Set_ts_scn,
-                                 initialize=demand_dict)
+        model.demand = pyo.Param(model.Set_sbt, initialize=demand_dict)
 
         # 2.2.2) Generation cost coefficients and limits
         coef_len = len(net.data.net.gen_cost_coef[0])
@@ -121,22 +154,21 @@ class InvestmentClass():
             for t in model.Set_ts_scn[sc]:
                 gust = sim["events"][0]["gust_speed"][t-1] if t<=dur else 0 # gust speed is 0 beyond windstorm duration
                 gust_dict[(sc, t)] = gust
-        model.gust_speed = pyo.Param(model.Set_scn, model.Set_ts_scn, initialize=gust_dict)
+        model.gust_speed = pyo.Param(model.Set_st, initialize=gust_dict)
 
         # 2.3.2) initialize random numbers for line failure sampling for each (scn, bch, ts)
         rand_dict = {(sim["simulation_id"], l, t): sim["bch_rand_nums"][l - 1][t - 1]
                      for sim in all_ws_scenarios
                      for l in model.Set_bch
                      for t in model.Set_ts_scn[sim["simulation_id"]]}
-        model.rand_num = pyo.Param(model.Set_scn, model.Set_bch, model.Set_ts_scn, initialize=rand_dict)
+        model.rand_num = pyo.Param(model.Set_slt, initialize=rand_dict)
 
         # 2.3.3) Initialize impacted branches flags for each (scn, bch, ts)
         impact_dict = {(sim["simulation_id"], l, t): sim["flgs_impacted_bch"][l - 1][t - 1]
                     for sim in all_ws_scenarios
                     for l in model.Set_bch
                     for t in model.Set_ts_scn[sim["simulation_id"]]}
-        model.impacted_branches = pyo.Param(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                            initialize=impact_dict, within=pyo.Binary)
+        model.impacted_branches = pyo.Param(model.Set_slt, initialize=impact_dict, within=pyo.Binary)
 
         # 2.3.4) Initialize time to repair values for each (scn, bch)
         ttr_dict = {(sim["simulation_id"], l): sim["bch_ttr"][l - 1]
@@ -151,20 +183,18 @@ class InvestmentClass():
                                  bounds=(self.data.bch_hrdn_limits[0],
                                          self.data.bch_hrdn_limits[1]))  # Fragility curve shift made by hardening
         # 3.2) Second-stage recourse variables indexed by scenarios
-        model.P_gen = pyo.Var(model.Set_scn, model.Set_gen, model.Set_ts_scn, within=pyo.NonNegativeReals)
-        model.load_shed = pyo.Var(model.Set_scn, model.Set_bus, model.Set_ts_scn, within=pyo.NonNegativeReals)
-        model.theta = pyo.Var(model.Set_scn, model.Set_bus, model.Set_ts_scn, within=pyo.Reals)
-        model.P_flow = pyo.Var(model.Set_scn, model.Set_bch, model.Set_ts_scn, within=pyo.Reals)
-        model.gen_cost = pyo.Var(model.Set_scn, model.Set_gen, model.Set_ts_scn, within=pyo.NonNegativeReals)
-        model.shifted_gust_speed = pyo.Var(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                           within=pyo.NonNegativeReals, bounds=(0, 100))
-        model.fail_prob = pyo.Var(model.Set_scn, model.Set_bch, model.Set_ts_scn, within=pyo.NonNegativeReals,
-                                  bounds=(0, 1))
-        model.branch_status = pyo.Var(model.Set_scn, model.Set_bch, model.Set_ts_scn, within=pyo.Binary)
-        model.fail_condition = pyo.Var(model.Set_scn, model.Set_bch, model.Set_ts_scn, within=pyo.Binary)
-        model.fail_indicator = pyo.Var(model.Set_scn, model.Set_bch, model.Set_ts_scn, within=pyo.Binary)
-        model.fail_applies = pyo.Var(model.Set_scn, model.Set_bch, model.Set_ts_scn, within=pyo.Binary)
-        model.repair_applies = pyo.Var(model.Set_scn, model.Set_bch, model.Set_ts_scn, within=pyo.Binary)
+        model.P_gen = pyo.Var(model.Set_sgt, within=pyo.NonNegativeReals)
+        model.load_shed = pyo.Var(model.Set_sbt, within=pyo.NonNegativeReals)
+        model.theta = pyo.Var(model.Set_sbt, within=pyo.Reals)
+        model.P_flow = pyo.Var(model.Set_slt, within=pyo.Reals)
+        model.gen_cost = pyo.Var(model.Set_sgt, within=pyo.NonNegativeReals)
+        model.shifted_gust_speed = pyo.Var(model.Set_slt, within=pyo.NonNegativeReals, bounds=(0, 100))
+        model.fail_prob = pyo.Var(model.Set_slt, within=pyo.NonNegativeReals, bounds=(0, 1))
+        model.branch_status = pyo.Var(model.Set_slt, within=pyo.Binary)
+        model.fail_condition = pyo.Var(model.Set_slt, within=pyo.Binary)
+        model.fail_indicator = pyo.Var(model.Set_slt, within=pyo.Binary)
+        model.fail_applies = pyo.Var(model.Set_slt, within=pyo.Binary)
+        model.repair_applies = pyo.Var(model.Set_slt, within=pyo.Binary)
 
 
         # 4. Constraints
@@ -181,17 +211,15 @@ class InvestmentClass():
             outflow = sum(model.P_flow[sc,l,t] for l in model.Set_bch if net.data.net.bch[l-1][0]==b)
             return gen_out + inflow - outflow + model.load_shed[sc,b,t] == model.demand[sc,b,t]
 
-        model.Constraint_PowerBalance = pyo.Constraint(model.Set_scn, model.Set_bus, model.Set_ts_scn,
-                                                       rule=power_balance_rule)
+        model.Constraint_PowerBalance = pyo.Constraint(model.Set_sbt, rule=power_balance_rule)
 
         # 4.3) Branch power flow constraint:
         def power_flow_def_rule(model, sc, l, t):
             i,j = net.data.net.bch[l-1]
-            return model.P_flow[sc,l,t] == model.bch_B[l]*(model.theta[sc,i,t] - model.theta[sc,j,t])
+            return model.P_flow[sc,l,t] == model.bch_B[l] * (model.theta[sc,i,t] - model.theta[sc,j,t])
 
         model.Constraint_FlowDefinition = pyo.Constraint(
-            model.Set_scn, model.Set_bch, model.Set_ts_scn,
-            rule=power_flow_def_rule)
+            model.Set_slt, rule=power_flow_def_rule)
 
         # 4.4) Line thermal limit constraints:
         # (If branch_status is 0, below two constraints enforces the branch's power flow to be 0)
@@ -201,10 +229,8 @@ class InvestmentClass():
         def flow_lower_limit_rule(model, sc, l, t):
             return model.P_flow[sc, l, t] >= -model.bch_cap[l] * model.branch_status[sc, l, t]
 
-        model.Constraint_FlowLimit_Upper = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                          rule=flow_upper_limit_rule)
-        model.Constraint_FlowLimit_Lower = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                          rule=flow_lower_limit_rule)
+        model.Constraint_FlowLimit_Upper = pyo.Constraint(model.Set_slt, rule=flow_upper_limit_rule)
+        model.Constraint_FlowLimit_Lower = pyo.Constraint(model.Set_slt, rule=flow_lower_limit_rule)
 
         # 4.5) Generation limit constraints:
         def gen_upper_limit_rule(model, sc, g, t):
@@ -213,30 +239,26 @@ class InvestmentClass():
         def gen_lower_limit_rule(model, sc, g, t):
             return model.P_gen[sc, g, t] >= model.gen_active_min[g]
 
-        model.Constraint_GenUpperLimit = pyo.Constraint(model.Set_scn, model.Set_gen, model.Set_ts_scn,
-                                                        rule=gen_upper_limit_rule)
-        model.Constraint_GenLowerLimit = pyo.Constraint(model.Set_scn, model.Set_gen, model.Set_ts_scn,
-                                                        rule=gen_lower_limit_rule)
+        model.Constraint_GenUpperLimit = pyo.Constraint(model.Set_sgt, rule=gen_upper_limit_rule)
+        model.Constraint_GenLowerLimit = pyo.Constraint(model.Set_sgt, rule=gen_lower_limit_rule)
 
         # 4.6) Generation cost constraint:
         def gen_cost_rule(model, sc, g, t):
             return model.gen_cost[sc,g,t] == model.gen_cost_coef[g,0] + model.gen_cost_coef[g,1]*model.P_gen[sc,g,t]
 
-        model.Constraint_GenCost = pyo.Constraint(model.Set_scn, model.Set_gen, model.Set_ts_scn,
-                                                  rule=gen_cost_rule)
+        model.Constraint_GenCost = pyo.Constraint(model.Set_sgt, rule=gen_cost_rule)
 
         # 4.7) Slack bus angle constraint:
         def slack_rule(model, sc, t):
             return model.theta[sc, net.data.net.slack_bus, t] == 0
 
-        model.Constraint_SlackBus = pyo.Constraint(model.Set_scn, model.Set_ts_scn, rule=slack_rule)
+        model.Constraint_SlackBus = pyo.Constraint(model.Set_st, rule=slack_rule)
 
         # 4.8) Shifted gust speed constraint
-        def shifted_rule(model, sc, l, t):
+        def shifted_gust_speed_rule(model, sc, l, t):
             return model.shifted_gust_speed[sc,l,t] == model.gust_speed[sc,t] - model.bch_hrdn[l]
 
-        model.Constraint_ShiftedGustSpeed = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                           rule=shifted_rule)
+        model.Constraint_ShiftedGustSpeed = pyo.Constraint(model.Set_slt, rule=shifted_gust_speed_rule)
 
         # 4.9) Piecewise Linear Fragility Approximation
         # generate breakpoints and fragility function values
@@ -252,7 +274,7 @@ class InvestmentClass():
             return fragility_data["fail_probs"][idx]
 
         model.Piecewise_Fragility = pyo.Piecewise(
-            model.Set_scn, model.Set_bch, model.Set_ts_scn,
+            model.Set_slt,
             model.fail_prob,
             model.shifted_gust_speed,
             pw_pts=gust_speeds,
@@ -273,10 +295,8 @@ class InvestmentClass():
             """ Enforce fail_condition[l, t] = 0 when fail_prob[l, t] <= rand_num[l, t] """
             return model.fail_prob[sc, l, t] - model.rand_num[sc, l, t] >= (model.fail_condition[sc, l, t] - 1) * BigM
 
-        model.Constraint_FailCondition1 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                         rule=fail_condition_rule_1)
-        model.Constraint_FailCondition2 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                         rule=fail_condition_rule_2)
+        model.Constraint_FailCondition1 = pyo.Constraint(model.Set_slt, rule=fail_condition_rule_1)
+        model.Constraint_FailCondition2 = pyo.Constraint(model.Set_slt, rule=fail_condition_rule_2)
 
         # 2) Ensure fail_indicator is 1 only when fail_condition = 1 and impacted_branches = 1
         def fail_indicator_rule_1(model, sc, l, t):
@@ -292,12 +312,9 @@ class InvestmentClass():
             return (model.fail_indicator[sc, l, t] >= model.fail_condition[sc, l, t]
                                                       + model.impacted_branches[sc, l, t] - 1)
 
-        model.Constraint_FailIndicator1 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                         rule=fail_indicator_rule_1)
-        model.Constraint_FailIndicator2 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                         rule=fail_indicator_rule_2)
-        model.Constraint_FailIndicator3 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                         rule=fail_indicator_rule_3)
+        model.Constraint_FailIndicator1 = pyo.Constraint(model.Set_slt, rule=fail_indicator_rule_1)
+        model.Constraint_FailIndicator2 = pyo.Constraint(model.Set_slt, rule=fail_indicator_rule_2)
+        model.Constraint_FailIndicator3 = pyo.Constraint(model.Set_slt, rule=fail_indicator_rule_3)
 
         def fail_activation_rule_1(model, sc, l, t):
             """ fail_applies can be 1 only if both branch_status at timestep 't-1' is 1 """
@@ -318,12 +335,9 @@ class InvestmentClass():
             else:
                 return pyo.Constraint.Skip
 
-        model.Constraint_FailActivation1 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                          rule=fail_activation_rule_1)
-        model.Constraint_FailActivation2 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                          rule=fail_activation_rule_2)
-        model.Constraint_FailActivation3 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                          rule=fail_activation_rule_3)
+        model.Constraint_FailActivation1 = pyo.Constraint(model.Set_slt, rule=fail_activation_rule_1)
+        model.Constraint_FailActivation2 = pyo.Constraint(model.Set_slt, rule=fail_activation_rule_2)
+        model.Constraint_FailActivation3 = pyo.Constraint(model.Set_slt, rule=fail_activation_rule_3)
 
         def enforce_failure_duration_rule(model, sc, l, t):
             """
@@ -336,8 +350,7 @@ class InvestmentClass():
             else:
                 return pyo.Constraint.Skip
 
-        model.Constraint_FailureDuration = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                          rule=enforce_failure_duration_rule)
+        model.Constraint_FailureDuration = pyo.Constraint(model.Set_slt, rule=enforce_failure_duration_rule)
 
         def repair_applies_rule_1(model, sc, l, t):
             """ Enforce repair_applies to be 1 when branch_status switches from 0 to 1. """
@@ -361,12 +374,9 @@ class InvestmentClass():
             else:
                 return pyo.Constraint.Skip
 
-        model.Constraint_RepairAppliesRule1 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                             rule=repair_applies_rule_1)
-        model.Constraint_RepairAppliesRule2 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                             rule=repair_applies_rule_2)
-        model.Constraint_RepairAppliesRule3 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
-                                                             rule=repair_applies_rule_3)
+        model.Constraint_RepairAppliesRule1 = pyo.Constraint(model.Set_slt, rule=repair_applies_rule_1)
+        model.Constraint_RepairAppliesRule2 = pyo.Constraint(model.Set_slt, rule=repair_applies_rule_2)
+        model.Constraint_RepairAppliesRule3 = pyo.Constraint(model.Set_slt, rule=repair_applies_rule_3)
 
 
         # 5. Objective function: Minimize total cost = investment cost + expected recourse cost

@@ -49,7 +49,6 @@ class NetConfig:
         self.data.net.gen_cost_coef = [[0, 10], [0, 15], [0, 20], [0, 25], [0, 15]]
             # coefficients for the generation cost function e.g., for coefficient [a, b, c]: gen_cost = a + b*x + c*x^2
             # Note that all elements (lists) contained in "gen_cost_coef" should have same length
-        self.data.net.cost_bus_ls = [100, 100, 100, 100, 100] # load shedding cost per kW demand per hour at each bus
 
 
 # -------------------- Windstorm Configurations --------------------
@@ -141,3 +140,6 @@ class InvestmentConfig:
 
         # total budget for line hardening
         self.data.budget_bch_hrdn = 20000
+
+        # load shedding cost per kW demand per hour at each bus
+        self.data.cost_bus_ls = [100, 100, 100, 100, 100]

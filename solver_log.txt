@@ -3,9 +3,9 @@ Solver command line: ['D:\\gurobi1201\\win64\\bin\\gurobi.bat']
 Set parameter Username
 Set parameter LicenseID to value 2621303
 Academic license - for non-commercial use only - expires 2026-02-12
-Read LP format model from file C:\Users\MAOYUA~1\AppData\Local\Temp\tmp9yuotfgu.pyomo.lp
-Reading time = 0.32 seconds
-x1: 126922 rows, 126726 columns, 709082 nonzeros
+Read LP format model from file C:\Users\MAOYUA~1\AppData\Local\Temp\tmpdwscqr1y.pyomo.lp
+Reading time = 0.45 seconds
+x1: 221512 rows, 232678 columns, 911429 nonzeros
 Set parameter MIPGap to value 0.005
 Set parameter TimeLimit to value 60
 Gurobi Optimizer version 12.0.1 build v12.0.1rc0 (win64 - Windows 11.0 (26100.2))
@@ -17,39 +17,38 @@ Non-default parameters:
 TimeLimit  60
 MIPGap  0.005
 
-Optimize a model with 126922 rows, 126726 columns and 709082 nonzeros
-Model fingerprint: 0x9d7d3b33
-Variable types: 79206 continuous, 47520 integer (47520 binary)
+Optimize a model with 221512 rows, 232678 columns and 911429 nonzeros
+Model fingerprint: 0xeafc214f
+Variable types: 145426 continuous, 87252 integer (87252 binary)
 Coefficient statistics:
-  Matrix range     [2e-11, 1e+06]
-  Objective range  [1e+01, 1e+03]
-  Bounds range     [5e-01, 9e+01]
-  RHS range        [7e-05, 1e+06]
+  Matrix range     [2e-11, 2e+03]
+  Objective range  [1e+00, 5e+02]
+  Bounds range     [1e+00, 1e+02]
+  RHS range        [5e-05, 2e+04]
 Warning: Model contains large matrix coefficient range
          Consider reformulating model or setting NumericFocus parameter
          to avoid numerical issues.
-Presolve removed 108847 rows and 112318 columns
-Presolve time: 0.07s
-Presolved: 18075 rows, 14408 columns, 53985 nonzeros
-Variable types: 11976 continuous, 2432 integer (2432 binary)
+Presolve removed 183945 rows and 198983 columns
+Presolve time: 0.16s
+Presolved: 37567 rows, 33695 columns, 101749 nonzeros
+Variable types: 21898 continuous, 11797 integer (11797 binary)
 Performing another presolve...
-Presolve removed 15204 rows and 12069 columns
-Presolve time: 0.13s
-Found heuristic solution: objective 2.142607e+07
-Found heuristic solution: objective 2.049049e+07
+Presolve removed 36360 rows and 32283 columns
+Presolve time: 0.35s
+Found heuristic solution: objective 2369434.2617
 
-Root relaxation: interrupted, 1132 iterations, 0.00 seconds (0.00 work units)
+Root relaxation: interrupted, 674 iterations, 0.00 seconds (0.00 work units)
 
     Nodes    |    Current Node    |     Objective Bounds      |     Work
  Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
 
-     0     0          -    0      2.0490e+07 2.0433e+07  0.28%     -    0s
+     0     0          -    0      2369434.26 2357593.24  0.50%     -    0s
 
-Explored 1 nodes (1132 simplex iterations) in 0.33 seconds (0.34 work units)
+Explored 1 nodes (674 simplex iterations) in 0.69 seconds (0.86 work units)
 Thread count was 22 (of 22 available processors)
 
-Solution count 3: 2.04905e+07 2.04905e+07 2.14261e+07 
+Solution count 1: 2.36943e+06 
 
 Optimal solution found (tolerance 5.00e-03)
-Best objective 2.049048504757e+07, best bound 2.043298938308e+07, gap 0.2806%
+Best objective 2.369434261730e+06, best bound 2.357593241200e+06, gap 0.4997%
 
