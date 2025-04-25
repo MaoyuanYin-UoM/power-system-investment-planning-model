@@ -54,10 +54,15 @@ class InvestmentClass():
                        for sim in all_ws_scenarios}
         model.Set_ts_scn = pyo.Set(model.Set_scn, initialize=scn_ts_dict) # Timesteps are sets indexed over Set_scn
 
+        # -----------------------------------------------------------
+        # Since Pyomo does not support indexed set (the Set timesteps can not be indexed over the Set scenarios),
+        # tuple sets should be used when parameter is based on both Set_scn and Set_ts simultaneously:
+
+
 
         # 2. Parameters
         # 2.1) Initialize scenario parameters:
-        model.prob_scn = pyo.Param(model.Set_scn, initialize=scn_prob, mutable=False)
+        model.scn_prob = pyo.Param(model.Set_scn, initialize=scn_prob, mutable=False)
 
         # 2.2) Initialize network parameters:
         # 2.2.1) Set demand value for each (scn, bus, ts):
@@ -247,7 +252,7 @@ class InvestmentClass():
             return fragility_data["fail_probs"][idx]
 
         model.Piecewise_Fragility = pyo.Piecewise(
-            model.Set_scn, model.Set_bch, model.Set_ts,
+            model.Set_scn, model.Set_bch, model.Set_ts_scn,
             model.fail_prob,
             model.shifted_gust_speed,
             pw_pts=gust_speeds,
@@ -260,98 +265,107 @@ class InvestmentClass():
         # 4.10) Line failure and repair constraints
         BigM = 1e3
 
-        def fail_condition_rule_1(model, l, t):
+        def fail_condition_rule_1(model, sc, l, t):
             """ Enforce fail_condition[l, t] = 1 when fail_prob[l, t] > rand_num[l, t] """
-            return model.fail_prob[l, t] - model.rand_num[l, t] <= model.fail_condition[l, t] * BigM
+            return model.fail_prob[sc, l, t] - model.rand_num[sc, l, t] <= model.fail_condition[sc, l, t] * BigM
 
-        def fail_condition_rule_2(model, l, t):
+        def fail_condition_rule_2(model, sc, l, t):
             """ Enforce fail_condition[l, t] = 0 when fail_prob[l, t] <= rand_num[l, t] """
-            return model.fail_prob[l, t] - model.rand_num[l, t] >= (model.fail_condition[l, t] - 1) * BigM
+            return model.fail_prob[sc, l, t] - model.rand_num[sc, l, t] >= (model.fail_condition[sc, l, t] - 1) * BigM
 
-        model.Constraint_FailCondition1 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_condition_rule_1)
-        model.Constraint_FailCondition2 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_condition_rule_2)
+        model.Constraint_FailCondition1 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
+                                                         rule=fail_condition_rule_1)
+        model.Constraint_FailCondition2 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
+                                                         rule=fail_condition_rule_2)
 
         # 2) Ensure fail_indicator is 1 only when fail_condition = 1 and impacted_branches = 1
-        def fail_indicator_rule_1(model, l, t):
+        def fail_indicator_rule_1(model, sc, l, t):
             """ fail_indicator[l, t] = 1 only if fail_condition[l, t] = 1 and impacted_branches[l, t] = 1 """
-            return model.fail_indicator[l, t] <= model.fail_condition[l, t]
+            return model.fail_indicator[sc, l, t] <= model.fail_condition[sc, l, t]
 
-        def fail_indicator_rule_2(model, l, t):
+        def fail_indicator_rule_2(model, sc, l, t):
             """ fail_indicator[l, t] = 1 only if impacted_branches[l, t] = 1 """
-            return model.fail_indicator[l, t] <= model.impacted_branches[l, t]
+            return model.fail_indicator[sc, l, t] <= model.impacted_branches[sc, l, t]
 
-        def fail_indicator_rule_3(model, l, t):
+        def fail_indicator_rule_3(model, sc, l, t):
             """ fail_indicator[l, t] = 1 if both fail_condition and impacted_branches are 1 """
-            return model.fail_indicator[l, t] >= model.fail_condition[l, t] + model.impacted_branches[l, t] - 1
+            return (model.fail_indicator[sc, l, t] >= model.fail_condition[sc, l, t]
+                                                      + model.impacted_branches[sc, l, t] - 1)
 
-        model.Constraint_FailIndicator1 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_indicator_rule_1)
-        model.Constraint_FailIndicator2 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_indicator_rule_2)
-        model.Constraint_FailIndicator3 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_indicator_rule_3)
+        model.Constraint_FailIndicator1 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
+                                                         rule=fail_indicator_rule_1)
+        model.Constraint_FailIndicator2 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
+                                                         rule=fail_indicator_rule_2)
+        model.Constraint_FailIndicator3 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
+                                                         rule=fail_indicator_rule_3)
 
-        def fail_activation_rule_1(model, l, t):
+        def fail_activation_rule_1(model, sc, l, t):
             """ fail_applies can be 1 only if both branch_status at timestep 't-1' is 1 """
             if t > 1:
-                return model.fail_applies[l, t] <= model.branch_status[l, t - 1]
+                return model.fail_applies[sc, l, t] <= model.branch_status[sc, l, t - 1]
             else:
                 return pyo.Constraint.Skip
 
-        def fail_activation_rule_2(model, l, t):
+        def fail_activation_rule_2(model, sc, l, t):
             """ fail_applies can be 1 only if fail_indicator is 1 """
-            return model.fail_applies[l, t] <= model.fail_indicator[l, t]
+            return model.fail_applies[sc, l, t] <= model.fail_indicator[sc, l, t]
 
-        def fail_activation_rule_3(model, l, t):
+        def fail_activation_rule_3(model, sc, l, t):
             """ If both conditions are met, fail_applies must be 1 """
             if t > 1:
-                return model.fail_applies[l, t] >= model.branch_status[l, t - 1] + model.fail_indicator[l, t] - 1
+                return (model.fail_applies[sc, l, t] >= model.branch_status[sc, l, t - 1]
+                                                        + model.fail_indicator[sc, l, t] - 1)
             else:
                 return pyo.Constraint.Skip
 
-        model.Constraint_FailActivation1 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_activation_rule_1)
-        model.Constraint_FailActivation2 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_activation_rule_2)
-        model.Constraint_FailActivation3 = pyo.Constraint(model.Set_bch, model.Set_ts, rule=fail_activation_rule_3)
+        model.Constraint_FailActivation1 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
+                                                          rule=fail_activation_rule_1)
+        model.Constraint_FailActivation2 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
+                                                          rule=fail_activation_rule_2)
+        model.Constraint_FailActivation3 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
+                                                          rule=fail_activation_rule_3)
 
-        def enforce_failure_duration_rule(model, l, t):
+        def enforce_failure_duration_rule(model, sc, l, t):
             """
             Ensures a failed line stays down for branch_ttr[l] timesteps,
             and restores after branch_ttr[l] timesteps
             """
-            if t > model.branch_ttr[l]:
-                return model.branch_status[l, t] == 1 - sum(
-                    model.fail_applies[l, t_prime] for t_prime in range(t - model.branch_ttr[l], t))
+            if t > model.branch_ttr[sc, l]:
+                return model.branch_status[sc, l, t] == 1 - sum(
+                    model.fail_applies[sc, l, t_prime] for t_prime in range(t - model.branch_ttr[sc, l], t))
             else:
                 return pyo.Constraint.Skip
 
-        model.Constraint_FailureDuration = pyo.Constraint(model.Set_bch, model.Set_ts,
+        model.Constraint_FailureDuration = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
                                                           rule=enforce_failure_duration_rule)
 
-        def repair_applies_rule_1(model, l, t):
+        def repair_applies_rule_1(model, sc, l, t):
             """ Enforce repair_applies to be 1 when branch_status switches from 0 to 1. """
             if t > 1:
-                return model.repair_applies[l, t] >= model.branch_status[l, t] - model.branch_status[l, t - 1]
+                return (model.repair_applies[sc, l, t] >= model.branch_status[sc, l, t]
+                                                          - model.branch_status[sc, l, t - 1])
             else:
                 return pyo.Constraint.Skip
 
-
-        def repair_applies_rule_2(model, l, t):
+        def repair_applies_rule_2(model, sc, l, t):
             """ Ensures repair_applies is 0 when branch_status[l, t] is 0. """
             if t > 1:
-                return model.repair_applies[l, t] <= model.branch_status[l, t]
+                return model.repair_applies[sc, l, t] <= model.branch_status[sc, l, t]
             else:
                 return pyo.Constraint.Skip
 
-
-        def repair_applies_rule_3(model, l, t):
+        def repair_applies_rule_3(model, sc, l, t):
             """ Ensures repair_applies is 0 when branch_status[l, t-1] is 1. """
             if t > 1:
-                return model.repair_applies[l, t] <= 1 - model.branch_status[l, t - 1]
+                return model.repair_applies[sc, l, t] <= 1 - model.branch_status[sc, l, t - 1]
             else:
                 return pyo.Constraint.Skip
 
-        model.Constraint_RepairAppliesRule1 = pyo.Constraint(model.Set_bch, model.Set_ts,
+        model.Constraint_RepairAppliesRule1 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
                                                              rule=repair_applies_rule_1)
-        model.Constraint_RepairAppliesRule2 = pyo.Constraint(model.Set_bch, model.Set_ts,
+        model.Constraint_RepairAppliesRule2 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
                                                              rule=repair_applies_rule_2)
-        model.Constraint_RepairAppliesRule3 = pyo.Constraint(model.Set_bch, model.Set_ts,
+        model.Constraint_RepairAppliesRule3 = pyo.Constraint(model.Set_scn, model.Set_bch, model.Set_ts_scn,
                                                              rule=repair_applies_rule_3)
 
 
@@ -359,7 +373,7 @@ class InvestmentClass():
         def objective_function(model):
             inv_cost = sum(model.cost_bch_hrdn[l] * model.bch_hrdn[l] for l in model.Set_bch)
             rec_cost = sum(
-                model.prob_scn[sc] * (
+                model.scn_prob[sc] * (
                     sum(model.cost_load_shed[b]*model.load_shed[sc,b,t]
                         for b in model.Set_bus for t in model.Set_ts_scn[sc]) # load shedding cost
                   + sum(model.cost_repair[l]*model.repair_applies[sc,l,t]
