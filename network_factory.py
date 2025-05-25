@@ -17,7 +17,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.slack_bus = 1  # slack bus
         ncon.data.net.theta_limits = [-0.5, 0.5]
 
-        # voltage limits
+        # voltage limits (limits of V^2)
         V1 = 1.0 ** 2
         ncon.data.net.V_min = [V1] + [0.9 ** 2] * 21
         ncon.data.net.V_max = [V1] + [1.1 ** 2] * 21
@@ -49,6 +49,9 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.all_bus_coords_in_tuple = None
         ncon.data.net.bch_gis_bgn = None
         ncon.data.net.bch_gis_end = None
+
+        ncon.data.net.Pc_cost = [100] * len(ncon.data.net.bus)  # cost of curtailed active power at bus per MW
+        ncon.data.net.Qc_cost = [100] * len(ncon.data.net.bus)  # cost of curtailed reactive power at bus per MW
 
         # 3) Branch data (p.u.)
         #    orig. Ohm→p.u. by dividing by Zbase=(11kV)^2/1MVA=121 Ω

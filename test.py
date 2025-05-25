@@ -44,10 +44,11 @@ from network_factory import make_network
 
 
 # ==================================
-# Test DC power flow on the matpower 22-bus case
+# Test DC and AC power flow on the matpower 22-bus case
 net = make_network('matpower_case22')
 
 ws = make_windstorm('windstorm_1_matpower_case22')
-model = net.build_dc_opf_model(ws= ws)
-net.solve_opf(model)
+# model = net.build_dc_opf_model()
+model = net.build_linearized_ac_opf_model()
+net.solve_linearized_ac_opf(model)
 

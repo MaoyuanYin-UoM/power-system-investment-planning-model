@@ -29,6 +29,8 @@ class NetConfig:
         self.data.net.V_min = None
         self.data.net.Pd_max = [500, 400, 300, 350, 500]  # maximum active demand at each bus (in MW / MVAr)
         self.data.net.Qd_max = [0, 0, 0, 0, 0]  # maximum reactive demand at each bus (in MW / MVAr)
+        self.data.net.Pc_cost = None
+        self.data.net.Qc_cost = None
 
         self.data.net.profile_Pd = None
         self.data.net.profile_Qd = None
@@ -56,6 +58,8 @@ class NetConfig:
         self.data.net.gen_cost_coef = [[0, 10], [0, 15], [0, 20], [0, 25], [0, 15]]
             # coefficients for the generation cost function e.g., for coefficient [a, b, c]: gen_cost = a + b*x + c*x^2
             # Note that all elements (lists) contained in "gen_cost_coef" should have same length
+
+
 
 
 # -------------------- Windstorm Configurations --------------------
