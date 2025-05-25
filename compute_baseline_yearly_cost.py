@@ -3,7 +3,7 @@ import json
 import pandas as pd
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory, SolverStatus, TerminationCondition
-from network_linear import NetworkClass
+from network import NetworkClass
 from config import NetConfig
 
 

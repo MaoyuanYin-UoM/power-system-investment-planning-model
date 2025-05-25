@@ -1,6 +1,6 @@
 # This script contains function for visualization
 
-from network_linear import NetworkClass
+from network import NetworkClass
 from windstorm import WindClass
 from network_factory import make_network
 from windstorm_factory import make_windstorm
@@ -104,7 +104,7 @@ def visualize_bch_and_ws_contour(network_name: str = "default", windstorm_name: 
     - WindConfig: Configuration object containing windstorm data.
     - NetworkConfig: Configuration object containing network data.
     """
-    from network_linear import NetworkClass
+    from network import NetworkClass
     from windstorm import WindClass
 
     # load network model
@@ -178,7 +178,7 @@ def visualize_windstorm_event(file_path, scenario_number, event_number):
     - event_number (int): The event index within the scenario (1-based).
     - network_config (NetConfig): The network configuration object to retrieve branch coordinates.
     """
-    from network_linear import NetworkClass
+    from network import NetworkClass
     from windstorm import WindClass
     net = NetworkClass()
     ws = WindClass()

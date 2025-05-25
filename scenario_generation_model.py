@@ -6,7 +6,7 @@ import os
 from config import WindConfig, NetConfig
 from utils import set_random_seed
 from windstorm import WindClass
-from network_linear import NetworkClass
+from network import NetworkClass
 
 
 def generate_ws_scenarios(seed=None, out_dir="Scenario_Results"):

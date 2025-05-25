@@ -1,6 +1,6 @@
 
 from config import NetConfig
-from network_linear import NetworkClass
+from network import NetworkClass
 
 def make_network(name: str) -> NetworkClass:
 

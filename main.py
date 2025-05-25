@@ -4,7 +4,7 @@ from config import *
 from utils import *
 from visualization import *
 from windstorm import *
-from network_linear import *
+from network import *
 from investment_model import *
 
 

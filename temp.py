@@ -2,7 +2,7 @@ import numpy as np
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 from scipy.stats import lognorm
-from network_linear import NetworkClass
+from network import NetworkClass
 from windstorm import WindClass
 from config import InvestmentConfig
 import json

@@ -3,7 +3,7 @@
 import numpy as np
 
 from config import NetConfig
-from network_linear import NetworkClass
+from network import NetworkClass
 
 net_config = NetConfig()
 
