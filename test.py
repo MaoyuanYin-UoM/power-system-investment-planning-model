@@ -60,4 +60,10 @@ from network_factory import make_network
 
 
 # visualize_windstorm_event('Scenario_Results/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json', 1, 1)
-visualize_all_windstorm_events(file_path='Scenario_Results/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json')
+# visualize_all_windstorm_events(file_path='Scenario_Results/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json')
+
+
+net_data = pd.ExcelFile("Input_Data\GB_Network\GBNetwork_New.xlsx")
+bus_df = net_data.parse("bus", header=0, dtype={"bus": int})
+print(bus_df)
+print(list(range(1, len(bus_df["name"].tolist()) + 1)))

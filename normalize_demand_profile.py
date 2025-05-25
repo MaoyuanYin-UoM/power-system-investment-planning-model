@@ -11,7 +11,7 @@ import pandas as pd
 # ----------------read profile--------------
 
 # Load the Excel file and extract the data
-file_path = "Demand_Profile/demand_profile_2024_England_Wales_29Feb2024_removed.xlsx"
+file_path = "Input_Data/Demand_Profile/demand_profile_2024_England_Wales_29Feb2024_removed.xlsx"
 sheet_name = "demand_profile_2024"
 demand_data = pd.read_excel(file_path, sheet_name=sheet_name, usecols="C", skiprows=0, nrows=17568)
 
@@ -36,7 +36,7 @@ print("Length of the Normalized Profile:", len(normalized_profile))
 normalized_df = pd.DataFrame(normalized_profile, columns=["Normalized_Half_Hourly_England_Wales_Demand_2024"])
 
 # Write to a new Excel file
-output_file_path = "Demand_Profile/normalized_half_hourly_demand_profile_year.xlsx"
+output_file_path = "Input_Data/Demand_Profile/normalized_half_hourly_demand_profile_year.xlsx"
 normalized_df.to_excel(output_file_path, index=False)
 
 # Debug: Confirm the file has been saved
@@ -57,7 +57,7 @@ print("Length of the Hourly Normalized Profile:", len(hourly_normalized_profile)
 hourly_normalized_df = pd.DataFrame(hourly_normalized_profile, columns=["Normalized_Hourly_England_Wales_Demand_2024"])
 
 # Write the hourly profile to a new Excel file
-hourly_output_file_path = "Demand_Profile/normalized_hourly_demand_profile_year.xlsx"
+hourly_output_file_path = "Input_Data/Demand_Profile/normalized_hourly_demand_profile_year.xlsx"
 hourly_normalized_df.to_excel(hourly_output_file_path, index=False)
 
 # Debug: Confirm the file has been saved
