@@ -17,9 +17,11 @@ class NetConfig:
         # data.net stores network model parameters
         self.data.net = Object()
 
-        # 1) bus data
+        # 1) Base values
         self.data.net.base_MVA = None
         self.data.net.base_kV = None
+
+        # 2) Bus data
         self.data.net.bus = [1, 2, 3, 4, 5]  # bus No.
         self.data.net.slack_bus = 4  # select slack bus
         self.data.net.theta_limits = [-0.5, 0.5]  # allowed lower and upper limits for voltage angle
@@ -36,14 +38,15 @@ class NetConfig:
         self.data.net.bch_gis_bgn = None
         self.data.net.bch_gis_end = None
 
-        # 2) branch data
+        # 3) Branch data
         self.data.net.bch = [[1,2],[1,3],[2,3],[2,5],[3,5],[4,5]]  # branch indicated by its start and end bus
         self.data.net.bch_R = [0.00281,0.00304,0.00064,0.00108,0.00297,0.00297]
         self.data.net.bch_X = [0.00281,0.00304,0.00064,0.00108,0.00297,0.00297]
-        self.data.net.bch_Pmax = [400, 400, 400, 400, 400, 400]  # active power flow capacity of each branch (in MW / MVAr)
         self.data.net.bch_Smax = None
+        self.data.net.bch_Pmax = [400, 400, 400, 400, 400, 400]  # active power flow capacity of each branch (in MW / MVAr)
 
-        # 3) generator data
+
+        # 4) Generator data
         self.data.net.gen = [1, 2, 3, 4, 5]  # which bus the gen is attached to
         self.data.net.Pg_max = [400, 300, 300, 350, 500]  # (Pg/Qg in MW / MVAr)
         self.data.net.Pg_min = [0, 0, 0, 0, 0]
