@@ -49,5 +49,5 @@ net = make_network('matpower_case22')
 
 ws = make_windstorm('windstorm_1_matpower_case22')
 model = net.build_dc_opf_model(ws= ws)
-net.solve_dc_opf(model)
+net.solve_opf(model)
 

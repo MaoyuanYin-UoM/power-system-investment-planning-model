@@ -145,7 +145,7 @@ class NetworkClass:
         return model
 
 
-    def solve_dc_opf(self, model, solver='glpk'):
+    def solve_opf(self, model, solver='glpk'):
         """Solve the DC OPF model"""
         solver = SolverFactory(solver)
         results = solver.solve(model)
