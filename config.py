@@ -18,33 +18,37 @@ class NetConfig:
         self.data.net = Object()
 
         # 1) bus data
+        self.data.net.base_MVA = None
+        self.data.net.base_kV = None
         self.data.net.bus = [1, 2, 3, 4, 5]  # bus No.
         self.data.net.slack_bus = 4  # select slack bus
         self.data.net.theta_limits = [-0.5, 0.5]  # allowed lower and upper limits for voltage angle
-        self.data.net.max_demand_active = [500, 400, 300, 350, 500]
-        self.data.net.max_demand_reactive = [0, 0, 0, 0, 0]  # unused for DC power flow
-        self.data.net.demand_profile_active = None
-        self.data.net.demand_profile_reactive = None  # unused for DC power flow
+        self.data.net.V_min = None
+        self.data.net.V_min = None
+        self.data.net.Pd_max = [500, 400, 300, 350, 500]  # maximum active demand at each bus (in MW / MVAr)
+        self.data.net.Qd_max = [0, 0, 0, 0, 0]  # maximum reactive demand at each bus (in MW / MVAr)
+
+        self.data.net.profile_Pd = None
+        self.data.net.profile_Qd = None
         self.data.net.bus_lon = [-2, -3, -1, -3, -1]  # longitudes of buses
         self.data.net.bus_lat = [55, 53, 54, 51, 51]  # latitudes of buses
         self.data.net.all_bus_coords_in_tuple = None
         self.data.net.bch_gis_bgn = None
         self.data.net.bch_gis_end = None
 
-
-
         # 2) branch data
         self.data.net.bch = [[1,2],[1,3],[2,3],[2,5],[3,5],[4,5]]  # branch indicated by its start and end bus
         self.data.net.bch_R = [0.00281,0.00304,0.00064,0.00108,0.00297,0.00297]
         self.data.net.bch_X = [0.00281,0.00304,0.00064,0.00108,0.00297,0.00297]
-        self.data.net.bch_cap = [400, 400, 400, 400, 400, 400]
+        self.data.net.bch_Pmax = [400, 400, 400, 400, 400, 400]  # active power flow capacity of each branch (in MW / MVAr)
+        self.data.net.bch_Smax = None
 
         # 3) generator data
         self.data.net.gen = [1, 2, 3, 4, 5]  # which bus the gen is attached to
-        self.data.net.gen_active_max = [400, 300, 300, 350, 500]
-        self.data.net.gen_active_min = [0, 0, 0, 0, 0]
-        self.data.net.gen_reactive_max = [0, 0, 0, 0, 0]  # unused for DC power flow
-        self.data.net.gen_reactive_min = [0, 0, 0, 0, 0]  # unused for DC power flow
+        self.data.net.Pg_max = [400, 300, 300, 350, 500]  # (Pg/Qg in MW / MVAr)
+        self.data.net.Pg_min = [0, 0, 0, 0, 0]
+        self.data.net.Qg_max = [0, 0, 0, 0, 0]
+        self.data.net.Qg_min = [0, 0, 0, 0, 0]
         # self.data.net.gen_cost_model = 2
         self.data.net.gen_cost_coef = [[0, 10], [0, 15], [0, 20], [0, 25], [0, 15]]
             # coefficients for the generation cost function e.g., for coefficient [a, b, c]: gen_cost = a + b*x + c*x^2

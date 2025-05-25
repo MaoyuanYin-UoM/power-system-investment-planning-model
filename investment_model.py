@@ -121,14 +121,14 @@ class InvestmentClass():
                                                     for i in range(len(net.data.net.gen_cost_coef))
                                                     for j in range(coef_len)})
 
-        model.gen_active_max = pyo.Param(model.Set_gen, initialize={i + 1: g for i, g in
-                                                                    enumerate(net.data.net.gen_active_max)})
+        model.Pg_max = pyo.Param(model.Set_gen, initialize={i + 1: g for i, g in
+                                                                    enumerate(net.data.net.Pg_max)})
 
-        model.gen_active_min = pyo.Param(model.Set_gen, initialize={i + 1: g for i, g in
-                                                                    enumerate(net.data.net.gen_active_min)})
+        model.Pg_min = pyo.Param(model.Set_gen, initialize={i + 1: g for i, g in
+                                                                    enumerate(net.data.net.Pg_min)})
 
-        model.bch_cap = pyo.Param(model.Set_bch, initialize={i + 1: bc for i, bc in
-                                                             enumerate(net.data.net.bch_cap)})
+        model.bch_Pmax = pyo.Param(model.Set_bch, initialize={i + 1: bc for i, bc in
+                                                             enumerate(net.data.net.bch_Pmax)})
 
         # 2.2.3) Calculate susceptance B for each line (under the assumption of DC power flow)
         model.bch_B = pyo.Param(model.Set_bch, initialize={i + 1: 1 / X for i, X in
@@ -226,20 +226,20 @@ class InvestmentClass():
         # 4.4) Line thermal limit constraints:
         # (If branch_status is 0, below two constraints enforces the branch's power flow to be 0)
         def flow_upper_limit_rule(model, sc, l, t):
-            return model.P_flow[sc, l, t] <= model.bch_cap[l] * model.branch_status[sc, l, t]
+            return model.P_flow[sc, l, t] <= model.bch_Pmax[l] * model.branch_status[sc, l, t]
 
         def flow_lower_limit_rule(model, sc, l, t):
-            return model.P_flow[sc, l, t] >= -model.bch_cap[l] * model.branch_status[sc, l, t]
+            return model.P_flow[sc, l, t] >= -model.bch_Pmax[l] * model.branch_status[sc, l, t]
 
         model.Constraint_FlowLimit_Upper = pyo.Constraint(model.Set_slt, rule=flow_upper_limit_rule)
         model.Constraint_FlowLimit_Lower = pyo.Constraint(model.Set_slt, rule=flow_lower_limit_rule)
 
         # 4.5) Generation limit constraints:
         def gen_upper_limit_rule(model, sc, g, t):
-            return model.P_gen[sc, g, t] <= model.gen_active_max[g]
+            return model.P_gen[sc, g, t] <= model.Pg_max[g]
 
         def gen_lower_limit_rule(model, sc, g, t):
-            return model.P_gen[sc, g, t] >= model.gen_active_min[g]
+            return model.P_gen[sc, g, t] >= model.Pg_min[g]
 
         model.Constraint_GenUpperLimit = pyo.Constraint(model.Set_sgt, rule=gen_upper_limit_rule)
         model.Constraint_GenLowerLimit = pyo.Constraint(model.Set_sgt, rule=gen_lower_limit_rule)

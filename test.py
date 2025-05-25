@@ -8,6 +8,7 @@ from network_linear import *
 from investment_model import *
 from compute_baseline_yearly_cost import *
 from scenario_generation_model import *
+from network_factory import make_network
 
 
 # wcon = WindConfig()
@@ -28,7 +29,7 @@ from scenario_generation_model import *
 
 
 # visualize_fragility_curve(wcon)
-visualize_bch_and_ws_contour(network_name='matpower_case22', windstorm_name='windstorm_1_matpower_case22')
+# visualize_bch_and_ws_contour(network_name='matpower_case22', windstorm_name='windstorm_1_matpower_case22')
 #
 # file_path = "Scenario_Results/all_scenarios_month.json"
 # scenario_number = 1
@@ -40,3 +41,9 @@ visualize_bch_and_ws_contour(network_name='matpower_case22', windstorm_name='win
 
 
 # visualize_all_windstorm_events()
+
+
+# ==================================
+# Test DC power flow on the matpower 22-bus case
+net = make_network('matpower_case22')
+

@@ -12,6 +12,7 @@ from pyomo.opt import SolverFactory
 from config import NetConfig
 from windstorm import WindClass
 
+
 class Object(object):
     pass
 
@@ -41,7 +42,7 @@ class NetworkClass:
         self.set_scaled_profile_for_buses(normalized_profile)
 
 
-    def build_dc_opf_model(self):
+    def build_dc_opf_model(self, ws: WindClass):
         """The model that calculates DC optimal power flow based on the pyomo optimisation package"""
         # Define a concrete model
         model = pyo.ConcreteModel()
@@ -51,12 +52,11 @@ class NetworkClass:
         model.Set_bch = pyo.Set(initialize=range(1, len(self.data.net.bch)+1))
         model.Set_gen = pyo.Set(initialize=range(1, len(self.data.net.gen)+1))
 
-        ws = WindClass()
         model.Set_ts = pyo.Set(initialize=range(ws._get_num_hrs_prd()))  # Timesteps in a period
 
         # 2. Parameters:
-        model.demand = pyo.Param(model.Set_bus, initialize={b + 1: self.data.net.max_demand_active[b]
-                                                            for b in range(len(self.data.net.max_demand_active))})
+        model.demand = pyo.Param(model.Set_bus, initialize={b + 1: self.data.net.Pd_max[b]
+                                                            for b in range(len(self.data.net.Pd_max))})
 
         # model.gen_cost_model = pyo.Param(model.Set_gen, initialize=self.data.net.gen_cost_model)
 
@@ -67,15 +67,15 @@ class NetworkClass:
                                             for j in range(len(self.data.net.gen_cost_coef[i]))})
 
 
-        model.gen_active_max = pyo.Param(model.Set_gen, initialize={i+1: g for i, g in
-                                                                            enumerate(self.data.net.gen_active_max)})
+        model.Pg_max = pyo.Param(model.Set_gen, initialize={i+1: g for i, g in
+                                                                            enumerate(self.data.net.Pg_max)})
 
-        model.gen_active_min = pyo.Param(model.Set_gen, initialize={i+1: g for i, g in
-                                                                            enumerate(self.data.net.gen_active_min)})
+        model.Pg_min = pyo.Param(model.Set_gen, initialize={i+1: g for i, g in
+                                                                            enumerate(self.data.net.Pg_min)})
 
 
-        model.bch_cap = pyo.Param(model.Set_bch, initialize={i+1: bc for i, bc in
-                                                                     enumerate(self.data.net.bch_cap)})
+        model.bch_Pmax = pyo.Param(model.Set_bch, initialize={i+1: bc for i, bc in
+                                                                     enumerate(self.data.net.bch_Pmax)})
 
         # calculate susceptance B for each line (under the assumption of DC power flow)
         model.bch_B = pyo.Param(model.Set_bch, initialize={i+1: 1/X for i, X in
@@ -106,20 +106,20 @@ class NetworkClass:
 
         # 3) Line limit constraints
         def line_upper_limit_rule(model, line_idx):
-            return model.P_flow[line_idx] <= model.bch_cap[line_idx]
+            return model.P_flow[line_idx] <= model.bch_Pmax[line_idx]
 
         def line_lower_limit_rule(model, line_idx):
-            return model.P_flow[line_idx] >= -model.bch_cap[line_idx]
+            return model.P_flow[line_idx] >= -model.bch_Pmax[line_idx]
 
         model.Constraint_LineUpperLimit = pyo.Constraint(model.Set_bch, rule=line_upper_limit_rule)
         model.Constraint_LineLowerLimit = pyo.Constraint(model.Set_bch, rule=line_lower_limit_rule)
 
         # 4) Generator limit constraints:
         def gen_lower_limit_rule(model, gen_idx):
-            return model.P_gen[gen_idx] >= model.gen_active_min[gen_idx]
+            return model.P_gen[gen_idx] >= model.Pg_min[gen_idx]
 
         def gen_upper_limit_rule(model, gen_idx):
-            return model.P_gen[gen_idx] <= model.gen_active_max[gen_idx]
+            return model.P_gen[gen_idx] <= model.Pg_max[gen_idx]
 
         model.Constraint_GenLowerLimit = pyo.Constraint(model.Set_gen, rule=gen_lower_limit_rule)
         model.Constraint_GenUpperLimit = pyo.Constraint(model.Set_gen, rule=gen_upper_limit_rule)
@@ -184,7 +184,7 @@ class NetworkClass:
 
     def set_scaled_profile_for_buses(self, normalized_profile):
         """Set scaled demand profiles for each bus based on the normalized profile"""
-        max_demands = self.data.net.max_demand_active
+        max_demands = self.data.net.Pd_max
         bus_profiles = []
         # Loop over each bus and scale the profile
         for _, max_demand in enumerate(max_demands):
@@ -192,7 +192,7 @@ class NetworkClass:
             scaled_profile = [value * max_demand for value in normalized_profile]
             bus_profiles.append(scaled_profile)
         # Set profiles into the instance
-        self.data.net.demand_profile_active = bus_profiles
+        self.data.net.profile_Pd = bus_profiles
 
 
     # Gets and Sets:

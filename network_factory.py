@@ -19,17 +19,8 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bus_lon = [0, 1, 1, 2, 2, 2,  2,  2, 3, 3, 4, 4, 4,  4,  4,  5, 5, 5, 6, 7,  7,  7]
         ncon.data.net.bus_lat = [2, 2, 1, 2, 1, 0, -1, -2, 2, 1, 2, 1, 0, -1, -2, -1, 0, 1, 0, 0, -1, -2]
 
-        # ncon.data.net.bus_lon = [1, 2, 3, 2, 2, 2, 5, 2, 3, 4, 3, 4, 3, 4, 6, 4, 5, 6, 5, 6, 7, 6]
-        # ncon.data.net.bus_lat = [1, 1, 1, 2, 3, 4, 4, 5, 2, 2, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7]
-
-        # [1,2], [2,3], [2,4], [4,5], [4,9],
-        # [5,6], [6,7], [6,8], [9,10],[9,11],
-        # [11,12],[11,13],[13,14],[14,15],[14,16],
-        # [16,17],[17,18],[17,19],[19,20],[20,21],
-        # [20,22]
-
         # 3) Active/Reactive Demand (Pd/Qd in MW / MVAr)
-        ncon.data.net.Pd = [
+        ncon.data.net.Pd_max = [
             0.0,
             16.78/1000, 16.78/1000, 33.8/1000, 14.56/1000, 10.49/1000,
             8.821/1000, 14.35/1000, 19.31/1000, 14.35/1000, 16.27/1000,
@@ -37,7 +28,7 @@ def make_network(name: str) -> NetworkClass:
             49.62/1000, 49.62/1000, 43.77/1000, 37.32/1000, 37.32/1000,
             31.02/1000
         ]
-        ncon.data.net.Qd = [
+        ncon.data.net.Qd_max = [
             0.0,
             20.91/1000, 20.91/1000, 37.32/1000, 12.52/1000, 14.21/1000,
             11.66/1000, 18.59/1000, 25.87/1000, 18.59/1000, 19.48/1000,
@@ -48,11 +39,11 @@ def make_network(name: str) -> NetworkClass:
 
         # 4) Gen data
         ncon.data.net.gen_bus  = [1]
-        ncon.data.net.Pg_min   = [ 0.0]
-        ncon.data.net.Pg_max   = [10.0]
-        ncon.data.net.Qg_min   = [-10.0]
-        ncon.data.net.Qg_max   = [ 10.0]
-        ncon.data.net.gencost  = [[2, 0, 0, 3, 0, 20, 0]]  # same cost format
+        ncon.data.net.Pg_min   = [0]
+        ncon.data.net.Pg_max   = [10]
+        ncon.data.net.Qg_min   = [-10]
+        ncon.data.net.Qg_max   = [10]
+        ncon.data.net.gen_cost_coef  = [[0, 20]]
 
         # 5) Branch data (p.u.)
         #    orig. Ohm→p.u. by dividing by Zbase=(11kV)^2/1MVA=121 Ω
@@ -79,7 +70,8 @@ def make_network(name: str) -> NetworkClass:
         ]
 
         # thermal (apparent‐power) limits [MW] – set to 1 MVA per branch by default
-        ncon.data.net.bch_Smax = [1.0] * len(ncon.data.net.bch)
+        # Note that no branch power rating values are specified, 1 MVA is large enough that is guaranteed never to bind
+        ncon.data.net.bch_Smax = [1] * len(ncon.data.net.bch)
 
         # 6) Voltage limits (squared, for DistFlow‐style v = V^2)
         V1 = 1.0**2
