@@ -28,7 +28,7 @@ from scenario_generation_model import *
 
 
 # visualize_fragility_curve(wcon)
-# visualize_bch_and_ws_contour()
+visualize_bch_and_ws_contour(network_name='matpower_case22', windstorm_name='windstorm_1_matpower_case22')
 #
 # file_path = "Scenario_Results/all_scenarios_month.json"
 # scenario_number = 1
@@ -39,4 +39,4 @@ from scenario_generation_model import *
 # run_full_year_dc_opf()
 
 
-visualize_all_windstorm_events()
+# visualize_all_windstorm_events()

@@ -5,6 +5,7 @@ from scipy.stats import lognorm
 from network_linear import NetworkClass
 from windstorm import WindClass
 from config import InvestmentConfig
+from network_factory import make_network
 import json
 import os
 import csv
@@ -32,7 +33,8 @@ class InvestmentClass():
         """
         # Create an instance for the windstorm and network class
         ws = WindClass()
-        net = NetworkClass()
+        net = make_network('matpower_case22')
+
 
         # Load windstorm scenarios from JSON file
         with open(path_all_ws_scenarios) as f:

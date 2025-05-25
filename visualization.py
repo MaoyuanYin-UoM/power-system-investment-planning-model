@@ -1,5 +1,10 @@
 # This script contains function for visualization
 
+from network_linear import NetworkClass
+from windstorm import WindClass
+from network_factory import make_network
+from windstorm_factory import make_windstorm
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
@@ -7,15 +12,22 @@ from scipy.stats import lognorm
 import json
 import math
 
+from windstorm_factory import make_windstorm
 
-def visualize_ws_contour(WindConfig):
+
+def visualize_ws_contour(windstorm_name: str = "default"):
     """Visualize the starting- and ending-points contour for windstorm path generation"""
-    wcon = WindConfig
-    start_lon = wcon.data.WS.contour.start_lon
-    start_lat = wcon.data.WS.contour.start_lat
-    start_concty = wcon.data.WS.contour.start_connectivity
-    end_lon = wcon.data.WS.contour.end_lon
-    end_lat_coef = wcon.data.WS.contour.end_lat_coef
+    # load windstorm model
+    if windstorm_name == 'default':
+        ws = WindClass()
+    else:
+        ws = make_windstorm(windstorm_name)
+
+    start_lon = ws.data.WS.contour.start_lon
+    start_lat = ws.data.WS.contour.start_lat
+    start_concty = ws.data.WS.contour.start_connectivity
+    end_lon = ws.data.WS.contour.end_lon
+    end_lat_coef = ws.data.WS.contour.end_lat_coef
 
     # Compute the upper and lower bounds for ending-point latitude
     end_lat = [end_lat_coef[0] * x + end_lat_coef[1] for x in end_lon]
@@ -84,7 +96,7 @@ def visualize_fragility_curve(WindConfig):
     plt.show()
 
 
-def visualize_bch_and_ws_contour():
+def visualize_bch_and_ws_contour(network_name: str = "default", windstorm_name: str = "default"):
     """
     Visualize the branches along with the starting- and ending-points contour for windstorm path generation.
 
@@ -95,8 +107,19 @@ def visualize_bch_and_ws_contour():
     from network_linear import NetworkClass
     from windstorm import WindClass
 
+    # load network model
+    if network_name == 'default':
+        net = NetworkClass()
+    else:
+        net = make_network(network_name)
+
+    # load windstorm model
+    if windstorm_name == 'default':
+        ws = WindClass()
+    else:
+        ws = make_windstorm(windstorm_name)
+
     # Windstorm data
-    ws = WindClass()
     start_lon = ws.data.WS.contour.start_lon
     start_lat = ws.data.WS.contour.start_lat
     start_concty = ws.data.WS.contour.start_connectivity
@@ -105,7 +128,6 @@ def visualize_bch_and_ws_contour():
     end_lat = [end_lat_coef[0] * x + end_lat_coef[1] for x in end_lon]
 
     # Branch data
-    net = NetworkClass()
     net.set_gis_data()
     bch_gis_bgn = net._get_bch_gis_bgn()
     bch_gis_end = net._get_bch_gis_end()
@@ -132,8 +154,8 @@ def visualize_bch_and_ws_contour():
         ax.plot([bgn[0], end[0]], [bgn[1], end[1]], 'g-', alpha=0.8, zorder=1, label='Branch' if bgn == bch_gis_bgn[0] else "")
 
     # Set axis limits
-    ax.set_xlim(-6, 2.5)
-    ax.set_ylim(49.5, 56)
+    ax.relim()
+    ax.autoscale()
 
     # Labels, title, and legend
     ax.set_xlabel("Longitude")
