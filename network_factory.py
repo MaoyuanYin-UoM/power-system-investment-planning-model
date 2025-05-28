@@ -7,7 +7,15 @@ def make_network(name: str) -> NetworkClass:
     # build the right config object
     ncon = NetConfig()  # initialize the 'ncon' objective as the default
 
+    if name == 'UK_transmission_network':
+        """
+        """
+
+
     if name == 'matpower_case22':
+        """
+        This network model is compatible with the linearized AC power flow
+        """
         # 1) Base values
         ncon.data.net.base_MVA = 1.0           # mpc.baseMVA
         ncon.data.net.base_kV  = 11.0          # mpc.bus(:,BASE_KV)
@@ -43,8 +51,11 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.profile_Pd = None
         ncon.data.net.profile_Qd = None
 
-        ncon.data.net.bus_lon = [0, 1, 1, 2, 2, 2, 2, 2, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 6, 7, 7, 7]
-        ncon.data.net.bus_lat = [2, 2, 1, 2, 1, 0, -1, -2, 2, 1, 2, 1, 0, -1, -2, -1, 0, 1, 0, 0, -1, -2]
+        # ncon.data.net.bus_lon = [0, 1, 1, 2, 2, 2, 2, 2, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 6, 7, 7, 7]
+        # ncon.data.net.bus_lat = [2, 2, 1, 2, 1, 0, -1, -2, 2, 1, 2, 1, 0, -1, -2, -1, 0, 1, 0, 0, -1, -2]
+
+        ncon.data.net.bus_lon = [0, 1/2, 1/2, 2/2, 2/2, 2/2, 2/2, 2/2, 3/2, 3/2, 4/2, 4/2, 4/2, 4/2, 4/2, 5/2, 5/2, 5/2, 6/2, 7/2, 7/2, 7/2]
+        ncon.data.net.bus_lat = [2/2, 2/2, 1/2, 2/2, 1/2, 0/2, -1/2, -2/2, 2/2, 1/2, 2/2, 1/2, 0/2, -1/2, -2/2, -1/2, 0/2, 1/2, 0/2, 0/2, -1/2, -2/2]
 
         ncon.data.net.all_bus_coords_in_tuple = None
         ncon.data.net.bch_gis_bgn = None

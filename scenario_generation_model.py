@@ -1,4 +1,5 @@
 # This script contains functions to generate baseline scenarios and windstorm scenarios
+from importlib.metadata import metadata
 
 import numpy as np
 import json
@@ -7,9 +8,11 @@ from config import WindConfig, NetConfig
 from utils import set_random_seed
 from windstorm import WindClass
 from network import NetworkClass
+from network_factory import make_network
+from windstorm_factory import make_windstorm
 
 
-def generate_ws_scenarios(seed=None, out_dir="Scenario_Results"):
+def generate_ws_scenarios(seed=None, out_dir="Scenario_Results", network_preset="default", windstorm_preset="default"):
     """
     Generate and save full windstorm scenarios.
     """
@@ -18,10 +21,8 @@ def generate_ws_scenarios(seed=None, out_dir="Scenario_Results"):
         set_random_seed(seed)
 
     # Initialize
-    wcon = WindConfig()
-    ws = WindClass(wcon)
-    ncon = NetConfig()
-    net = NetworkClass(ncon)
+    net = make_network(network_preset)
+    ws = make_windstorm(windstorm_preset)
 
     ws.crt_bgn_hr()
     ws.init_ws_path0()
@@ -32,6 +33,7 @@ def generate_ws_scenarios(seed=None, out_dir="Scenario_Results"):
 
     all_results = []
 
+    # loop over each simulation
     for prd in range(len(num_ws_prd)):
         net.set_gis_data()
         bch_gis_bgn = net._get_bch_gis_bgn()
@@ -44,6 +46,7 @@ def generate_ws_scenarios(seed=None, out_dir="Scenario_Results"):
 
         start_lon, start_lat, end_lon, end_lat = ws.init_ws_path(num_ws_prd[prd])
 
+        # loop over each windstorm events in a simulation
         for i in range(num_ws_prd[prd]):
             ts = int(ws.MC.WS.bgn_hrs_ws_prd[prd][i])
             lng_ws = ws._get_lng_ws()[i]
@@ -66,7 +69,7 @@ def generate_ws_scenarios(seed=None, out_dir="Scenario_Results"):
                 "gust_speed": v_ws
             })
 
-        ttr_min, ttr_max = wcon.data.WS.event.ttr
+        ttr_min, ttr_max = ws.data.WS.event.ttr
         bch_ttr = np.random.randint(ttr_min, ttr_max, size=num_bch)
 
         sim["bch_rand_nums"] = bch_rand_nums.tolist()
@@ -75,11 +78,29 @@ def generate_ws_scenarios(seed=None, out_dir="Scenario_Results"):
 
         all_results.append(sim)
 
+
+    # assemble metadata + scenarios into one dict
+    output = {
+        "metadata": {
+            "network_preset": network_preset,
+            "windstorm_preset": windstorm_preset,
+            "number of periods": len(num_ws_prd),
+            "period_type": ws.data.MC.lng_prd
+        },
+
+        "scenarios": all_results
+    }
+
+
+    # write out
     os.makedirs(out_dir, exist_ok=True)
-    fname = f"all_full_scenarios_{wcon.data.MC.lng_prd}.json"
-    path = os.path.join(out_dir, fname)
+    file_name = (
+        f"all_full_scenarios_"
+        f"{network_preset}_{windstorm_preset}_{ws.data.MC.lng_prd}.json"
+    )
+    path = os.path.join(out_dir, file_name)
     with open(path, "w") as f:
-        json.dump(all_results, f, indent=4)
+        json.dump(output, f, indent=4)
 
     print(f"Windstorm scenarios saved to {path}")
 
@@ -94,10 +115,20 @@ def extract_ws_scenarios(
     from the full-year scenarios JSON and save to a new JSON.
     Note: this works well when the each full scenario contains only 1 windstorm event
     """
-    # 1) Load full-year scenarios
+    # 1) Load data from full scenarios
     with open(full_file, "r") as f:
-        all_full = json.load(f)
+        data = json.load(f)
 
+    # support both the old version (a list without metadata field) or the new version (a dict with metadata field)
+    # of the full_scenarios .json file
+    if isinstance(data, dict) and "scenarios" in data:
+        meta = data.get("metadata", {})
+        all_full = data["scenarios"]
+    else:
+        meta = {}
+        all_full = data
+
+    # 2) Extract data
     all_ws = []
     for sim in all_full:
         sim_id = sim["simulation_id"]
@@ -131,8 +162,14 @@ def extract_ws_scenarios(
         }
         all_ws.append(sim_ws)
 
-    # 4) Write out
+    # 4) Write out (keeping the metadata field)
     os.makedirs(os.path.dirname(out_file), exist_ok=True)
+    output = {
+        "metadata": meta,
+        "ws_scenarios": all_ws
+    }
+
     with open(out_file, "w") as f:
-        json.dump(all_ws, f, indent=4)
+        json.dump(output, f, indent=4)
+
     print(f"Extracted windstorm scenarios saved to {out_file}")

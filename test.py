@@ -39,16 +39,25 @@ from network_factory import make_network
 
 # run_full_year_dc_opf()
 
-
 # visualize_all_windstorm_events()
 
 
-# ==================================
-# Test DC and AC power flow on the matpower 22-bus case
-net = make_network('matpower_case22')
 
-ws = make_windstorm('windstorm_1_matpower_case22')
-# model = net.build_dc_opf_model()
-model = net.build_linearized_ac_opf_model()
-net.solve_linearized_ac_opf(model)
+# # ==================================
+# # Test DC and AC power flow on the matpower 22-bus case
+# net = make_network('matpower_case22')
+#
+# ws = make_windstorm('windstorm_1_matpower_case22')
+# # model = net.build_dc_opf_model()
+# model = net.build_linearized_ac_opf_model()
+# net.solve_linearized_ac_opf(model)
 
+
+# generate_ws_scenarios(network_preset='matpower_case22', windstorm_preset='windstorm_1_matpower_case22')
+# extract_ws_scenarios('Scenario_Results/all_full_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json',
+#                      'Scenario_Results/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json')
+
+
+
+# visualize_windstorm_event('Scenario_Results/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json', 1, 1)
+visualize_all_windstorm_events(file_path='Scenario_Results/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json')

@@ -170,38 +170,38 @@ def visualize_bch_and_ws_contour(network_name: str = "default", windstorm_name: 
 
 def visualize_windstorm_event(file_path, scenario_number, event_number):
     """
-    Visualizes the path of a windstorm event from the stored simulation results.
-
-    Parameters:
-    - file_path (str): Path to the JSON file containing the windstorm scenario data.
-    - scenario_number (int): The scenario index (1-based).
-    - event_number (int): The event index within the scenario (1-based).
-    - network_config (NetConfig): The network configuration object to retrieve branch coordinates.
+    Visualizes the path of a windstorm event from the stored ws_scenarios .json files.
     """
-    from network import NetworkClass
-    from windstorm import WindClass
-    net = NetworkClass()
-    ws = WindClass()
-
-    # Load the JSON file
+    # Load data from the .json file
     with open(file_path, "r") as f:
-        all_results = json.load(f)
+        data = json.load(f)
 
-    # Find the correct scenario
-    scenario_index = scenario_number - 1  # Convert 1-based to 0-based index
-    if scenario_index >= len(all_results):
+    meta = data.get("metadata", {})
+    if "scenarios" in data:
+        scenarios = data["scenarios"]
+    elif "ws_scenarios" in data:
+        scenarios = data["ws_scenarios"]
+
+    # Instantiate network and windstorm based on the metadata
+    net = make_network(meta["network_preset"])
+    ws = make_windstorm(meta["windstorm_preset"])
+
+    # Select scenario
+    scenario_idx = scenario_number - 1  # Convert 1-based to 0-based index
+    if scenario_idx >= len(scenarios):
         print(f"Scenario {scenario_number} not found!")
         return
 
-    scenario = all_results[scenario_index]
+    scenario = scenarios[scenario_idx]
 
-    # Find the correct event
-    event_index = event_number - 1
-    if event_index >= len(scenario["events"]):
+    # Select event
+    event_idx = event_number - 1
+    events = scenario.get("events", [])
+    if event_idx >= len(events):
         print(f"Event {event_number} not found in Scenario {scenario_number}!")
         return
 
-    event = scenario["events"][event_index]
+    event = events[event_idx]
 
     # Extract windstorm data
     epicentres = np.array(event["epicentre"])  # Convert to NumPy array
@@ -236,9 +236,13 @@ def visualize_windstorm_event(file_path, scenario_number, event_number):
         circle = Circle((lon, lat), radius_deg[i], color='blue', alpha=0.2, fill=True)
         ax.add_patch(circle)  # Windstorm radius
 
-    # Set axis limits
-    ax.set_xlim(-6, 2.5)
-    ax.set_ylim(49.5, 56)
+    # Set axis limits (i.e., there's always a 2-unit margin beyond the min/max coordinates of the network model)
+    bus_lons = net._get_bus_lon()
+    bus_lats = net._get_bus_lat()
+    xmin, xmax = min(bus_lons), max(bus_lons)
+    ymin, ymax = min(bus_lats), max(bus_lats)
+    ax.set_xlim(xmin - 1, xmax + 1)
+    ax.set_ylim(ymin - 1, ymax + 1)
 
     # Labels, title, and legend
     ax.set_xlabel("Longitude")
@@ -257,12 +261,17 @@ def visualize_all_windstorm_events(
     Loop through all scenarios/events in the given JSON and
     visualize each windstorm event in its own figure.
     """
-    # 1) Load the full-year scenarios
+    # Load data from the .json file
     with open(file_path, "r") as f:
-        all_results = json.load(f)
+        data = json.load(f)
+
+    if "scenarios" in data:
+        scenarios = data["scenarios"]
+    elif "ws_scenarios" in data:
+        scenarios = data["ws_scenarios"]
 
     # 2) Loop and plot
-    for scen_idx, scenario in enumerate(all_results, start=1):
+    for scen_idx, scenario in enumerate(scenarios, start=1):
         num_events = len(scenario.get("events", []))
         if num_events == 0:
             print(f"Scenario {scen_idx} has no events, skipping.")
