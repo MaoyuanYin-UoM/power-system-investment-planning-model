@@ -63,7 +63,13 @@ from network_factory import make_network
 # visualize_all_windstorm_events(file_path='Scenario_Results/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json')
 
 
-net_data = pd.ExcelFile("Input_Data\GB_Network\GBNetwork_New.xlsx")
-bus_df = net_data.parse("bus", header=0, dtype={"bus": int})
-print(bus_df)
-print(list(range(1, len(bus_df["name"].tolist()) + 1)))
+net = make_network('UK_transmission_network')
+model = net.build_dc_opf_model()
+results = net.solve_dc_opf(model)
+
+# net = make_network('UK_transmission_network')
+# print("BRANCH LIST (bch):", net.data.net.bch)
+# print("NUMBER OF BUSES   :", net.data.net.bus)
+# islanded = net.find_islanded_buses()
+# print(islanded)
+# visualize_bch_and_ws_contour(network_name='UK_transmission_network', windstorm_name='windstorm_UK_transmission_network')

@@ -41,7 +41,7 @@ def make_windstorm(name: str) -> WindClass:
         wcon.data.frg.shift_f = 0
 
 
-    if name == "windstorm_1_matpower_case22":
+    elif name == "windstorm_1_matpower_case22":
 
         # starting-point contour:
         wcon.data.WS.contour.start_lon = [-2, 0]

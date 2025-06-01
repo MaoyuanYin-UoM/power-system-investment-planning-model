@@ -9,48 +9,78 @@ def make_network(name: str) -> NetworkClass:
     if name == 'UK_transmission_network':
         """
         This loads the UK transmission network from a prepared spread sheet
-        Note the network model data is only suitable for a DC power flow
+        Note: 1) the network model data is only suitable for a DC power flow
+              2) the network model read from the .xlsx file has inherently some islanded buses:
+              --> [224, 225, 248, 437, 438, 439, 440] (1-based indexing)
+              As all these buses have zero load and gen, they are kept in the model and won't affect DC power flow.
         """
         import numpy as np
         import pandas as pd
 
         # 1) Load all the relevant sheets once
-        net_data = pd.ExcelFile("Input_Data\GB_Network\GBNetwork_New.xlsx")
+        net_data = pd.ExcelFile(r"Input_Data\GB_Network\GBNetwork_New.xlsx")
 
         # - bus data:
-        bus_df = net_data.parse("bus", header=0, dtype={"bus": int})
+        bus_df = net_data.parse(
+            "bus",
+            header=0,
+            index_col=0,  # <— use the first unnamed column as the bus ID index column
+            dtype={"vn_kv": float}
+        )
+        bus_df.index = bus_df.index + 1  # convert 0-based indexing into 1-based indexing
+        bus_df.index.name = "bus"
         # - grid export point (i.e., slack bus):
         ext_df = net_data.parse("ext_grid", header=0, dtype={"bus": int})
+        ext_df["bus"] += 1  # convert to 1-based indexing (and same for below)
         # - load data:
-        load_df = net_data.parse("load", header=0, dtype={"bus": int, "P_MW": float, "Q_MVar": float})
+        load_df = net_data.parse("load", header=0, dtype={"bus": int, "p_mw": float, "q_mvar": float})
+        load_df["bus"] += 1
         # - generator data:
-        sgen_df = net_data.parse("sgen", header=0, dtype={"bus": int, "P_MW": float, "Q_MVar": float})
+        sgen_df = net_data.parse("sgen", header=0, dtype={"bus": int, "p_mw": float, "q_mvar": float})
+        sgen_df["bus"] += 1
         # - generation cost data
         gen_cost_df = net_data.parse("poly_cost", header=0, index_col=0)
         # - line data:
         line_df = net_data.parse("line", header=0, dtype={"from_bus": int, "to_bus": int,
-                                                     "R_ohm_per_km": float, "X_ohm_per_km": float,
+                                                     "r_ohm_per_km": float, "x_ohm_per_km": float,
                                                      "max_i_ka": float})
+        line_df["from_bus"] += 1
+        line_df["to_bus"] += 1
         # - transformer data:
         trafo_df = net_data.parse("trafo", header=0, dtype={"hv_bus": int, "lv_bus": int})
+        trafo_df["hv_bus"] += 1
+        trafo_df["lv_bus"] += 1
 
         imp_df = net_data.parse("impedance", header=0)  # if you have additional impedance data
-        bus_geo_df = net_data.parse("bus_geodata", header=0, dtype={"bus": int, "lon": float, "lat": float})
+        bus_geo_df = net_data.parse(
+            "bus_geodata",
+            header=0,
+            index_col=0,
+            dtype={"lon": float, "lat": float}
+        )
+        bus_geo_df.index = bus_geo_df.index + 1
+
         line_geo_df = net_data.parse("line_geodata", header=0,
                                 dtype={"branch": int, "from_lon": float, "from_lat": float,
                                        "to_lon": float, "to_lat": float})
 
         # 2) Populate the NetConfig fields
         # - bus list & slack bus
-        ncon.data.net.bus = list(range(1, len(bus_df["name"].tolist()) + 1))
+        ncon.data.net.bus = bus_df.index.tolist()
         # assume the first external‐grid row is our slack
         ncon.data.net.slack_bus = int(ext_df["bus"].iloc[0])
 
         # - demand
-        # reindex so Pd_max/Qd_max line up with ncon.data.net.bus ordering
-        load_indexed = load_df.set_index("bus")
-        ncon.data.net.Pd_max = load_indexed.reindex(ncon.data.net.bus)["p_mw"].fillna(0).tolist()
-        ncon.data.net.Qd_max = load_indexed.reindex(ncon.data.net.bus)["q_mvar"].fillna(0).tolist()
+        # merge loads at same buses to avoid index error
+        load_agg = (
+            load_df
+            .groupby("bus", as_index=True)[["p_mw", "q_mvar"]]
+            .sum()
+        )
+        # for missing buses, fill the value with 0
+        load_ordered = load_agg.reindex(ncon.data.net.bus, fill_value=0)
+        ncon.data.net.Pd_max = load_ordered["p_mw"].tolist()
+        ncon.data.net.Qd_max = load_ordered["q_mvar"].tolist()
 
         # - generators
         ncon.data.net.gen = sgen_df["bus"].tolist()
@@ -58,10 +88,10 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Pg_min = [0] * len(sgen_df["bus"].tolist())
         ncon.data.net.Qg_max = [0] * len(sgen_df["bus"].tolist())  # Assume no reactive power generation (DC power flow)
         ncon.data.net.Qg_min = [0] * len(sgen_df["bus"].tolist())
-        ncon.data.net.gen_cost_coef = [
-            gen_cost_df.loc[idx, ["cp2_eur_per_mw2", "cp1_eur_per_mw", "cp0_eur"]].values.tolist()
-            for idx in ncon.data.net.gen
-        ]
+
+        ncon.data.net.gen_cost_coef = gen_cost_df[
+            ["cp2_eur_per_mw2", "cp1_eur_per_mw", "cp0_eur"]
+        ].values.tolist()
 
         # - branches (including transformers)
         # -- lines (i.e., in which from_bus and to_bus are at same voltage level):
@@ -70,7 +100,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_X = (line_df["length_km"] * line_df["x_ohm_per_km"]).tolist()
 
         # compute Pmax and Smax
-        bus_v = bus_df.set_index("bus")["vn_kv"]  # index 'vn_kv' by 'bus'
+        bus_v = bus_df["vn_kv"]  # note 'vn_kv' is already indexed by the bus indices
         V_kv = line_df["from_bus"].map(bus_v)  # find the voltage level of the line from the voltage of its 'from_bus'
         I_ka = line_df["max_i_ka"]
         S_max = np.sqrt(3) * V_kv * I_ka
@@ -87,8 +117,8 @@ def make_network(name: str) -> NetworkClass:
         x_pu = np.sqrt(z_pu ** 2 - r_pu ** 2)  # compute pu reactance
         tr_X = x_pu.tolist()
 
-        tr_Smax = trafo_df["sn_mva"]
-        tr_Pmax = trafo_df["sn_mva"]
+        tr_Smax = trafo_df["sn_mva"].tolist()
+        tr_Pmax = trafo_df["sn_mva"].tolist()
 
         # -- append transformer data to the branch data:
         ncon.data.net.bch += tr_bch
@@ -98,11 +128,11 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_Pmax += tr_Pmax
 
         # — geographic coordinates for plotting/impacts
-        bus_geo = bus_geo_df.set_index("bus").reindex(ncon.data.net.bus)
-        ncon.data.net.bus_lon = bus_geo["lon"].tolist()
-        ncon.data.net.bus_lat = bus_geo["lat"].tolist()
-        ncon.data.net.bch_gis_bgn = list(zip(line_geo_df["from_lon"], line_geo_df["from_lat"]))
-        ncon.data.net.bch_gis_end = list(zip(line_geo_df["to_lon"], line_geo_df["to_lat"]))
+        bus_geo = bus_geo_df.reindex(ncon.data.net.bus)
+        ncon.data.net.bus_lon = bus_geo["x"].tolist()
+        ncon.data.net.bus_lat = bus_geo["y"].tolist()
+        # ncon.data.net.bch_gis_bgn = list(zip(line_geo_df["from_lon"], line_geo_df["from_lat"]))
+        # ncon.data.net.bch_gis_end = list(zip(line_geo_df["to_lon"], line_geo_df["to_lat"]))
 
         # 3) Base values:
         ncon.data.net.base_MVA = 100.0
@@ -112,8 +142,10 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Pc_cost = [100] * len(ncon.data.net.bus)  # cost of curtailed active power at bus per MW
         ncon.data.net.Qc_cost = [100] * len(ncon.data.net.bus)  # cost of curtailed reactive power at bus per MW
 
+        ncon.data.net.Pext_cost = 50
 
-    if name == 'matpower_case22':
+
+    elif name == 'matpower_case22':
         """
         This network model is compatible with the linearized AC power flow
         """

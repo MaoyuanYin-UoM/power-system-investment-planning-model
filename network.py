@@ -60,15 +60,6 @@ class NetworkClass:
         model.Pd = pyo.Param(model.Set_bus, initialize={b + 1: self.data.net.Pd_max[b]
                                                             for b in range(len(self.data.net.Pd_max))})
 
-        # model.gen_cost_model = pyo.Param(model.Set_gen, initialize=self.data.net.gen_cost_model)
-
-        model.gen_cost_coef = pyo.Param(model.Set_gen, range(len(self.data.net.gen_cost_coef[0])),
-                                        initialize={
-                                            (i + 1, j): self.data.net.gen_cost_coef[i][j]
-                                            for i in range(len(self.data.net.gen_cost_coef))
-                                            for j in range(len(self.data.net.gen_cost_coef[i]))})
-
-
         model.Pg_max = pyo.Param(model.Set_gen, initialize={i+1: g for i, g in
                                                                             enumerate(self.data.net.Pg_max)})
 
@@ -83,21 +74,79 @@ class NetworkClass:
         model.bch_B = pyo.Param(model.Set_bch, initialize={i+1: 1/X for i, X in
                                                                    enumerate(self.data.net.bch_X)})
 
+        # model.gen_cost_model = pyo.Param(model.Set_gen, initialize=self.data.net.gen_cost_model)
+
+        model.gen_cost_coef = pyo.Param(model.Set_gen, range(len(self.data.net.gen_cost_coef[0])),
+                                        initialize={
+                                            (i + 1, j): self.data.net.gen_cost_coef[i][j]
+                                            for i in range(len(self.data.net.gen_cost_coef))
+                                            for j in range(len(self.data.net.gen_cost_coef[i]))})
+
+        model.Pext_cost = pyo.Param(initialize=self.data.net.Pext_cost)
+        model.Pc_cost = pyo.Param(
+            model.Set_bus,
+            initialize={b: self.data.net.Pc_cost[b - 1] for b in self.data.net.bus},
+            within=pyo.NonNegativeReals,
+        )
+
         # 3. Variables:
         model.theta = pyo.Var(model.Set_bus, within=pyo.Reals)
         model.Pg = pyo.Var(model.Set_gen, within=pyo.Reals)  # Active generation
         model.Pf = pyo.Var(model.Set_bch, within=pyo.Reals)  # Active power flow in branch
+        model.Pc = pyo.Var(model.Set_bus, within=pyo.NonNegativeReals)  # curtailed load (load shedding) at bus
+
+        model.Pext = pyo.Var(within=pyo.NonNegativeReals)  # cost of grid import/export
 
 
         # 4. Constraints:
         # 1) Power balance at each bus
-        def power_balance_rule(model, bus_idx):
-            total_gen_at_bus = sum(model.Pg[i] for i in model.Set_gen if self.data.net.gen[i-1] == bus_idx)
-            inflow = sum(model.Pf[i] for i in model.Set_bch if self.data.net.bch[i-1][1] == bus_idx)
-            outflow = sum(model.Pf[i] for i in model.Set_bch if self.data.net.bch[i-1][0] == bus_idx)
-            return total_gen_at_bus + inflow - outflow == model.Pd[bus_idx]
 
+        # (old version, deprecated as it leads to error with islanded bus with zero load and gen)
+        # def power_balance_rule(model, bus_idx):
+        #     total_gen_at_bus = sum(model.Pg[i] for i in model.Set_gen if self.data.net.gen[i-1] == bus_idx)
+        #     inflow = sum(model.Pf[i] for i in model.Set_bch if self.data.net.bch[i-1][1] == bus_idx)
+        #     outflow = sum(model.Pf[i] for i in model.Set_bch if self.data.net.bch[i-1][0] == bus_idx)
+        #     return total_gen_at_bus + inflow - outflow == model.Pd[bus_idx]
+        #
+        # model.Constraint_PowerBalance = pyo.Constraint(model.Set_bus, rule=power_balance_rule)
+
+
+        def power_balance_rule(model, bus_idx):
+            # “zero” expressed as a Pyomo expression:
+            zero_expr = 0 * model.theta[bus_idx]
+
+            # sum of generation at this bus (might be empty)
+            gen_terms = [
+                model.Pg[g]
+                for g in model.Set_gen
+                if self.data.net.gen[g - 1] == bus_idx
+            ]
+            Pg_sum = sum(gen_terms) if gen_terms else zero_expr
+
+            # if this is the slack bus, add the grid import/export 'Pext'
+            if bus_idx == self.data.net.slack_bus:
+                Pg_sum = Pg_sum + model.Pext
+
+            # sum of power flowing into the bus (might be empty)
+            inflow_terms = [
+                model.Pf[l]
+                for l in model.Set_bch
+                if self.data.net.bch[l - 1][1] == bus_idx
+            ]
+            Pf_in_sum = sum(inflow_terms) if inflow_terms else zero_expr
+
+            # sum of power flowing out of the bus (might be empty)
+            outflow_terms = [
+                model.Pf[l]
+                for l in model.Set_bch
+                if self.data.net.bch[l - 1][0] == bus_idx
+            ]
+            Pf_out_sum = sum(outflow_terms) if outflow_terms else zero_expr
+
+            # now this is always a Pyomo expression, never a bare Python bool
+            return Pg_sum + Pf_in_sum - Pf_out_sum == model.Pd[bus_idx] - model.Pc[bus_idx]
         model.Constraint_PowerBalance = pyo.Constraint(model.Set_bus, rule=power_balance_rule)
+
 
         # 2) Line flow constraints
         def line_flow_rule(model, line_idx):
@@ -136,13 +185,19 @@ class NetworkClass:
 
         # 5. Objective function (minimise total generation cost)
         def objective_rule(model):
-            return sum(
+            total_gen_cost = sum(
                 sum(model.gen_cost_coef[g, c] * (model.Pg[g] ** c)
                     for c in range(len(self.data.net.gen_cost_coef[0])))
                 for g in model.Set_gen
             )
 
-        model.Objective_MinimiseTotalGenCost = pyo.Objective(rule=objective_rule, sense=1)
+            grid_exit_cost = model.Pext_cost * model.Pext
+
+            total_ls_cost = sum(model.Pc_cost[b] * model.Pc[b] for b in model.Set_bus)
+
+            return total_gen_cost + grid_exit_cost + total_ls_cost
+
+        model.Objective_MinimiseTotalCost = pyo.Objective(rule=objective_rule, sense=1)
 
         return model
 
@@ -361,9 +416,9 @@ class NetworkClass:
         return model
 
 
-    def solve_opf(self, model, solver='gurobi'):
+    def solve_dc_opf(self, model, solver='gurobi'):
         """
-        Solve the OPF model
+        Solve the DC OPF model
         Note: use 'solve_linearized_ac_opf' instead to solve the linearized ac model
         """
         solver = SolverFactory(solver)
@@ -462,6 +517,25 @@ class NetworkClass:
         # (assumes identical profiles for both Pd and Qd)
         self.data.net.profile_Pd = bus_profiles
         self.data.net.profile_Qd = bus_profiles
+
+
+    def find_islanded_buses(self):
+        """
+        Return a sorted list of all buses that are not connected
+        to any branch (i.e. never appear in self.data.net.bch).
+        """
+        # 1) Build a set of all bus IDs
+        all_buses = set(self.data.net.bus)
+
+        # 2) Gather every bus that appears in any branch
+        connected = set()
+        for (i, j) in self.data.net.bch:
+            connected.add(i)
+            connected.add(j)
+
+        # 3) Islanded = buses in all_buses but not in connected
+        islanded = sorted(all_buses - connected)
+        return islanded
 
 
     # Gets and Sets:
