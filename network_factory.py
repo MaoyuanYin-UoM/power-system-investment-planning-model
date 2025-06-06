@@ -3,6 +3,10 @@ from network import NetworkClass
 
 
 def make_network(name: str) -> NetworkClass:
+    import numpy as np
+    import pandas as pd
+    from pathlib import Path
+
     # build the right config object
     ncon = NetConfig()  # initialize the 'ncon' objective as the default
 
@@ -14,8 +18,6 @@ def make_network(name: str) -> NetworkClass:
               --> [224, 225, 248, 437, 438, 439, 440] (1-based indexing)
               As all these buses have zero load and gen, they are kept in the model and won't affect DC power flow.
         """
-        import numpy as np
-        import pandas as pd
 
         # 1) Load all the relevant sheets once
         net_data = pd.ExcelFile(r"Input_Data\GB_Network\GBNetwork_New.xlsx")
@@ -145,6 +147,121 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Pext_cost = 50
 
 
+    elif name == 'Manchester_distribution_network_kearsley':
+        """
+        This loads the distribution network at GSP, BSP, PS level, corresponding to 'Kearsley' GSP group.
+        
+        This model is compatible with linearized AC power flow
+        """
+
+        # -----------------------------------------------------------
+        # 1.  Read the workbook
+        # -----------------------------------------------------------
+        wb_path = Path(r"Input_Data/Manchester_Distribution_Network/Kearsley_GSP_group_only.xlsx")
+        wb = pd.ExcelFile(wb_path)
+
+        df_base = wb.parse("base_values")
+        df_bus = wb.parse("bus")
+        df_bch = wb.parse("line&trafo")
+        df_load = wb.parse("load")
+        df_gen = wb.parse("gen")
+
+        # -----------------------------------------------------------
+        # 2.  Base values
+        # -----------------------------------------------------------
+        ncon.data.net.base_MVA = float(
+            df_base.loc[df_base["Name"] == "Base_MVA", "Value"]
+            .fillna(100).iloc[0]
+        )
+
+        ncon.data.net.base_kV = None  # cosmetic for this model
+
+        # -----------------------------------------------------------
+        # 3.  Bus data ------------------------------------------------
+        # -----------------------------------------------------------
+        ncon.data.net.bus = df_bus["Bus ID"].astype(int).tolist()
+
+        # slack bus  (assume exactly one row has If Slack == 1)
+        ncon.data.net.slack_bus = int(df_bus.loc[df_bus["If Slack"] == 1,
+        "Bus ID"].iloc[0])
+
+        # θ limits (taken from the first row – all rows identical in your file)
+        ncon.data.net.theta_limits = [
+            float(df_bus["V_angle_min"].iloc[0]),
+            float(df_bus["V_angle_max"].iloc[0])
+        ]
+
+        # voltage-magnitude limits (square them - LinDistFlow expects V²)
+        ncon.data.net.V_min = (df_bus["V_min (pu)"] ** 2).tolist()
+        ncon.data.net.V_max = (df_bus["V_max (pu)"] ** 2).tolist()
+
+        # GEO coordinates
+        ncon.data.net.bus_lon = df_bus["Geo_lon"].tolist()
+        ncon.data.net.bus_lat = df_bus["Geo_lat"].tolist()
+
+        # -----------------------------------------------------------
+        # 4.  Branch (line & transformer) data ----------------------
+        # -----------------------------------------------------------
+        ncon.data.net.bch = (
+            df_bch[["From_bus ID", "To_bus ID"]]
+            .astype(int).values.tolist()
+        )
+
+        # R & X are already in p.u. in the workbook
+        ncon.data.net.bch_R = df_bch["Resistance (pu)"].astype(float).tolist()
+        ncon.data.net.bch_X = df_bch["Reactance (pu)"].astype(float).tolist()
+
+        # Apparent- and active-power limits
+        ncon.data.net.bch_Smax = df_bch["S_max"].astype(float).tolist()
+        ncon.data.net.bch_Pmax = df_bch["P_max"].astype(float).tolist()
+
+        # -----------------------------------------------------------
+        # 5.  Load data ---------------------------------------------
+        # -----------------------------------------------------------
+        # Build Pd/Qd vectors aligned with the master bus list
+        load_agg = (
+            df_load.set_index("Bus ID")[["Pd_max", "Qd_max"]]
+            .astype(float)
+            .groupby(level=0).sum()  # just in case duplicates
+            .reindex(ncon.data.net.bus)  # fill missing with 0
+            .fillna(0)
+        )
+        ncon.data.net.Pd_max = load_agg["Pd_max"].tolist()
+        ncon.data.net.Qd_max = load_agg["Qd_max"].tolist()
+
+        # profiles will be filled later by NetworkClass.set_scaled_profile…
+        ncon.data.net.profile_Pd = None
+        ncon.data.net.profile_Qd = None
+
+        # -----------------------------------------------------------
+        # 6.  Generator data ----------------------------------------
+        # -----------------------------------------------------------
+        ncon.data.net.gen = df_gen["Bus ID"].astype(int).tolist()
+        ncon.data.net.Pg_max = df_gen["Pg_max"].astype(float).tolist()
+        ncon.data.net.Pg_min = df_gen["Pg_min"].astype(float).tolist()
+        ncon.data.net.Qg_max = df_gen["Qg_max"].astype(float).tolist()
+        ncon.data.net.Qg_min = df_gen["Qg_min"].astype(float).tolist()
+
+        # generation cost coefficients  (quadratic - linear)
+        ncon.data.net.gen_cost_coef = (
+            df_gen[["gen_cost_coef_2", "gen_cost_coef_1"]]
+            .fillna(0).values.tolist()
+        )
+
+        # -----------------------------------------------------------
+        # 7.  Cost-related parameters ---------------------------
+        # -----------------------------------------------------------
+        ncon.data.net.Pc_cost = [100] * len(ncon.data.net.bus)  # active LS
+        ncon.data.net.Qc_cost = [100] * len(ncon.data.net.bus)  # reactive LS
+        ncon.data.net.Pext_cost = 50  # grid import
+
+        # placeholders – will be set by NetworkClass.set_gis_data()
+        ncon.data.net.all_bus_coords_in_tuple = None
+        ncon.data.net.bch_gis_bgn = None
+        ncon.data.net.bch_gis_end = None
+
+
+
     elif name == 'matpower_case22':
         """
         This network model is compatible with the linearized AC power flow
@@ -241,3 +358,5 @@ def make_network(name: str) -> NetworkClass:
         raise ValueError(f"Unknown network preset '{name}'")
 
     return NetworkClass(ncon)
+
+

@@ -446,7 +446,7 @@ class NetworkClass:
         return results
 
 
-    def solve_linearized_ac_opf(self, model, solver='gurobi'):
+    def solve_linearized_ac_opf(self, model, solver='gurobi', print_all_variables=False):
         """Solve the linearized AC OPF model"""
         solver = SolverFactory(solver)
 
@@ -455,7 +455,7 @@ class NetworkClass:
         # meaningful
         # 1.1) Phase-1 solve: minimize Qc
         model.Obj1_min_Qc.activate()
-        results = solver.solve(model, tee=False)
+        results = solver.solve(model, tee=True)
         Qc_min = sum(pyo.value(model.Qc[b, t])
                      for b in model.Set_bus
                      for t in model.Set_ts)
@@ -470,7 +470,7 @@ class NetworkClass:
         model.Obj1_min_Qc.deactivate()
         model.Obj2_min_total_cost.activate()
 
-        results = solver.solve(model)
+        results = solver.solve(model, tee=True)
 
         # Extract results and print some of them
         if results.solver.status == 'ok' and results.solver.termination_condition == 'optimal':
@@ -478,15 +478,16 @@ class NetworkClass:
             print(results)
 
             # Display variable values
-            for V2 in model.component_objects(pyo.Var, active=True):
-                print(f"Variable {V2.name}:")
-                var_object = getattr(model, V2.name)
-                for index in var_object:
-                    print(f"  Index {index}: Value = {var_object[index].value}")
+            if print_all_variables:
+                for V2 in model.component_objects(pyo.Var, active=True):
+                    print(f"Variable {V2.name}:")
+                    var_object = getattr(model, V2.name)
+                    for index in var_object:
+                        print(f"  Index {index}: Value = {var_object[index].value}")
 
-            # Display objective value
-            for obj in model.component_objects(pyo.Objective, active=True):
-                print(f"Objective {obj.name}: Value = {pyo.value(obj)}")
+                # Display objective value
+                for obj in model.component_objects(pyo.Objective, active=True):
+                    print(f"Objective {obj.name}: Value = {pyo.value(obj)}")
 
         else:
             print("Solver failed to find an optimal solution.")
