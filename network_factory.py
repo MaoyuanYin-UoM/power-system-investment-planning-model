@@ -82,8 +82,14 @@ def make_network(name: str) -> NetworkClass:
         )
         # for missing buses, fill the value with 0
         load_ordered = load_agg.reindex(ncon.data.net.bus, fill_value=0)
+
+        # treat the load values from the dataset as maximum demands
         ncon.data.net.Pd_max = load_ordered["p_mw"].tolist()
         ncon.data.net.Qd_max = load_ordered["q_mvar"].tolist()
+
+        # assume that minimum demand values are not provided
+        ncon.data.net.Pd_min = None
+        ncon.data.net.Qd_min = None
 
         # - generators
         ncon.data.net.gen = sgen_df["bus"].tolist()
@@ -145,8 +151,10 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Pc_cost = [100] * len(ncon.data.net.bus)  # cost of curtailed active power at bus per MW
         ncon.data.net.Qc_cost = [100] * len(ncon.data.net.bus)  # cost of curtailed reactive power at bus per MW
 
-        ncon.data.net.Pext_cost = 50
-        ncon.data.net.Qext_cost = 50
+        ncon.data.net.Pimp_cost = 50
+        ncon.data.net.Pexp_cost = -10  # remuneration for exporting electricity to distribution network
+        ncon.data.net.Qimp_cost = 50
+        ncon.data.net.Qexp_cost = -10
 
 
     elif name == 'Manchester_distribution_network_kearsley':
@@ -222,14 +230,16 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         # Build Pd/Qd vectors aligned with the master bus list
         load_agg = (
-            df_load.set_index("Bus ID")[["Pd_max", "Qd_max"]]
+            df_load.set_index("Bus ID")[["Pd_max", "Pd_min", "Qd_max", "Qd_min"]]
             .astype(float)
             .groupby(level=0).sum()  # just in case duplicates
             .reindex(ncon.data.net.bus)  # fill missing with 0
             .fillna(0)
         )
         ncon.data.net.Pd_max = load_agg["Pd_max"].tolist()
+        ncon.data.net.Pd_min = load_agg["Pd_min"].tolist()
         ncon.data.net.Qd_max = load_agg["Qd_max"].tolist()
+        ncon.data.net.Qd_min = load_agg["Qd_min"].tolist()
 
         # profiles will be filled later by NetworkClass.set_scaled_profile…
         ncon.data.net.profile_Pd = None
@@ -255,8 +265,11 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         ncon.data.net.Pc_cost = [100] * len(ncon.data.net.bus)  # active load shedding cost
         ncon.data.net.Qc_cost = [100] * len(ncon.data.net.bus)  # reactive load shedding cost
-        ncon.data.net.Pext_cost = 10  # grid active import cost
-        ncon.data.net.Qext_cost = 10  # grid reactive import cost
+
+        ncon.data.net.Pimp_cost = 50  # active power importing cost
+        ncon.data.net.Pexp_cost = -10  # active power exporting remuneration
+        ncon.data.net.Qimp_cost = 50  # reactive power importing cost
+        ncon.data.net.Qexp_cost = -10  # reactive power exporting remuneration
 
         # placeholders – will be set by NetworkClass.set_gis_data()
         ncon.data.net.all_bus_coords_in_tuple = None

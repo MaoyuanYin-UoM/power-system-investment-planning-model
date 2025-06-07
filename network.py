@@ -80,7 +80,8 @@ class NetworkClass:
                                             for i in range(len(self.data.net.gen_cost_coef))
                                             for j in range(len(self.data.net.gen_cost_coef[i]))})
 
-        model.Pext_cost = pyo.Param(initialize=self.data.net.Pext_cost)
+        model.Pimp_cost = pyo.Param(initialize=self.data.net.Pimp_cost)
+        model.Pexp_cost = pyo.Param(initialize=self.data.net.Pexp_cost)
         model.Pc_cost = pyo.Param(
             model.Set_bus,
             initialize={b: self.data.net.Pc_cost[b - 1] for b in self.data.net.bus},
@@ -93,7 +94,8 @@ class NetworkClass:
         model.Pf = pyo.Var(model.Set_bch, within=pyo.Reals)  # Active power flow in branch
         model.Pc = pyo.Var(model.Set_bus, within=pyo.NonNegativeReals)  # curtailed load (load shedding) at bus
 
-        model.Pext = pyo.Var(within=pyo.NonNegativeReals)  # cost of grid import/export
+        model.Pimp = pyo.Var(within=pyo.NonNegativeReals)  # cost of grid import/export
+        model.Pexp = pyo.Var(within=pyo.NonNegativeReals)  # cost of grid import/export
 
         # 4. Constraints:
         # 1) Power balance at each bus
@@ -119,9 +121,10 @@ class NetworkClass:
             ]
             Pg_sum = sum(gen_terms) if gen_terms else zero_expr
 
-            # if this is the slack bus, add the grid import/export 'Pext'
+            # if this is the slack bus, add the grid import/export 'Pgrid'
+            Pgrid = zero_expr
             if bus_idx == self.data.net.slack_bus:
-                Pg_sum = Pg_sum + model.Pext
+                Pgrid = model.Pimp - model.Pexp
 
             # sum of power flowing into the bus (might be empty)
             inflow_terms = [
@@ -140,7 +143,7 @@ class NetworkClass:
             Pf_out_sum = sum(outflow_terms) if outflow_terms else zero_expr
 
             # now this is always a Pyomo expression, never a bare Python bool
-            return Pg_sum + Pf_in_sum - Pf_out_sum == model.Pd[bus_idx] - model.Pc[bus_idx]
+            return Pg_sum + Pf_in_sum - Pf_out_sum + Pgrid == model.Pd[bus_idx] - model.Pc[bus_idx]
 
         model.Constraint_PowerBalance = pyo.Constraint(model.Set_bus, rule=power_balance_rule)
 
@@ -186,11 +189,11 @@ class NetworkClass:
                 for g in model.Set_gen
             )
 
-            grid_exit_cost = model.Pext_cost * model.Pext
+            grid_cost = model.Pimp_cost * model.Pimp + model.Pexp_cost * model.Pexp
 
             total_ls_cost = sum(model.Pc_cost[b] * model.Pc[b] for b in model.Set_bus)
 
-            return total_gen_cost + grid_exit_cost + total_ls_cost
+            return total_gen_cost + grid_cost + total_ls_cost
 
         model.Objective_MinimiseTotalCost = pyo.Objective(rule=objective_rule, sense=1)
 
@@ -284,8 +287,10 @@ class NetworkClass:
                                                     for j in range(len(self.data.net.gen_cost_coef[0]))})
 
         # grid import/export cost
-        model.Pext_cost = pyo.Param(initialize=self.data.net.Pext_cost)  # grid active power import cost
-        model.Qext_cost = pyo.Param(initialize=self.data.net.Qext_cost)  # grid reactive power import cost
+        model.Pimp_cost = pyo.Param(initialize=self.data.net.Pimp_cost)  # grid active power import cost
+        model.Pexp_cost = pyo.Param(initialize=self.data.net.Pexp_cost)  # grid active power import cost
+        model.Qimp_cost = pyo.Param(initialize=self.data.net.Qimp_cost)  # grid reactive power import cost
+        model.Qexp_cost = pyo.Param(initialize=self.data.net.Qexp_cost)  # grid reactive power import cost
 
         # - cost for active/reactive load shedding
         model.Pc_cost = pyo.Param(model.Set_bus,
@@ -298,8 +303,10 @@ class NetworkClass:
         # 3) Variables
         model.Pg = pyo.Var(model.Set_gen, model.Set_ts, within=pyo.NonNegativeReals)  # active generation
         model.Qg = pyo.Var(model.Set_gen, model.Set_ts, within=pyo.Reals)  # reactive generation
-        model.Pext = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)  # grid active power import
-        model.Qext = pyo.Var(model.Set_ts, within=pyo.Reals)  # grid reactive power import
+        model.Pimp = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)  # grid active power import
+        model.Pexp = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)  # grid active power import
+        model.Qimp = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)  # grid reactive power import
+        model.Qexp = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)  # grid reactive power import
         model.Pf = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Reals)  # active power flow
         model.Qf = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Reals)  # reactive power flow
         model.Pc = pyo.Var(model.Set_bus, model.Set_ts, within=pyo.NonNegativeReals)  # curtailed active demand
@@ -315,9 +322,9 @@ class NetworkClass:
             Pf_in = sum(model.Pf[l, t] for l in model.Set_bch if self.data.net.bch[l - 1][1] == b)
             Pf_out = sum(model.Pf[l, t] for l in model.Set_bch if self.data.net.bch[l - 1][0] == b)
             slack = self.data.net.slack_bus
-            Pext = model.Pext[t] if b == slack else 0
+            Pgrid =  model.Pimp[t] - model.Pexp[t] if b == slack else 0
 
-            return Pf_in - Pf_out + Pg + Pext == model.Pd[b, t] - model.Pc[b, t]
+            return Pf_in - Pf_out + Pg + Pgrid == model.Pd[b, t] - model.Pc[b, t]
 
         model.Constraint_ActivePowerBalance = pyo.Constraint(model.Set_bus, model.Set_ts,
                                                              rule=P_balance_at_bus_rule)
@@ -328,9 +335,9 @@ class NetworkClass:
             Qf_in = sum(model.Qf[l, t] for l in model.Set_bch if self.data.net.bch[l - 1][1] == b)
             Qf_out = sum(model.Qf[l, t] for l in model.Set_bch if self.data.net.bch[l - 1][0] == b)
             slack = self.data.net.slack_bus
-            Qext = model.Qext[t] if b == slack else 0
+            Qgrid =  model.Qimp[t] - model.Qexp[t] if b == slack else 0
 
-            return Qf_in - Qf_out + Qg + Qext == model.Qd[b, t] - model.Qc[b, t]
+            return Qf_in - Qf_out + Qg + Qgrid == model.Qd[b, t] - model.Qc[b, t]
 
         model.Constraint_ReactivePowerBalance = pyo.Constraint(model.Set_bus, model.Set_ts,
                                                                rule=Q_balance_at_bus_rule)
@@ -412,60 +419,9 @@ class NetworkClass:
         model.Constraint_Qg_upper = pyo.Constraint(model.Set_gen, model.Set_ts, rule=Qg_upper_limit_rule)
         model.Constraint_Qg_lower = pyo.Constraint(model.Set_gen, model.Set_ts, rule=Qg_lower_limit_rule)
 
-        # # 5) Objective – Minimizing total generation cost
-        # def objective_rule(model):  # --> deprecated as no penalty for reactive load shedding
-        #     total_gen_cost = sum(
-        #         sum(model.gen_cost_coef[g, c] * (model.Pg[g, t] ** c)
-        #             for c in range(len(self.data.net.gen_cost_coef[0])))
-        #         for g in model.Set_gen
-        #         for t in model.Set_ts
-        #     )
-        #
-        #     total_ls_cost = sum(
-        #         model.Pc_cost[b] * model.Pc[b, t]
-        #         for b in model.Set_bus
-        #         for t in model.Set_ts
-        #     )
-        #
-        #     return total_gen_cost + total_ls_cost
-        #
-        # model.Obj = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
-
-        # ==================================================================
         # 5) Objective – Minimizing total generation cost
-
-        # # Objective #1: minimize total reactive load shedding (to ensure no excessive reactive load shedding)
-        # model.Obj1_min_Qc = pyo.Objective(
-        #     expr=sum(model.Qc[b, t]
-        #              for b in model.Set_bus
-        #              for t in model.Set_ts),
-        #     sense=pyo.minimize
-        # )
-        # model.Obj1_min_Qc.deactivate()
-        #
-        # # Objective #2: minimize generation + active‐shed cost
-        # model.Obj2_min_total_cost = pyo.Objective(
-        #     expr=(
-        #         # 1) generation cost
-        #             sum(
-        #                 sum(model.gen_cost_coef[g, c] * (model.Pg[g, t] ** c)
-        #                     for c in range(len(self.data.net.gen_cost_coef[0])))
-        #                 for g in model.Set_gen for t in model.Set_ts
-        #             )
-        #             # 2) active load‐shedding cost
-        #             + sum(model.Pc_cost[b] * model.Pc[b, t]
-        #                   for b in model.Set_bus for t in model.Set_ts)
-        #             # 3) grid active import/export cost
-        #             + sum(model.Pext_cost * model.Pext[t] for t in model.Set_ts)
-        #             # 4) grid reactive import/export cost
-        #             + sum(model.Qext_cost * model.Qext[t] for t in model.Set_ts)
-        #     ),
-        #     sense=pyo.minimize
-        # )
-        # model.Obj2_min_total_cost.deactivate()
-
         def objective_rule(model):
-            # 1) generator production costs (quadratic, linear …)
+            # 5.1) generator production costs (quadratic, linear …)
             gen_cost = sum(
                 sum(model.gen_cost_coef[g, c] * model.Pg[g, t] ** c
                     for c in range(len(self.data.net.gen_cost_coef[0])))
@@ -473,60 +429,36 @@ class NetworkClass:
                 for t in model.Set_ts
             )
 
-            # 2) active load-shedding penalties
+            # 5.2) active load-shedding penalties
             active_ls_cost = sum(
                 model.Pc_cost[b] * model.Pc[b, t]
                 for b in model.Set_bus
                 for t in model.Set_ts
             )
 
-            # 3) reactive load-shedding penalties  ← NEW
+            # 5.3) reactive load-shedding penalties
             reactive_ls_cost = sum(
                 model.Qc_cost[b] * model.Qc[b, t]
                 for b in model.Set_bus
                 for t in model.Set_ts
             )
 
-            # 4) external import / export (keep if you price grid power)
+            # 5.4) cost to external import / export
             grid_cost = sum(
-                model.Pext_cost * model.Pext[t] + model.Qext_cost * model.Qext[t]
+                model.Pimp_cost * model.Pimp[t] + model.Pexp_cost * model.Pexp[t] +
+                model.Qimp_cost * model.Qimp[t] + model.Qexp_cost * model.Qexp[t]
                 for t in model.Set_ts
             )
 
             return gen_cost + active_ls_cost + reactive_ls_cost + grid_cost
 
-        model.Objective_MinimizingTotalCost = pyo.Objective(rule=objective_rule,
-                                                            sense=pyo.minimize)
+        model.Objective_MinimizingTotalCost = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
         return model
 
     def solve_linearized_ac_opf(self, model, solver='gurobi', print_all_variables=True):
         """Solve the linearized AC OPF model"""
         solver = SolverFactory(solver)
-
-        # 1) Solve the OPF
-
-        # # Note: two-stage solving is used to avoid unrealistic reactive load sheddings while keep the objective values
-        # # meaningful
-        # # 1.1) Phase-1 solve: minimize Qc
-        # model.Obj1_min_Qc.activate()
-        # results = solver.solve(model, tee=True)
-        # Qc_min = sum(pyo.value(model.Qc[b, t])
-        #              for b in model.Set_bus
-        #              for t in model.Set_ts)
-        #
-        # # 1.2) Fix reactive‐shed total to its minimum
-        # model.Constraint_QcFix = pyo.Constraint(
-        #     expr=sum(model.Qc[b, t] for b in model.Set_bus for t in model.Set_ts)
-        #          == Qc_min
-        # )
-        #
-        # # 1.3) Phase-2 solve: minimize actual cost
-        # model.Obj1_min_Qc.deactivate()
-        # model.Obj2_min_total_cost.activate()
-        #
-        # results = solver.solve(model, tee=True)
-
         results = solver.solve(model, tee=True)
 
         # Extract results and print some of them
@@ -800,7 +732,10 @@ class NetworkClass:
 
     def set_scaled_profile_for_buses(self, normalized_profile):
         """
-        Set demand profiles (both Pd and Qd) scaled from a normalized profile based on Pd_max, Pd_min, Qd_max, Qd_min
+        Set demand profiles (both Pd and Qd) scaled from a normalized profile:
+
+        Note: If Pd_min and Qd_min are provided, do a linear stretch between min and max values;
+              otherwise scale by max values only.
         """
         Pd_max = self.data.net.Pd_max
         Pd_min = self.data.net.Pd_min
@@ -810,13 +745,22 @@ class NetworkClass:
         profile_Pd = []
         profile_Qd = []
 
-        for pd_max, pd_min, qd_max, qd_min in zip(Pd_max, Pd_min, Qd_max, Qd_min):
-            # linear stretch:   scaled = min + norm * (max - min)
-            pd_profile = [pd_min + v * (pd_max - pd_min) for v in normalized_profile]
-            qd_profile = [qd_min + v * (qd_max - qd_min) for v in normalized_profile]
+        # Case 1: we have both min and max
+        if Pd_min is not None and Qd_min is not None:
+            for pd_max, pd_min, qd_max, qd_min in zip(Pd_max, Pd_min, Qd_max, Qd_min):
+                # linear stretch: scaled = min + norm * (max - min)
+                pd_profile = [pd_min + v * (pd_max - pd_min) for v in normalized_profile]
+                qd_profile = [qd_min + v * (qd_max - qd_min) for v in normalized_profile]
+                profile_Pd.append(pd_profile)
+                profile_Qd.append(qd_profile)
 
-            profile_Pd.append(pd_profile)
-            profile_Qd.append(qd_profile)
+        # Case 2: no min values provided → scale by max only
+        else:
+            for pd_max, qd_max in zip(Pd_max, Qd_max):
+                pd_profile = [v * pd_max for v in normalized_profile]
+                qd_profile = [v * qd_max for v in normalized_profile]
+                profile_Pd.append(pd_profile)
+                profile_Qd.append(qd_profile)
 
         self.data.net.profile_Pd = profile_Pd
         self.data.net.profile_Qd = profile_Qd
