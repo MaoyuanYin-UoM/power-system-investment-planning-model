@@ -6,6 +6,7 @@ def make_network(name: str) -> NetworkClass:
     import numpy as np
     import pandas as pd
     from pathlib import Path
+    import copy
 
     # build the right config object
     ncon = NetConfig()  # initialize the 'ncon' objective as the default
@@ -44,8 +45,8 @@ def make_network(name: str) -> NetworkClass:
         gen_cost_df = net_data.parse("poly_cost", header=0, index_col=0)
         # - line data:
         line_df = net_data.parse("line", header=0, dtype={"from_bus": int, "to_bus": int,
-                                                     "r_ohm_per_km": float, "x_ohm_per_km": float,
-                                                     "max_i_ka": float})
+                                                          "r_ohm_per_km": float, "x_ohm_per_km": float,
+                                                          "max_i_ka": float})
         line_df["from_bus"] += 1
         line_df["to_bus"] += 1
         # - transformer data:
@@ -63,8 +64,8 @@ def make_network(name: str) -> NetworkClass:
         bus_geo_df.index = bus_geo_df.index + 1
 
         line_geo_df = net_data.parse("line_geodata", header=0,
-                                dtype={"branch": int, "from_lon": float, "from_lat": float,
-                                       "to_lon": float, "to_lat": float})
+                                     dtype={"branch": int, "from_lon": float, "from_lat": float,
+                                            "to_lon": float, "to_lat": float})
 
         # 2) Populate the NetConfig fields
         # - bus list & slack bus
@@ -145,6 +146,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Qc_cost = [100] * len(ncon.data.net.bus)  # cost of curtailed reactive power at bus per MW
 
         ncon.data.net.Pext_cost = 50
+        ncon.data.net.Qext_cost = 50
 
 
     elif name == 'Manchester_distribution_network_kearsley':
@@ -251,8 +253,8 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         # 7.  Cost-related parameters ---------------------------
         # -----------------------------------------------------------
-        ncon.data.net.Pc_cost = [1000] * len(ncon.data.net.bus)  # active load shedding cost
-        ncon.data.net.Qc_cost = [1000] * len(ncon.data.net.bus)  # reactive load shedding cost
+        ncon.data.net.Pc_cost = [100] * len(ncon.data.net.bus)  # active load shedding cost
+        ncon.data.net.Qc_cost = [100] * len(ncon.data.net.bus)  # reactive load shedding cost
         ncon.data.net.Pext_cost = 10  # grid active import cost
         ncon.data.net.Qext_cost = 10  # grid reactive import cost
 
@@ -261,6 +263,108 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_gis_bgn = None
         ncon.data.net.bch_gis_end = None
 
+
+    elif name == 'UK_transmission_network_with_kearsley_GSP_group':
+        """
+        A composite network model:
+          • UK transmission network (compatible DC power flow)
+          • Manchester ‘Kearsley’ distribution group (compatible with linearized AC power flow)
+
+        TSO-DSO coupling point:
+          – bus 184 (UK)  ←→  bus 1 (Kearsley) via a “zero-impedance” link
+        
+        Slack bus:
+          – identical to the UK‐transmission slack bus (Bus 184)
+          
+        Note:
+          – 'ncon.data.net.bus_level' and 'ncon.data.net.branch_level' specify the buses and branches at transmission or
+            distribution level 
+        """
+
+        # 1. Load the two networks exactly as already defined
+        uk_net = make_network('UK_transmission_network')  # UK transmission network
+        dn_net = make_network('Manchester_distribution_network_kearsley')  # Manchester distribution network
+
+        uk = uk_net.data.net  # shorthand
+        dn = dn_net.data.net
+
+
+        # 2. Create a fresh NetConfig initialized with the transmission network model
+        ncon = NetConfig()
+        ncon.data.net = copy.deepcopy(uk)  # start from the UK template
+
+        # Tag the buses and branches from uk_net as transmission level
+        ncon.data.net.bus_level = {b: 'T' for b in uk.bus}
+        ncon.data.net.branch_level = {i + 1: 'T' for i in range(len(uk.bch))}
+
+        # 3. Re-index the distribution buses so we have unique IDs (simply shift them by max(uk.bus))
+        offset = max(uk.bus)
+        dn_bus_map = {b: b + offset for b in dn.bus}  # distribution bus index: old->new
+
+        # helper to remap a bus index or a [from,to] pair
+        def _map_bus(b):
+            return dn_bus_map[b]
+
+        def _map_pair(pair):
+            return [_map_bus(pair[0]), _map_bus(pair[1])]
+
+
+        # 4.  Append the distribution network data to ncon
+        # 4.1) Append bus data
+        new_dn_buses = [_map_bus(b) for b in dn.bus]
+        ncon.data.net.bus.extend(new_dn_buses)
+        ncon.data.net.V_min.extend(dn.V_min)
+        ncon.data.net.V_max.extend(dn.V_max)
+        ncon.data.net.Pd_max.extend(dn.Pd_max)
+        ncon.data.net.Qd_max.extend(dn.Qd_max)
+        ncon.data.net.Pc_cost.extend(dn.Pc_cost)
+        ncon.data.net.Qc_cost.extend(dn.Qc_cost)
+        if dn.bus_lon is not None:
+            ncon.data.net.bus_lon.extend(dn.bus_lon)
+            ncon.data.net.bus_lat.extend(dn.bus_lat)
+
+        # tag the buses as distribution level
+        ncon.data.net.bus_level.update({b: 'D' for b in new_dn_buses})
+
+
+        # 4.2) Append branch data (lines & transformers)
+        dn_pairs_mapped = [_map_pair(p) for p in dn.bch]
+        ncon.data.net.bch.extend(dn_pairs_mapped)
+        ncon.data.net.bch_R.extend(dn.bch_R)
+        ncon.data.net.bch_X.extend(dn.bch_X)
+        ncon.data.net.bch_Smax.extend(dn.bch_Smax)
+        ncon.data.net.bch_Pmax.extend(dn.bch_Pmax)
+
+        # tag the branches as distribution level
+        first_new_idx = len(uk.bch) + 1
+        for k in range(len(dn_pairs_mapped)):
+            ncon.data.net.branch_level[first_new_idx + k] = 'D'
+
+
+        # 4.3) Add the coupling branch between bus-184 (UK) and remapped bus-1 (DN)
+        #      (inserted exactly after the transmission branches)
+        ncon.data.net.bch.insert(len(uk.bch), [184, dn_bus_map[1]])
+        ncon.data.net.bch_R.insert(len(uk.bch), 0)
+        ncon.data.net.bch_X.insert(len(uk.bch), 0.0001)
+        ncon.data.net.bch_Smax.insert(len(uk.bch), 1e6)
+        ncon.data.net.bch_Pmax.insert(len(uk.bch), 1e6)
+
+        ncon.data.net.branch_level[len(uk.bch)+1] = 'T'  # Regard this coupling branch as transmission level
+
+
+        # 4.4) Append gen data
+        ncon.data.net.gen.extend([_map_bus(b) for b in dn.gen])
+        ncon.data.net.Pg_max.extend(dn.Pg_max)
+        ncon.data.net.Pg_min.extend(dn.Pg_min)
+        ncon.data.net.Qg_max.extend(dn.Qg_max)
+        ncon.data.net.Qg_min.extend(dn.Qg_min)
+        ncon.data.net.gen_cost_coef.extend(dn.gen_cost_coef)
+
+
+        # 5. Set slack & base values (same to UK transmission network)
+        ncon.data.net.slack_bus = uk.slack_bus
+        ncon.data.net.base_MVA = uk.base_MVA
+        ncon.data.net.base_kV = uk.base_kV
 
 
     elif name == 'matpower_case22':
@@ -281,7 +385,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.V_min = [V1] + [0.9 ** 2] * 21
         ncon.data.net.V_max = [V1] + [1.1 ** 2] * 21
 
-        # max active/reactive demand (in MW / MVAr)
+        # active/reactive demand (in MW / MVAr) data
         ncon.data.net.Pd_max = [
             0.0,
             16.78 / 1000, 16.78 / 1000, 33.8 / 1000, 14.56 / 1000, 10.49 / 1000,
@@ -290,6 +394,8 @@ def make_network(name: str) -> NetworkClass:
             49.62 / 1000, 49.62 / 1000, 43.77 / 1000, 37.32 / 1000, 37.32 / 1000,
             31.02 / 1000
         ]
+        ncon.data.net.Pd_min = [0] * len(ncon.data.net.Pd_max)
+
         ncon.data.net.Qd_max = [
             0.0,
             20.91 / 1000, 20.91 / 1000, 37.32 / 1000, 12.52 / 1000, 14.21 / 1000,
@@ -298,6 +404,7 @@ def make_network(name: str) -> NetworkClass:
             47.82 / 1000, 47.82 / 1000, 38.93 / 1000, 35.96 / 1000, 35.96 / 1000,
             29.36 / 1000
         ]
+        ncon.data.net.Qd_min = [0] * len(ncon.data.net.Qd_max)
 
         ncon.data.net.profile_Pd = None
         ncon.data.net.profile_Qd = None
@@ -359,5 +466,3 @@ def make_network(name: str) -> NetworkClass:
         raise ValueError(f"Unknown network preset '{name}'")
 
     return NetworkClass(ncon)
-
-
