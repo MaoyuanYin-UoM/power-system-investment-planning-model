@@ -213,7 +213,6 @@ class NetworkClass:
         model.Set_bus = pyo.Set(initialize=self.data.net.bus)
         model.Set_bch = pyo.Set(initialize=range(1, len(self.data.net.bch) + 1))
         model.Set_gen = pyo.Set(initialize=range(1, len(self.data.net.gen) + 1))
-
         model.Set_ts = pyo.Set(initialize=range(1, 1 + 1))
 
 
@@ -262,6 +261,10 @@ class NetworkClass:
                                                     for i in range(len(self.data.net.gen_cost_coef))
                                                     for j in range(len(self.data.net.gen_cost_coef[0]))})
 
+        # grid import/export cost
+        model.Pext_cost = pyo.Param(initialize=self.data.net.Pext_cost)  # grid active power import cost
+        model.Qext_cost = pyo.Param(initialize=self.data.net.Qext_cost)  # grid reactive power import cost
+
         # - cost for active load shedding
         model.Pc_cost = pyo.Param(model.Set_bus,
                              initialize={b + 1: self.data.net.Pc_cost[b] for b in range(len(self.data.net.Pc_cost))})
@@ -270,12 +273,14 @@ class NetworkClass:
         # 3) Variables
         model.Pg = pyo.Var(model.Set_gen, model.Set_ts, within=pyo.NonNegativeReals)  # active generation
         model.Qg = pyo.Var(model.Set_gen, model.Set_ts, within=pyo.Reals)  # reactive generation
+        model.Pext = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)  # grid active power import
+        model.Qext = pyo.Var(model.Set_ts, within=pyo.Reals)  # grid reactive power import
         model.Pf = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Reals)  # active power flow
         model.Qf = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Reals)  # reactive power flow
         model.Pc = pyo.Var(model.Set_bus, model.Set_ts, within=pyo.NonNegativeReals)  # curtailed active demand
         model.Qc = pyo.Var(model.Set_bus, model.Set_ts, within=pyo.NonNegativeReals)  # curtailed reactive demand
         model.V2 = pyo.Var(model.Set_bus, model.Set_ts, within=pyo.NonNegativeReals)  # squared voltage
-        model.I2 = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.NonNegativeReals)  # squared current
+        # model.I2 = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.NonNegativeReals)  # squared current
 
 
         # 4) Constraints
@@ -284,7 +289,10 @@ class NetworkClass:
             Pg = sum(model.Pg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)
             Pf_in = sum(model.Pf[l, t] for l in model.Set_bch if self.data.net.bch[l - 1][1] == b)
             Pf_out = sum(model.Pf[l, t] for l in model.Set_bch if self.data.net.bch[l - 1][0] == b)
-            return Pf_in - Pf_out + Pg == model.Pd[b, t] - model.Pc[b, t]
+            slack = self.data.net.slack_bus
+            Pext = model.Pext[t] if b == slack else 0
+
+            return Pf_in - Pf_out + Pg + Pext == model.Pd[b, t] - model.Pc[b, t]
 
         model.Constraint_ActivePowerBalance = pyo.Constraint(model.Set_bus, model.Set_ts,
                                                              rule=P_balance_at_bus_rule)
@@ -294,30 +302,44 @@ class NetworkClass:
             Qg = sum(model.Qg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)
             Qf_in = sum(model.Qf[l, t] for l in model.Set_bch if self.data.net.bch[l - 1][1] == b)
             Qf_out = sum(model.Qf[l, t] for l in model.Set_bch if self.data.net.bch[l - 1][0] == b)
-            return Qf_in - Qf_out + Qg == model.Qd[b, t] - model.Qc[b, t]
+            slack = self.data.net.slack_bus
+            Qext = model.Qext[t] if b == slack else 0
+
+            return Qf_in - Qf_out + Qg + Qext == model.Qd[b, t] - model.Qc[b, t]
 
         model.Constraint_ReactivePowerBalance = pyo.Constraint(model.Set_bus, model.Set_ts,
                                                                rule=Q_balance_at_bus_rule)
 
-        # 4.3) Voltage drop constraints
-        def volt_drop_rule(model, l, t):
+        # # 4.3) Voltage drop constraints
+        # def volt_drop_rule(model, l, t):
+        #     i, j = self.data.net.bch[l - 1]
+        #     return (model.V2[i, t] - model.V2[j, t]
+        #             == 2 * (model.R[l] * model.Pf[l, t] + model.X[l] * model.Qf[l, t])
+        #             - (model.R[l] ** 2 + model.X[l] ** 2) * model.I2[l, t])
+        #
+        # model.Constraint_VoltageDrop = pyo.Constraint(model.Set_bch, model.Set_ts, rule=volt_drop_rule)
+        #
+        # # 4.4) Current‐flow relation
+        # def current_flow_rule(model, l, t):
+        #     i, j = self.data.net.bch[l - 1]
+        #     # Pf[l,t]^2 + Qf[l,t]^2 == I2[l,t] * V2[i,t]
+        #     return model.Pf[l, t] ** 2 + model.Qf[l, t] ** 2 == model.I2[l, t] * model.V2[i, t]
+        #
+        # model.Constraint_CurrentFlow = pyo.Constraint(
+        #     model.Set_bch, model.Set_ts,
+        #     rule=current_flow_rule
+        # )
+
+
+        # 4.3) Voltage drop constraints (quadratic loss term ignored)
+
+        def volt_drop_lin_rule(model, l, t):
+            # “l” is the branch index; self.data.net.bch[l-1] = (i, j)
             i, j = self.data.net.bch[l - 1]
-            return (model.V2[i, t] - model.V2[j, t]
-                    == 2 * (model.R[l] * model.Pf[l, t] + model.X[l] * model.Qf[l, t])
-                    - (model.R[l] ** 2 + model.X[l] ** 2) * model.I2[l, t])
+            return model.V2[i, t] - model.V2[j, t] == 2 * (model.R[l] * model.Pf[l, t] + model.X[l] * model.Qf[l, t])
 
-        model.Constraint_VoltageDrop = pyo.Constraint(model.Set_bch, model.Set_ts, rule=volt_drop_rule)
+        model.Constraint_VoltageDrop = pyo.Constraint(model.Set_bch, model.Set_ts, rule=volt_drop_lin_rule)
 
-        # 4.4) Current‐flow relation
-        def current_flow_rule(model, l, t): 
-            i, j = self.data.net.bch[l - 1]
-            # Pf[l,t]^2 + Qf[l,t]^2 == I2[l,t] * V2[i,t]
-            return model.Pf[l, t] ** 2 + model.Qf[l, t] ** 2 == model.I2[l, t] * model.V2[i, t]
-
-        model.Constraint_CurrentFlow = pyo.Constraint(
-            model.Set_bch, model.Set_ts,
-            rule=current_flow_rule
-        )
 
         # 4.5) Apparent power flow limits of each branch (i.e., line thermal capacity):
         def S1_rule(model, l, t): return model.Pf[l, t] <= model.S_max[l]
@@ -402,13 +424,21 @@ class NetworkClass:
 
         # Objective #2: minimize generation + active‐shed cost
         model.Obj2_min_total_cost = pyo.Objective(
-            expr=sum(
-                sum(model.gen_cost_coef[g, c] * (model.Pg[g, t] ** c)
-                    for c in range(len(self.data.net.gen_cost_coef[0])))
-                for g in model.Set_gen for t in model.Set_ts
-            )
-                 + sum(model.Pc_cost[b] * model.Pc[b, t]
-                       for b in model.Set_bus for t in model.Set_ts),
+            expr=(
+                # 1) generation cost
+                    sum(
+                        sum(model.gen_cost_coef[g, c] * (model.Pg[g, t] ** c)
+                            for c in range(len(self.data.net.gen_cost_coef[0])))
+                        for g in model.Set_gen for t in model.Set_ts
+                    )
+                    # 2) active load‐shedding cost
+                    + sum(model.Pc_cost[b] * model.Pc[b, t]
+                          for b in model.Set_bus for t in model.Set_ts)
+                    # 3) grid active import/export cost
+                    + sum(model.Pext_cost * model.Pext[t] for t in model.Set_ts)
+                    # 4) grid reactive import/export cost
+                    + sum(model.Qext_cost * model.Qext[t] for t in model.Set_ts)
+            ),
             sense=pyo.minimize
         )
         model.Obj2_min_total_cost.deactivate()
@@ -446,7 +476,7 @@ class NetworkClass:
         return results
 
 
-    def solve_linearized_ac_opf(self, model, solver='gurobi', print_all_variables=False):
+    def solve_linearized_ac_opf(self, model, solver='gurobi', print_all_variables=True):
         """Solve the linearized AC OPF model"""
         solver = SolverFactory(solver)
 

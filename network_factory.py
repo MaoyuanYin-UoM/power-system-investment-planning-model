@@ -181,7 +181,7 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         ncon.data.net.bus = df_bus["Bus ID"].astype(int).tolist()
 
-        # slack bus  (assume exactly one row has If Slack == 1)
+        # slack bus (assume exactly one row has If Slack == 1)
         ncon.data.net.slack_bus = int(df_bus.loc[df_bus["If Slack"] == 1,
         "Bus ID"].iloc[0])
 
@@ -251,9 +251,10 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         # 7.  Cost-related parameters ---------------------------
         # -----------------------------------------------------------
-        ncon.data.net.Pc_cost = [100] * len(ncon.data.net.bus)  # active LS
-        ncon.data.net.Qc_cost = [100] * len(ncon.data.net.bus)  # reactive LS
-        ncon.data.net.Pext_cost = 50  # grid import
+        ncon.data.net.Pc_cost = [1000] * len(ncon.data.net.bus)  # active load shedding cost
+        ncon.data.net.Qc_cost = [1000] * len(ncon.data.net.bus)  # reactive load shedding cost
+        ncon.data.net.Pext_cost = 10  # grid active import cost
+        ncon.data.net.Qext_cost = 10  # grid reactive import cost
 
         # placeholders – will be set by NetworkClass.set_gis_data()
         ncon.data.net.all_bus_coords_in_tuple = None
