@@ -265,10 +265,13 @@ class NetworkClass:
         model.Pext_cost = pyo.Param(initialize=self.data.net.Pext_cost)  # grid active power import cost
         model.Qext_cost = pyo.Param(initialize=self.data.net.Qext_cost)  # grid reactive power import cost
 
-        # - cost for active load shedding
+        # - cost for active/reactive load shedding
         model.Pc_cost = pyo.Param(model.Set_bus,
-                             initialize={b + 1: self.data.net.Pc_cost[b] for b in range(len(self.data.net.Pc_cost))})
-
+                                  initialize={b + 1: self.data.net.Pc_cost[b]
+                                              for b in range(len(self.data.net.Pc_cost))})
+        model.Qc_cost = pyo.Param(model.Set_bus,
+                                  initialize={b + 1: self.data.net.Qc_cost[b]
+                                              for b in range(len(self.data.net.Qc_cost))})
 
         # 3) Variables
         model.Pg = pyo.Var(model.Set_gen, model.Set_ts, within=pyo.NonNegativeReals)  # active generation
@@ -413,35 +416,69 @@ class NetworkClass:
         # ==================================================================
         # 5) Objective – Minimizing total generation cost
 
-        # Objective #1: minimize total reactive load shedding (to ensure no excessive reactive load shedding)
-        model.Obj1_min_Qc = pyo.Objective(
-            expr=sum(model.Qc[b, t]
-                     for b in model.Set_bus
-                     for t in model.Set_ts),
-            sense=pyo.minimize
-        )
-        model.Obj1_min_Qc.deactivate()
+        # # Objective #1: minimize total reactive load shedding (to ensure no excessive reactive load shedding)
+        # model.Obj1_min_Qc = pyo.Objective(
+        #     expr=sum(model.Qc[b, t]
+        #              for b in model.Set_bus
+        #              for t in model.Set_ts),
+        #     sense=pyo.minimize
+        # )
+        # model.Obj1_min_Qc.deactivate()
+        #
+        # # Objective #2: minimize generation + active‐shed cost
+        # model.Obj2_min_total_cost = pyo.Objective(
+        #     expr=(
+        #         # 1) generation cost
+        #             sum(
+        #                 sum(model.gen_cost_coef[g, c] * (model.Pg[g, t] ** c)
+        #                     for c in range(len(self.data.net.gen_cost_coef[0])))
+        #                 for g in model.Set_gen for t in model.Set_ts
+        #             )
+        #             # 2) active load‐shedding cost
+        #             + sum(model.Pc_cost[b] * model.Pc[b, t]
+        #                   for b in model.Set_bus for t in model.Set_ts)
+        #             # 3) grid active import/export cost
+        #             + sum(model.Pext_cost * model.Pext[t] for t in model.Set_ts)
+        #             # 4) grid reactive import/export cost
+        #             + sum(model.Qext_cost * model.Qext[t] for t in model.Set_ts)
+        #     ),
+        #     sense=pyo.minimize
+        # )
+        # model.Obj2_min_total_cost.deactivate()
 
-        # Objective #2: minimize generation + active‐shed cost
-        model.Obj2_min_total_cost = pyo.Objective(
-            expr=(
-                # 1) generation cost
-                    sum(
-                        sum(model.gen_cost_coef[g, c] * (model.Pg[g, t] ** c)
-                            for c in range(len(self.data.net.gen_cost_coef[0])))
-                        for g in model.Set_gen for t in model.Set_ts
-                    )
-                    # 2) active load‐shedding cost
-                    + sum(model.Pc_cost[b] * model.Pc[b, t]
-                          for b in model.Set_bus for t in model.Set_ts)
-                    # 3) grid active import/export cost
-                    + sum(model.Pext_cost * model.Pext[t] for t in model.Set_ts)
-                    # 4) grid reactive import/export cost
-                    + sum(model.Qext_cost * model.Qext[t] for t in model.Set_ts)
-            ),
-            sense=pyo.minimize
-        )
-        model.Obj2_min_total_cost.deactivate()
+        def objective_rule(model):
+            # 1) generator production costs (quadratic, linear …)
+            gen_cost = sum(
+                sum(model.gen_cost_coef[g, c] * model.Pg[g, t] ** c
+                    for c in range(len(self.data.net.gen_cost_coef[0])))
+                for g in model.Set_gen
+                for t in model.Set_ts
+            )
+
+            # 2) active load-shedding penalties
+            active_ls_cost = sum(
+                model.Pc_cost[b] * model.Pc[b, t]
+                for b in model.Set_bus
+                for t in model.Set_ts
+            )
+
+            # 3) reactive load-shedding penalties  ← NEW
+            reactive_ls_cost = sum(
+                model.Qc_cost[b] * model.Qc[b, t]
+                for b in model.Set_bus
+                for t in model.Set_ts
+            )
+
+            # 4) external import / export (keep if you price grid power)
+            grid_cost = sum(
+                model.Pext_cost * model.Pext[t] + model.Qext_cost * model.Qext[t]
+                for t in model.Set_ts
+            )
+
+            return gen_cost + active_ls_cost + reactive_ls_cost + grid_cost
+
+        model.Objective_MinimizingTotalCost = pyo.Objective(rule=objective_rule,
+                                             sense=pyo.minimize)
 
         return model
 
@@ -481,24 +518,27 @@ class NetworkClass:
         solver = SolverFactory(solver)
 
         # 1) Solve the OPF
-        # Note: two-stage solving is used to avoid unrealistic reactive load sheddings while keep the objective values
-        # meaningful
-        # 1.1) Phase-1 solve: minimize Qc
-        model.Obj1_min_Qc.activate()
-        results = solver.solve(model, tee=True)
-        Qc_min = sum(pyo.value(model.Qc[b, t])
-                     for b in model.Set_bus
-                     for t in model.Set_ts)
 
-        # 1.2) Fix reactive‐shed total to its minimum
-        model.Constraint_QcFix = pyo.Constraint(
-            expr=sum(model.Qc[b, t] for b in model.Set_bus for t in model.Set_ts)
-                 == Qc_min
-        )
-
-        # 1.3) Phase-2 solve: minimize actual cost
-        model.Obj1_min_Qc.deactivate()
-        model.Obj2_min_total_cost.activate()
+        # # Note: two-stage solving is used to avoid unrealistic reactive load sheddings while keep the objective values
+        # # meaningful
+        # # 1.1) Phase-1 solve: minimize Qc
+        # model.Obj1_min_Qc.activate()
+        # results = solver.solve(model, tee=True)
+        # Qc_min = sum(pyo.value(model.Qc[b, t])
+        #              for b in model.Set_bus
+        #              for t in model.Set_ts)
+        #
+        # # 1.2) Fix reactive‐shed total to its minimum
+        # model.Constraint_QcFix = pyo.Constraint(
+        #     expr=sum(model.Qc[b, t] for b in model.Set_bus for t in model.Set_ts)
+        #          == Qc_min
+        # )
+        #
+        # # 1.3) Phase-2 solve: minimize actual cost
+        # model.Obj1_min_Qc.deactivate()
+        # model.Obj2_min_total_cost.activate()
+        #
+        # results = solver.solve(model, tee=True)
 
         results = solver.solve(model, tee=True)
 
