@@ -512,7 +512,8 @@ class NetworkClass:
         # ------------------------------------------------------------------
         Set_bus_tn = [b for b in self.data.net.bus if self.data.net.bus_level[b] == 'T']  # tn: transmission network
         Set_bus_dn = [b for b in self.data.net.bus if self.data.net.bus_level[b] == 'D']  # dn: distribution network
-        Set_bch_tn = [i for i in range(1, len(self.data.net.bch) + 1) if self.data.net.branch_level[i] == 'T']
+        Set_bch_tn = [i for i in range(1, len(self.data.net.bch) + 1)
+                      if self.data.net.branch_level[i] in ('T', 'T-D')]  # the tn-dn coupling branch is included
         Set_bch_dn = [i for i in range(1, len(self.data.net.bch) + 1) if self.data.net.branch_level[i] == 'D']
         Set_gen = list(range(1, len(self.data.net.gen) + 1))
         Set_ts = list(range(1, 1 + 1))
@@ -695,7 +696,7 @@ class NetworkClass:
         def S4_dn_rule(model, l, t):
             return model.Qf_dn[l, t] >= -model.Smax_dn[l]
 
-        # 3) ±45°‐cuts: |P ± Q| ≤ √2 Smax
+        # 3) ±45°‐cuts: |P ± Q| ≤ √2Smax
         _diag = math.sqrt(2)
 
         def S5_dn_rule(model, l, t):
@@ -721,31 +722,34 @@ class NetworkClass:
 
         # 4.7  Power-balance at TN buses (active only)
         def P_balance_at_bus_tn(model, b, t):
-            Pg = sum(model.Pg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)
-            inflow = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn if self.data.net.bch[l - 1][1] == b)
-            outflow = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn if self.data.net.bch[l - 1][0] == b)
-            # branch flows from DN that end at this TN bus
-            dn_in = sum(model.Pf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][1] == b)
-            dn_out = sum(model.Pf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][0] == b)
+            Pg_sum = sum(model.Pg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)
+            Pf_in_sum = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn if self.data.net.bch[l - 1][1] == b)
+            Pf_out_sum = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn if self.data.net.bch[l - 1][0] == b)
             slack = self.data.net.slack_bus
             Pgrid = model.Pimp[t] - model.Pexp[t] if b == slack else 0
-            return Pg + inflow + dn_in + Pgrid - (outflow + dn_out) == model.Pd[b, t] - model.Pc[b, t]
+            return Pg_sum + Pgrid + Pf_in_sum - Pf_out_sum == model.Pd[b, t] - model.Pc[b, t]
 
         model.Constraint_ActivePowerBalance_TN = pyo.Constraint(model.Set_bus_tn, model.Set_ts,
                                                                 rule=P_balance_at_bus_tn)
 
         # 4.8  Power-balance at DN buses (active + reactive)
         def P_balance_at_bus_dn(model, b, t):
-            Pg = sum(model.Pg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)
-            inflow = sum(model.Pf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][1] == b)
-            outflow = sum(model.Pf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][0] == b)
-            return Pg + inflow - outflow == model.Pd[b, t] - model.Pc[b, t]
+            Pg_sum = sum(model.Pg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)
+            Pf_in_sum = sum(model.Pf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][1] == b)
+            Pf_out_sum = sum(model.Pf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][0] == b)
+            Pf_cpl_in = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn
+                         if self.data.net.branch_level[l] == 'T-D'
+                         and self.data.net.bch[l - 1][1] == b)
+            Pf_cpl_out = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn
+                            if self.data.net.branch_level[l] == 'T-D'
+                            and self.data.net.bch[l - 1][0] == b)
+            return Pg_sum + Pf_in_sum - Pf_out_sum + Pf_cpl_in - Pf_cpl_out == model.Pd[b, t] - model.Pc[b, t]
 
         def Q_balance_at_bus_dn(model, b, t):
-            Qg = sum(model.Qg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)
-            inflow = sum(model.Qf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][1] == b)
-            outflow = sum(model.Qf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][0] == b)
-            return Qg + inflow - outflow == model.Qd[b, t] - model.Qc[b, t]
+            Qg_sum = sum(model.Qg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)
+            Qf_in_sum = sum(model.Qf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][1] == b)
+            Qf_out_sum = sum(model.Qf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][0] == b)
+            return Qg_sum + Qf_in_sum - Qf_out_sum == model.Qd[b, t] - model.Qc[b, t]
 
         model.Constraint_ActivePowerBalance_DN = pyo.Constraint(model.Set_bus_dn, model.Set_ts,
                                                                 rule=P_balance_at_bus_dn)
@@ -789,11 +793,19 @@ class NetworkClass:
             gen_cost = sum(model.gen_cost_coef[g, 0] +
                            model.gen_cost_coef[g, 1] * model.Pg[g, t]
                            for g in model.Set_gen for t in model.Set_ts)
+
             grid_cost = sum(model.Pimp_cost * model.Pimp[t] + model.Pexp_cost * model.Pexp[t]
                             for t in model.Set_ts)
-            shed_cost = sum(model.Pc_cost[b] * model.Pc[b, t] for b in model.Set_bus_dn for t in model.Set_ts) + \
+
+            ls_dn_cost = sum(model.Pc_cost[b] * model.Pc[b, t] for b in model.Set_bus_dn for t in model.Set_ts) + \
                         sum(model.Qc_cost[b] * model.Qc[b, t] for b in model.Set_bus_dn for t in model.Set_ts)
-            return gen_cost + grid_cost + shed_cost
+
+            # ls_tn_cost = sum(model.Pc_cost[b] * model.Pc[b, t] for b in model.Set_bus_tn for t in model.Set_ts)
+
+            return (gen_cost + grid_cost + ls_dn_cost
+                    # + ls_tn_cost
+                    )
+
 
         model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 

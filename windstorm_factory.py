@@ -21,7 +21,7 @@ def make_windstorm(name: str) -> WindClass:
         wcon.data.WS.contour.end_lat_coef = [-17 / 18, 54.183333]
 
         # windstorm parameters:
-        wcon.data.MC.num_prds = 10  # number of periods (i.e., simulations)
+        wcon.data.MC.num_prds = 3  # number of periods (i.e., simulations)
         wcon.data.WS.event.max_num_ws_prd = 1  # maximum number of windstorms per period
 
         wcon.data.WS.event.max_v = [40, 60]  # upper and lower bounds for initial gust speed
@@ -33,12 +33,12 @@ def make_windstorm(name: str) -> WindClass:
         wcon.data.WS.event.lng = [12, 48]  # lower and upper bounds for windstorm duration
         wcon.data.WS.event.ttr = [24, 120]  # lower and upper bounds for line repair (time to restoration)
 
-        # fragility modelling:
-        wcon.data.frg.mu = 3.8
-        wcon.data.frg.sigma = 0.122
-        wcon.data.frg.thrd_1 = 20
-        wcon.data.frg.thrd_2 = 90
-        wcon.data.frg.shift_f = 0
+        # # fragility modelling:  (deprecated) (fragility data moved to NetConfig)
+        # wcon.data.frg.mu = 3.8
+        # wcon.data.frg.sigma = 0.122
+        # wcon.data.frg.thrd_1 = 20
+        # wcon.data.frg.thrd_2 = 90
+        # wcon.data.frg.shift_f = 0
 
 
     elif name == "windstorm_1_matpower_case22":

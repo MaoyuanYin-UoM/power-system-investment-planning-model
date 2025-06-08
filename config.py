@@ -59,6 +59,13 @@ class NetConfig:
             # coefficients for the generation cost function e.g., for coefficient [a, b, c]: gen_cost = a + b*x + c*x^2
             # Note that all elements (lists) contained in "gen_cost_coef" should have same length
 
+        # 5) Fragility data
+        self.data.frg = Object()
+        self.data.frg.mu = 3.8
+        self.data.frg.sigma = 0.122
+        self.data.frg.thrd_1 = 20
+        self.data.frg.thrd_2 = 90
+        self.data.frg.shift_f = 0
 
 
 
@@ -124,13 +131,6 @@ class WindConfig:
             "week": 168
         }
 
-        # 3. data.frg stores parameters for fragility modelling (e.g., fragility curve)
-        self.data.frg = Object()
-        self.data.frg.mu = 3.8
-        self.data.frg.sigma = 0.122
-        self.data.frg.thrd_1 = 20
-        self.data.frg.thrd_2 = 90
-        self.data.frg.shift_f = 0
 
 
 # -------------------- Investment Model Configurations --------------------

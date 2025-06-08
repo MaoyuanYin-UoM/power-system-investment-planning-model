@@ -126,6 +126,11 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_Smax = S_max.tolist()
         ncon.data.net.bch_Pmax = S_max.tolist()  # Assumes power factor = 1
 
+        ncon.data.net.bch_length_km = (
+                line_df["length_km"].tolist()  # real transmission‐line lengths
+                + [0.0] * len(trafo_df)  # transformers → 0 km
+        )
+
         # -- transformers:
         tr_bch = trafo_df[["hv_bus", "lv_bus"]].values.tolist()
 
@@ -165,6 +170,14 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Pexp_cost = -10  # remuneration for exporting electricity to distribution network
         ncon.data.net.Qimp_cost = 50
         ncon.data.net.Qexp_cost = -10
+
+        # 5) Fragility data:
+        num_bch = len(ncon.data.net.bch)
+        ncon.data.frg.mu = [3.8] * num_bch
+        ncon.data.frg.sigma = [0.122] * num_bch
+        ncon.data.frg.thrd_1 = [20] * num_bch
+        ncon.data.frg.thrd_2 = [90] * num_bch
+        ncon.data.frg.shift_f = [0.0] * num_bch
 
         net = NetworkClass(ncon)
         net.name = name
@@ -231,6 +244,10 @@ def make_network(name: str) -> NetworkClass:
             .astype(int).values.tolist()
         )
 
+        # BRANCH TYPE: 1=line, 0=transformer
+        ncon.data.net.bch_type = (
+            df_bch["Type (1 for line, 0 for transformer)"].astype(int).tolist())
+
         # R & X are already in p.u. in the workbook
         ncon.data.net.bch_R = df_bch["Resistance (pu)"].astype(float).tolist()
         ncon.data.net.bch_X = df_bch["Reactance (pu)"].astype(float).tolist()
@@ -238,6 +255,9 @@ def make_network(name: str) -> NetworkClass:
         # Apparent- and active-power limits
         ncon.data.net.bch_Smax = df_bch["S_max"].astype(float).tolist()
         ncon.data.net.bch_Pmax = df_bch["P_max"].astype(float).tolist()
+
+        # branch length (will be used for branch hardening)
+        ncon.data.net.bch_length_km = df_bch["Length (km)"].astype(float).tolist()
 
         # -----------------------------------------------------------
         # 5.  Load data ---------------------------------------------
@@ -289,6 +309,16 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.all_bus_coords_in_tuple = None
         ncon.data.net.bch_gis_bgn = None
         ncon.data.net.bch_gis_end = None
+
+        # -----------------------------------------------------------
+        # 8.  Fragility data ---------------------------
+        # -----------------------------------------------------------
+        num_bch = len(ncon.data.net.bch)
+        ncon.data.frg.mu = [3.8] * num_bch
+        ncon.data.frg.sigma = [0.122] * num_bch
+        ncon.data.frg.thrd_1 = [20] * num_bch
+        ncon.data.frg.thrd_2 = [90] * num_bch
+        ncon.data.frg.shift_f = [0.0] * num_bch
 
         net = NetworkClass(ncon)
         net.name = name
@@ -365,6 +395,10 @@ def make_network(name: str) -> NetworkClass:
         # 4.2) Append branch data (lines & transformers)
         dn_pairs_mapped = [_map_pair(p) for p in dn.bch]
         ncon.data.net.bch.extend(dn_pairs_mapped)
+
+        # simply assume all transmission branches are 0 (trafo) (i.e., cannot be hardened):
+        ncon.data.net.bch_type = [0] * len(uk.bch) + [dn_type for dn_type in dn.bch_type]
+
         ncon.data.net.bch_R.extend(dn.bch_R)
         ncon.data.net.bch_X.extend(dn.bch_X)
         ncon.data.net.bch_Smax.extend(dn.bch_Smax)
@@ -377,17 +411,22 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_X.insert(len(uk.bch), 0.0001)
         ncon.data.net.bch_Smax.insert(len(uk.bch), 1e6)
         ncon.data.net.bch_Pmax.insert(len(uk.bch), 1e6)
+        ncon.data.net.bch_length_km.insert(len(uk.bch), 0.0)  # padding value
+
+        idx_cpl = len(uk.bch) + 1
+        ncon.data.net.branch_level[idx_cpl] = 'T-D'  # tag it as 'T-D' which will present in both tn and dn level
+        ncon.data.net.bch_type[idx_cpl - 1] = 0  # treat this virtual coupling branch as non-hardenable
+
 
         # 4.4) Rebuild the 'branch_level' (ensure indices are correct after inserting the coupling branch)
         num_tn = len(uk.bch)
         num_dn = len(dn.bch)
         ncon.data.net.branch_level = {}
         for i in range(1, num_tn + 1):
-            ncon.data.net.branch_level[i] = 'T'
-        ncon.data.net.branch_level[num_tn + 1] = 'T'
+            ncon.data.net.branch_level[i] = 'T'  # pure TN
+        ncon.data.net.branch_level[num_tn + 1] = 'T-D'  # the tn-dn coupling link
         for k in range(num_dn):
-            idx = num_tn + 2 + k
-            ncon.data.net.branch_level[idx] = 'D'
+            ncon.data.net.branch_level[num_tn + 2 + k] = 'D'  # pure DN
 
         # 4.5) Append gen data
         ncon.data.net.gen.extend([_map_bus(b) for b in dn.gen])
@@ -401,6 +440,28 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.slack_bus = uk.slack_bus
         ncon.data.net.base_MVA = uk.base_MVA
         ncon.data.net.base_kV = uk.base_kV
+
+        # 6. Specify additional data that are needed when building the investment model
+        # 6.1) line hardening cost
+        ncon.data.cost_rate_hrdn = 1e4  # hardening cost (£) per unit length (km) of the line and per unit amount (m/s)
+        # that the fragility curve is shifted
+        ncon.data.cost_bch_hrdn = [
+            ncon.data.cost_rate_hrdn * length if ncon.data.net.branch_level[i + 1] == 'D' else 0.0
+            for i, length in enumerate(ncon.data.net.bch_length_km)
+        ]  # cost per unit fragility curve shift
+        # Note: only distribution line hardening is considered
+
+        # 6.2) line repair cost
+        rep_rate_tn = 3e3  # repair cost (£) per unit length (km) of line at transmission level
+        rep_rate_dn = 3e3  # repair cost (£) per unit length (km) of line at distribution level
+        ncon.data.cost_bch_rep = [
+            rep_rate_tn * length if ncon.data.net.branch_level[i + 1] == 'D' else rep_rate_dn * length
+            for i, length in enumerate(ncon.data.net.bch_length_km)
+        ]  # Note: the line repair at both transmission and distribution level are considered
+
+        # 6.3) line hardening limits and budget
+        ncon.data.bch_hrdn_limits = [0.0, 60.0]  # in m/s
+        ncon.data.budget_bch_hrdn = 2.5e7  # in £
 
         net = NetworkClass(ncon)
         net.name = name
@@ -508,4 +569,3 @@ def make_network(name: str) -> NetworkClass:
 
     else:
         raise ValueError(f"Unknown network preset '{name}'")
-

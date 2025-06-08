@@ -12,7 +12,8 @@ from network_factory import make_network
 from windstorm_factory import make_windstorm
 
 
-def generate_ws_scenarios(seed=None, out_dir="Scenario_Results", network_preset="default", windstorm_preset="default"):
+def generate_ws_scenarios(seed=None, out_dir="Scenario_Results/Full_Scenarios",
+                          network_preset="default", windstorm_preset="default"):
     """
     Generate and save full windstorm scenarios.
     """
@@ -82,6 +83,7 @@ def generate_ws_scenarios(seed=None, out_dir="Scenario_Results", network_preset=
     # assemble metadata + scenarios into one dict
     output = {
         "metadata": {
+            "seed":seed,
             "network_preset": network_preset,
             "windstorm_preset": windstorm_preset,
             "number of periods": len(num_ws_prd),
@@ -96,7 +98,7 @@ def generate_ws_scenarios(seed=None, out_dir="Scenario_Results", network_preset=
     os.makedirs(out_dir, exist_ok=True)
     file_name = (
         f"all_full_scenarios_"
-        f"{network_preset}_{windstorm_preset}_{ws.data.MC.lng_prd}.json"
+        f"{network_preset}_{windstorm_preset}_{ws.data.MC.lng_prd}_seed_{seed}.json"
     )
     path = os.path.join(out_dir, file_name)
     with open(path, "w") as f:
@@ -107,8 +109,8 @@ def generate_ws_scenarios(seed=None, out_dir="Scenario_Results", network_preset=
 
 
 def extract_ws_scenarios(
-    full_file: str = "Scenario_Results/all_full_scenarios_year.json",
-    out_file: str  = "Scenario_Results/all_ws_scenarios_year.json"
+    full_file: str = "Scenario_Results/Full_Scenarios/all_full_scenarios_year.json",
+    out_file: str  = "Scenario_Results/Extracted_Scenarios/all_ws_scenarios_year.json"
 ):
     """
     Extract each windstorm window (storm duration + all additional repair hours)

@@ -75,11 +75,37 @@ from network_factory import make_network
 # visualize_bch_and_ws_contour(network_name='UK_transmission_network', windstorm_name='windstorm_UK_transmission_network')
 
 
-net = make_network('Manchester_distribution_network_kearsley')
-model = net.build_linearized_ac_opf_model()
-results = net.solve_linearized_ac_opf(model, write_xlsx=True)
+# net = make_network('Manchester_distribution_network_kearsley')
+# model = net.build_linearized_ac_opf_model()
+# results = net.solve_linearized_ac_opf(model, write_xlsx=True)
 
 
 # net = make_network('UK_transmission_network_with_kearsley_GSP_group')
 # model = net.build_combined_dc_linearized_ac_opf_model()
 # results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
+
+
+# visualize_bch_and_ws_contour(network_name='UK_transmission_network',
+#                              windstorm_name='windstorm_UK_transmission_network')
+# visualize_bch_and_ws_contour(network_name='Manchester_distribution_network_kearsley',
+#                              windstorm_name='windstorm_UK_transmission_network')
+# visualize_bch_and_ws_contour(network_name='UK_transmission_network_with_kearsley_GSP_group',
+#                              windstorm_name='windstorm_UK_transmission_network')
+
+
+# generate_ws_scenarios(seed=101,
+#                       network_preset='UK_transmission_network_with_kearsley_GSP_group',
+#                       windstorm_preset='windstorm_UK_transmission_network')
+
+# extract_ws_scenarios(full_file='Scenario_Results/Full_Scenarios/all_full_scenarios_UK_transmission_network_with_kearsley_GSP_group_windstorm_UK_transmission_network_year_seed_101.json',
+#                      out_file='Scenario_Results/Extracted_Scenarios/all_ws_scenarios_UK-Kearsley_network_seed_101.json')
+#
+# n_sim = 3
+# for i in range(1, n_sim + 1):
+#     visualize_windstorm_event(file_path='Scenario_Results/Extracted_Scenarios/all_ws_scenarios_UK-Kearsley_network_seed_101.json',
+#                               scenario_number=i, event_number=1)
+
+
+inv = InvestmentClass()
+model = inv.build_investment_model()
+results = inv.solve_investment_model(model)
