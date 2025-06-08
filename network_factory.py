@@ -67,6 +67,10 @@ def make_network(name: str) -> NetworkClass:
                                      dtype={"branch": int, "from_lon": float, "from_lat": float,
                                             "to_lon": float, "to_lat": float})
 
+        # 2) Define base values
+        base_MVA = 100
+        base_kV = 400
+
         # 2) Populate the NetConfig fields
         # - bus list & slack bus
         ncon.data.net.bus = bus_df.index.tolist()
@@ -99,14 +103,20 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Qg_min = [0] * len(sgen_df["bus"].tolist())
 
         ncon.data.net.gen_cost_coef = gen_cost_df[
-            ["cp2_eur_per_mw2", "cp1_eur_per_mw", "cp0_eur"]
+            ["cp0_eur", "cp1_eur_per_mw"]
         ].values.tolist()
 
         # - branches (including transformers)
         # -- lines (i.e., in which from_bus and to_bus are at same voltage level):
         ncon.data.net.bch = line_df[["from_bus", "to_bus"]].values.tolist()
-        ncon.data.net.bch_R = (line_df["length_km"] * line_df["r_ohm_per_km"]).tolist()
-        ncon.data.net.bch_X = (line_df["length_km"] * line_df["x_ohm_per_km"]).tolist()
+
+        bus_v_kv = bus_df["vn_kv"]  # get bus voltage levels
+        line_v_kv = line_df["from_bus"].map(bus_v_kv)  # get branch voltage levels
+        Z_base_ohm = (line_v_kv ** 2) / base_MVA
+
+        # compute impedance R, X in p.u. values
+        ncon.data.net.bch_R = (line_df["length_km"] * line_df["r_ohm_per_km"] / Z_base_ohm).tolist()
+        ncon.data.net.bch_X = (line_df["length_km"] * line_df["x_ohm_per_km"] / Z_base_ohm).tolist()
 
         # compute Pmax and Smax
         bus_v = bus_df["vn_kv"]  # note 'vn_kv' is already indexed by the bus indices
@@ -144,8 +154,8 @@ def make_network(name: str) -> NetworkClass:
         # ncon.data.net.bch_gis_end = list(zip(line_geo_df["to_lon"], line_geo_df["to_lat"]))
 
         # 3) Base values:
-        ncon.data.net.base_MVA = 100.0
-        ncon.data.net.base_kV = 400.0
+        ncon.data.net.base_MVA = base_MVA
+        ncon.data.net.base_kV = base_kV
 
         # 4) Other parameters that need to be specified (not from the network data file)
         ncon.data.net.Pc_cost = [100] * len(ncon.data.net.bus)  # cost of curtailed active power at bus per MW
@@ -155,6 +165,10 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Pexp_cost = -10  # remuneration for exporting electricity to distribution network
         ncon.data.net.Qimp_cost = 50
         ncon.data.net.Qexp_cost = -10
+
+        net = NetworkClass(ncon)
+        net.name = name
+        return net
 
 
     elif name == 'Manchester_distribution_network_kearsley':
@@ -201,9 +215,9 @@ def make_network(name: str) -> NetworkClass:
             float(df_bus["V_angle_max"].iloc[0])
         ]
 
-        # voltage-magnitude limits (square them - LinDistFlow expects V²)
-        ncon.data.net.V_min = (df_bus["V_min (pu)"] ** 2).tolist()
-        ncon.data.net.V_max = (df_bus["V_max (pu)"] ** 2).tolist()
+        # voltage-magnitude limits
+        ncon.data.net.V_min = (df_bus["V_min (pu)"]).tolist()
+        ncon.data.net.V_max = (df_bus["V_max (pu)"]).tolist()
 
         # GEO coordinates
         ncon.data.net.bus_lon = df_bus["Geo_lon"].tolist()
@@ -276,6 +290,10 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_gis_bgn = None
         ncon.data.net.bch_gis_end = None
 
+        net = NetworkClass(ncon)
+        net.name = name
+        return net
+
 
     elif name == 'UK_transmission_network_with_kearsley_GSP_group':
         """
@@ -301,7 +319,6 @@ def make_network(name: str) -> NetworkClass:
         uk = uk_net.data.net  # shorthand
         dn = dn_net.data.net
 
-
         # 2. Create a fresh NetConfig initialized with the transmission network model
         ncon = NetConfig()
         ncon.data.net = copy.deepcopy(uk)  # start from the UK template
@@ -321,11 +338,17 @@ def make_network(name: str) -> NetworkClass:
         def _map_pair(pair):
             return [_map_bus(pair[0]), _map_bus(pair[1])]
 
-
         # 4.  Append the distribution network data to ncon
         # 4.1) Append bus data
         new_dn_buses = [_map_bus(b) for b in dn.bus]
         ncon.data.net.bus.extend(new_dn_buses)
+
+        # ensure V_min and V_max exist on the copied UK net before extending (assign default values if not exist)
+        if getattr(ncon.data.net, 'V_min', None) is None:
+            ncon.data.net.V_min = [0.95] * len(uk.bus)
+        if getattr(ncon.data.net, 'V_max', None) is None:
+            ncon.data.net.V_max = [1.05] * len(uk.bus)
+
         ncon.data.net.V_min.extend(dn.V_min)
         ncon.data.net.V_max.extend(dn.V_max)
         ncon.data.net.Pd_max.extend(dn.Pd_max)
@@ -339,7 +362,6 @@ def make_network(name: str) -> NetworkClass:
         # tag the buses as distribution level
         ncon.data.net.bus_level.update({b: 'D' for b in new_dn_buses})
 
-
         # 4.2) Append branch data (lines & transformers)
         dn_pairs_mapped = [_map_pair(p) for p in dn.bch]
         ncon.data.net.bch.extend(dn_pairs_mapped)
@@ -348,13 +370,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_Smax.extend(dn.bch_Smax)
         ncon.data.net.bch_Pmax.extend(dn.bch_Pmax)
 
-        # tag the branches as distribution level
-        first_new_idx = len(uk.bch) + 1
-        for k in range(len(dn_pairs_mapped)):
-            ncon.data.net.branch_level[first_new_idx + k] = 'D'
-
-
-        # 4.3) Add the coupling branch between bus-184 (UK) and remapped bus-1 (DN)
+        # 4.3) Add a zero-impedance coupling branch between bus-184 (UK) and remapped bus-1 (DN)
         #      (inserted exactly after the transmission branches)
         ncon.data.net.bch.insert(len(uk.bch), [184, dn_bus_map[1]])
         ncon.data.net.bch_R.insert(len(uk.bch), 0)
@@ -362,10 +378,18 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_Smax.insert(len(uk.bch), 1e6)
         ncon.data.net.bch_Pmax.insert(len(uk.bch), 1e6)
 
-        ncon.data.net.branch_level[len(uk.bch)+1] = 'T'  # Regard this coupling branch as transmission level
+        # 4.4) Rebuild the 'branch_level' (ensure indices are correct after inserting the coupling branch)
+        num_tn = len(uk.bch)
+        num_dn = len(dn.bch)
+        ncon.data.net.branch_level = {}
+        for i in range(1, num_tn + 1):
+            ncon.data.net.branch_level[i] = 'T'
+        ncon.data.net.branch_level[num_tn + 1] = 'T'
+        for k in range(num_dn):
+            idx = num_tn + 2 + k
+            ncon.data.net.branch_level[idx] = 'D'
 
-
-        # 4.4) Append gen data
+        # 4.5) Append gen data
         ncon.data.net.gen.extend([_map_bus(b) for b in dn.gen])
         ncon.data.net.Pg_max.extend(dn.Pg_max)
         ncon.data.net.Pg_min.extend(dn.Pg_min)
@@ -373,11 +397,14 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Qg_min.extend(dn.Qg_min)
         ncon.data.net.gen_cost_coef.extend(dn.gen_cost_coef)
 
-
         # 5. Set slack & base values (same to UK transmission network)
         ncon.data.net.slack_bus = uk.slack_bus
         ncon.data.net.base_MVA = uk.base_MVA
         ncon.data.net.base_kV = uk.base_kV
+
+        net = NetworkClass(ncon)
+        net.name = name
+        return net
 
 
     elif name == 'matpower_case22':
@@ -474,8 +501,11 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Qg_min = [-10]
         ncon.data.net.gen_cost_coef = [[0, 20]]
 
+        net = NetworkClass(ncon)
+        net.name = name
+        return net
+
 
     else:
         raise ValueError(f"Unknown network preset '{name}'")
 
-    return NetworkClass(ncon)

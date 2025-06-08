@@ -65,7 +65,7 @@ from network_factory import make_network
 
 # net = make_network('UK_transmission_network')
 # model = net.build_dc_opf_model()
-# results = net.solve_dc_opf(model)
+# results = net.solve_dc_opf(model, write_xlsx=True)
 
 # net = make_network('UK_transmission_network')
 # print("BRANCH LIST (bch):", net.data.net.bch)
@@ -77,4 +77,9 @@ from network_factory import make_network
 
 net = make_network('Manchester_distribution_network_kearsley')
 model = net.build_linearized_ac_opf_model()
-results = net.solve_linearized_ac_opf(model)
+results = net.solve_linearized_ac_opf(model, write_xlsx=True)
+
+
+# net = make_network('UK_transmission_network_with_kearsley_GSP_group')
+# model = net.build_combined_dc_linearized_ac_opf_model()
+# results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
