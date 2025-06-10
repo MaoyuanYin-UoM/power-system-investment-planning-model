@@ -109,4 +109,12 @@ from network_factory import make_network
 
 inv = InvestmentClass()
 model = inv.build_investment_model()
-results = inv.solve_investment_model(model, write_lp=False, csv_path='Optimization_Results/Investment_Model/results_selected_variable.csv')
+results = inv.solve_investment_model(model, write_lp=False, write_result=True,
+                                     result_path='Optimization_Results/Investment_Model/results_selected_variable.csv'
+                                     )
+
+
+
+# visualize_network_bch(network_name="UK_transmission_network_with_kearsley_GSP_group")
+
+# visualize_bch_hrdn_and_fail(results_xlsx="")

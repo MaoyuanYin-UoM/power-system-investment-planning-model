@@ -399,8 +399,7 @@ def make_network(name: str) -> NetworkClass:
         dn_pairs_mapped = [_map_pair(p) for p in dn.bch]
         ncon.data.net.bch.extend(dn_pairs_mapped)
 
-        # simply assume all transmission branches are 0 (trafo) (i.e., cannot be hardened):
-        ncon.data.net.bch_type = [0] * len(uk.bch) + [dn_type for dn_type in dn.bch_type]
+        ncon.data.net.bch_type = list(uk.bch_type) + list(dn.bch_type)
 
         ncon.data.net.bch_R.extend(dn.bch_R)
         ncon.data.net.bch_X.extend(dn.bch_X)
@@ -456,7 +455,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.cost_rate_hrdn = 1e4  # hardening cost (£) per unit length (km) of the line and per unit amount (m/s)
         # that the fragility curve is shifted
         ncon.data.cost_bch_hrdn = [
-            ncon.data.cost_rate_hrdn * length if ncon.data.net.branch_level[i + 1] == 'D' else 0.0
+            ncon.data.cost_rate_hrdn * length if ncon.data.net.bch_type[i] == 1 else 0.0
             for i, length in enumerate(ncon.data.net.bch_length_km)
         ]  # cost per unit fragility curve shift
         # Note: only distribution line hardening is considered
@@ -471,7 +470,7 @@ def make_network(name: str) -> NetworkClass:
 
         # 6.3) line hardening limits and budget
         ncon.data.bch_hrdn_limits = [0.0, 30.0]  # in m/s
-        ncon.data.budget_bch_hrdn = 2.5e7  # in £
+        ncon.data.budget_bch_hrdn = 2.5e5  # in £
 
         net = NetworkClass(ncon)
         net.name = name

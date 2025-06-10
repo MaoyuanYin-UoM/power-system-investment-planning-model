@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 from scipy.stats import lognorm
@@ -6,7 +7,9 @@ from network import NetworkClass
 from windstorm import WindClass
 from config import InvestmentConfig
 from network_factory import make_network
+
 from pathlib import Path
+from datetime import datetime
 import math
 import json
 import os
@@ -167,7 +170,7 @@ class InvestmentClass():
         # 3. Variables
         # ------------------------------------------------------------------
         # 3.1) First-stage decision variables:
-        model.line_hrdn = pyo.Var(model.Set_bch_dn_lines,
+        model.line_hrdn = pyo.Var(model.Set_bch_lines,
                                   bounds=net.data.bch_hrdn_limits,
                                   within=pyo.NonNegativeReals)
 
@@ -321,7 +324,7 @@ class InvestmentClass():
         def investment_budget_rule(model):
             return sum(
                 model.line_hrdn_cost[l] * model.line_hrdn[l]
-                for l in model.Set_bch_dn_lines
+                for l in model.Set_bch_lines
             ) <= model.budget
 
         model.Constraint_InvestmentBudget = pyo.Constraint(rule=investment_budget_rule)
@@ -329,7 +332,7 @@ class InvestmentClass():
         # 4.2) Shifted gust speed (i.e. Line hardening) -- Note: only dn lines hardening are considered
         def shifted_gust_rule(model, sc, l, t):
             # line hardening amount can be non-zero for only dn lines
-            hrdn = model.line_hrdn[l] if l in model.Set_bch_dn_lines else 0
+            hrdn = model.line_hrdn[l] if l in model.Set_bch_lines else 0
             return model.shifted_gust_speed[sc, l, t] == model.gust_speed[sc, t] - hrdn
 
         model.Constraint_ShiftedGust = pyo.Constraint(model.Set_slt_lines, rule=shifted_gust_rule)
@@ -412,7 +415,7 @@ class InvestmentClass():
             """ If both conditions are met, fail_applies must be 1 """
             if t > 1:
                 return (model.fail_applies[sc, l, t] >= model.branch_status[sc, l, t - 1]
-                                                        + model.fail_indicator[sc, l, t] - 1)
+                        + model.fail_indicator[sc, l, t] - 1)
             else:
                 return pyo.Constraint.Skip
 
@@ -427,6 +430,17 @@ class InvestmentClass():
 
         model.Constraint_ImmediateFailure = pyo.Constraint(model.Set_slt_lines, rule=immediate_failure_rule)
 
+        # - A Branch has to keep its status at last timestep unless failure or repair happens
+        def bch_status_transition_rule(model, sc, l, t):
+            # The scenario starts with all lines operational
+            if t == 1:
+                return model.branch_status[sc, l, t] == 1
+            return (model.branch_status[sc, l, t] == model.branch_status[sc, l, t - 1] - model.fail_applies[sc, l, t]
+                    + model.repair_applies[sc, l, t])
+
+        model.Constraint_BranchStatusTransition = pyo.Constraint(
+            model.Set_slt_lines, rule=bch_status_transition_rule)
+
         # - If the branch status is operational (branch_status == 1), there must not be no failure applied during the
         #   last 'ttr' hours (fail_applies[t'] == 0, for t' from (t - ttr) to t)
         def failure_persistence_rule(model, sc, l, t):
@@ -436,6 +450,13 @@ class InvestmentClass():
                     ) <= 1
 
         model.Constraint_FailurePersistence = pyo.Constraint(model.Set_slt_lines, rule=failure_persistence_rule)
+
+        # - Branch failure and repair cannot happen simultaneously
+        def bch_fail_rep_exclusivity(model, sc, l, t):
+            return model.fail_applies[sc, l, t] + model.repair_applies[sc, l, t] <= 1
+
+        model.Constraint_FailureRepairExclusivity = pyo.Constraint(
+            model.Set_slt_lines, rule=bch_fail_rep_exclusivity)
 
         # 4.5) Power flow definitions
         def dc_flow_rule(model, sc, l, t):
@@ -594,7 +615,7 @@ class InvestmentClass():
             inv_cost = sum(
                 # line hardening cost
                 model.line_hrdn_cost[l] * model.line_hrdn[l]
-                for l in model.Set_bch_dn_lines
+                for l in model.Set_bch_lines
             )
             exp_op_cost = sum(
                 model.scn_prob[sc] * (
@@ -619,8 +640,7 @@ class InvestmentClass():
             return inv_cost + exp_op_cost
             # return exp_op_cost
 
-        model.Objective_MinimizeTotalCost = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
-
+        model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
         return model
 
@@ -631,7 +651,8 @@ class InvestmentClass():
             mip_gap: float = 5e-3,
             time_limit: int = 60,
             write_lp: bool = False,
-            csv_path: str | None = None,
+            write_result: bool = False,
+            result_path: str = 'Optimization_Results/Investment_Model/results_selected_variable.csv',
             **solver_options
     ):
         """
@@ -646,29 +667,6 @@ class InvestmentClass():
         csv_path      : If given, write a tidy CSV of selected variables
         solver_options: Extra options forwarded to the solver
         """
-        # import logging
-        # from pyomo.util.infeasible import log_infeasible_constraints
-        # logging.basicConfig(level=logging.INFO)
-        # log_infeasible_constraints(
-        #     model,
-        #     log_expression=True,  # shows the full linear expression
-        # )
-        #
-        # opt = SolverFactory("gurobi_persistent")
-        # opt.set_instance(model)
-        # opt.options["IISMethod"] = 1
-        # opt.options["DualReductions"] = 0
-        # opt.options["InfUnbdInfo"] = 1
-        #
-        # results = opt.solve(tee=True)
-        #
-        # if results.solver.termination_condition == pyo.TerminationCondition.infeasible:
-        #     opt.computeIIS()  # now available
-        #     opt.write("infeasible.ilp")  # LP file with ‘: 1’ marks
-        #     raise RuntimeError("Model infeasible – see infeasible.ilp")
-
-
-
 
         opt = SolverFactory(solver_name)
 
@@ -693,7 +691,7 @@ class InvestmentClass():
         if not ok:
             msg = f"Solver finished with status={status}, " \
                   f"termination={term_cond}, gap={mip_gap_out}"
-            if write_lp or not csv_path:  # dump model only when really needed
+            if write_lp:  # dump model only when really needed
                 model.write("LP_Models/model_at_failure.lp",
                             io_options={"symbolic_solver_labels": True})
             raise RuntimeError(msg)
@@ -703,8 +701,8 @@ class InvestmentClass():
             model.write("LP_Models/solved_model.lp",
                         io_options={"symbolic_solver_labels": True})
 
-        if csv_path:
-            self._write_selected_variables_to_csv(model, csv_path)
+        if write_result:
+            self._write_selected_variables_to_excel(model, result_path)
 
         return {
             "objective": best_obj,
@@ -714,48 +712,62 @@ class InvestmentClass():
             "runtime_s": results.solver.time
         }
 
-    def _write_selected_variables_to_csv(model, path: str = "Optimization_Results/Investment_Model/results.csv"):
+    def _write_selected_variables_to_excel(self, model,
+                                           path: str = "Optimization_Results/Investment_Model/results.csv",
+                                           meta: dict | None = None):
         """
-        Write a subset of model variables to <path> as tidy CSV.
+        Export selected variables to a multi-sheet .xlsx workbook.
 
-        Each row has:  variable , index_tuple , value
-          • For scalar variables index_tuple is left blank (“”).
-          • For indexed variables the full Pyomo index tuple is written as a
-            literal Python tuple, e.g. "(scenario-7,  14,  3)".
-
-        Parameters
-        ----------
-        model : pyomo.core.base.PyomoModel.ConcreteModel
-        path  : str or pathlib.Path
-            Output filename (parent folders are created if necessary).
+        Sheet order:
+          1) “Meta”        – network name, windstorm name, solver info, objective…
+          2) one sheet per selected variable (exact Pyomo index is kept)
         """
-        # -- choose which variables to export --------------------------------
+        # ------------ variable list -----------------------------------
         important = (
-            # 1st-stage
             "line_hrdn",
-            # generation & curtailment
             "Pg", "Qg", "Pc", "Qc",
-            # power flows
             "Pf_tn", "Pf_dn",
+            "rand_num", "branch_status", "fail_prob", "fail_condition", "impacted_branches", "fail_indicator",
+            "fail_applies", "repair_applies"
         )
 
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        with path.open("w", newline="") as f:
-            wr = csv.writer(f)
-            wr.writerow(["variable", "index_tuple", "value"])
+        # ------------ default metadata --------------------------------
+        if meta is None:
+            meta = {
+                "written_at": datetime.now().isoformat(timespec="seconds"),
+                "objective_value": float(pyo.value(model.Objective)),
+                "solver_status": str(model.solver_status) if hasattr(model, "solver_status") else "n/a",
+                # fall-back to “unknown” when attributes are missing
+                "network_name": getattr(self, "network_name", "unknown"),
+                "windstorm_name": getattr(self, "windstorm_name", "unknown"),
+            }
 
+        with pd.ExcelWriter(path, engine="xlsxwriter") as xl:
+            # 1) META sheet -----------------------------------------------------
+            pd.Series(meta, name="value").to_frame().to_excel(
+                xl, sheet_name="Meta", header=False)
+
+            # 2) one sheet per variable ---------------------------------------
             for name in important:
                 var = getattr(model, name, None)
-                if var is None:  # model might lack a given var
+                if var is None:
                     continue
 
-                if not var.is_indexed():  # scalar variable
-                    wr.writerow([name, "", pyo.value(var)])
-                else:  # indexed variable
+                rows = []
+                if not var.is_indexed():
+                    rows.append({"index": "", "value": float(pyo.value(var))})
+                else:
                     for idx in var:
-                        wr.writerow([name, str(idx), pyo.value(var[idx])])
+                        rows.append({"index": str(idx), "value": float(pyo.value(var[idx]))})
+
+                df = pd.DataFrame(rows)
+                # sheet names must be ≤31 chars and unique
+                sheet = name[:29]
+                xl.book.add_worksheet(sheet)  # ensure uniqueness
+                df.to_excel(xl, sheet_name=sheet, index=False)
 
     def piecewise_linearize_fragility(self, net, line_idx, num_pieces):
         """
@@ -766,7 +778,7 @@ class InvestmentClass():
         # gmin = min(net.data.frg.thrd_1[l - 1] for l in line_idx)
         # gmax = max(net.data.frg.thrd_2[l - 1] for l in line_idx)
         gmin = 0
-        gmax = 100
+        gmax = 120
         gust_speeds = np.linspace(gmin, gmax, num_pieces).tolist()
 
         fail_probs = {}
@@ -787,18 +799,3 @@ class InvestmentClass():
             fail_probs[l] = fp
 
         return {"gust_speeds": gust_speeds, "fail_probs": fail_probs}
-
-    def _get_bch_hrdn_limits(self):
-        return self.data.bch_hrdn_limits
-
-    def _get_cost_bch_hrdn(self):
-        return self.data.cost_bch_hrdn
-
-    def _get_cost_bch_rep(self):
-        return self.data.cost_bch_rep
-
-    def _get_cost_bus_ls(self):
-        return self.data.cost_bus_ls
-
-    def _get_budget_bch_hrdn(self):
-        return self.data.budget_bch_hrdn

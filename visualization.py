@@ -6,6 +6,7 @@ from network_factory import make_network
 from windstorm_factory import make_windstorm
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from scipy.stats import lognorm
@@ -13,6 +14,59 @@ import json
 import math
 
 from windstorm_factory import make_windstorm
+
+
+
+def visualize_network_bch(network_name: str = "default",
+                          ax=None,
+                          color="grey",
+                          alpha=0.8,
+                          linewidth=1.2):
+    """
+    Quick map of all branches of `network_name`.
+
+    Parameters
+    ----------
+    network_name : str
+        Name of the network preset registered in `network_factory`.
+    ax : matplotlib.axes.Axes | None
+        If given, draw on this axis; otherwise create a fresh figure/axis
+        **and show it before returning**.
+    color, alpha, linewidth : matplotlib styling knobs.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The axis the branches were drawn on.
+    """
+    # ----- load network & GIS data ----------------------------------------
+    net = NetworkClass() if network_name == "default" else make_network(network_name)
+    net.set_gis_data()
+    bgn = net._get_bch_gis_bgn()
+    end = net._get_bch_gis_end()
+
+    # ----- prepare axis ----------------------------------------------------
+    created_fig = False
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 8))
+        created_fig = True          # remember we own the figure
+
+    # ----- draw every branch ----------------------------------------------
+    for p, q in zip(bgn, end):
+        ax.plot([p[0], q[0]], [p[1], q[1]],
+                color=color, alpha=alpha, lw=linewidth)
+
+    # ----- cosmetics -------------------------------------------------------
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    ax.set_title(f"Branches – {network_name}")
+    ax.grid(True)
+
+    # ----- show the figure if we created it -------------------------------
+    if created_fig:
+        plt.show()
+
+    return ax
 
 
 def visualize_ws_contour(windstorm_name: str = "default"):
@@ -94,78 +148,6 @@ def visualize_fragility_curve(WindConfig):
     plt.legend()
     plt.grid()
     plt.show()
-
-
-def visualize_bch_and_ws_contour(network_name: str = "default", windstorm_name: str = "default"):
-    """
-    Visualize the branches along with the starting- and ending-points contour for windstorm path generation.
-
-    Parameters:
-    - WindConfig: Configuration object containing windstorm data.
-    - NetworkConfig: Configuration object containing network data.
-    """
-    from network import NetworkClass
-    from windstorm import WindClass
-
-    # load network model
-    if network_name == 'default':
-        net = NetworkClass()
-    else:
-        net = make_network(network_name)
-
-    # load windstorm model
-    if windstorm_name == 'default':
-        ws = WindClass()
-    else:
-        ws = make_windstorm(windstorm_name)
-
-    # Windstorm data
-    start_lon = ws.data.WS.contour.start_lon
-    start_lat = ws.data.WS.contour.start_lat
-    start_concty = ws.data.WS.contour.start_connectivity
-    end_lon = ws.data.WS.contour.end_lon
-    end_lat_coef = ws.data.WS.contour.end_lat_coef
-    end_lat = [end_lat_coef[0] * x + end_lat_coef[1] for x in end_lon]
-
-    # Branch data
-    net.set_gis_data()
-    bch_gis_bgn = net._get_bch_gis_bgn()
-    bch_gis_end = net._get_bch_gis_end()
-
-    # Validate branch data
-    if not bch_gis_bgn or not bch_gis_end:
-        print("Error: Branch GIS data is missing or invalid.")
-        return
-
-    # Create figure and axis
-    fig, ax = plt.subplots(figsize=(10, 8))
-
-    # Plot windstorm contours
-    ax.scatter(start_lon, start_lat, color='blue', label='Starting Points', zorder=2)
-    for connection in start_concty:
-        idx1, idx2 = connection[0] - 1, connection[1] - 1
-        ax.plot([start_lon[idx1], start_lon[idx2]], [start_lat[idx1], start_lat[idx2]], 'b-', alpha=0.7, zorder=1)
-
-    ax.scatter(end_lon, end_lat, color='red', label='Ending Points', zorder=2)
-    ax.plot(end_lon, end_lat, 'r-', alpha=0.7, zorder=1)
-
-    # Plot branches
-    for bgn, end in zip(bch_gis_bgn, bch_gis_end):
-        ax.plot([bgn[0], end[0]], [bgn[1], end[1]], 'g-', alpha=0.8, zorder=1, label='Branch' if bgn == bch_gis_bgn[0] else "")
-
-    # Set axis limits
-    ax.relim()
-    ax.autoscale()
-
-    # Labels, title, and legend
-    ax.set_xlabel("Longitude")
-    ax.set_ylabel("Latitude")
-    ax.set_title("Branches and Windstorm Contours")
-    ax.legend()
-    ax.grid(True)
-
-    plt.show()
-
 
 
 def visualize_windstorm_event(file_path, scenario_number, event_number):
@@ -255,7 +237,7 @@ def visualize_windstorm_event(file_path, scenario_number, event_number):
 
 
 def visualize_all_windstorm_events(
-    file_path="Scenario_Results/all_full_scenarios_year.json"
+        file_path="Scenario_Results/all_full_scenarios_year.json"
 ):
     """
     Loop through all scenarios/events in the given JSON and
@@ -277,10 +259,147 @@ def visualize_all_windstorm_events(
             print(f"Scenario {scen_idx} has no events, skipping.")
             continue
 
-        for ev_idx in range(1, num_events+1):
+        for ev_idx in range(1, num_events + 1):
             print(f"Visualizing Scenario {scen_idx}, Event {ev_idx}...")
             visualize_windstorm_event(
                 file_path=file_path,
                 scenario_number=scen_idx,
                 event_number=ev_idx
             )
+
+
+def visualize_bch_and_ws_contour(network_name: str = "default", windstorm_name: str = "default"):
+    """
+    Visualize the branches along with the starting- and ending-points contour for windstorm path generation.
+
+    Parameters:
+    - WindConfig: Configuration object containing windstorm data.
+    - NetworkConfig: Configuration object containing network data.
+    """
+    from network import NetworkClass
+    from windstorm import WindClass
+
+    # load network model
+    if network_name == 'default':
+        net = NetworkClass()
+    else:
+        net = make_network(network_name)
+
+    # load windstorm model
+    if windstorm_name == 'default':
+        ws = WindClass()
+    else:
+        ws = make_windstorm(windstorm_name)
+
+    # Windstorm data
+    start_lon = ws.data.WS.contour.start_lon
+    start_lat = ws.data.WS.contour.start_lat
+    start_concty = ws.data.WS.contour.start_connectivity
+    end_lon = ws.data.WS.contour.end_lon
+    end_lat_coef = ws.data.WS.contour.end_lat_coef
+    end_lat = [end_lat_coef[0] * x + end_lat_coef[1] for x in end_lon]
+
+    # Branch data
+    net.set_gis_data()
+    bch_gis_bgn = net._get_bch_gis_bgn()
+    bch_gis_end = net._get_bch_gis_end()
+
+    # Validate branch data
+    if not bch_gis_bgn or not bch_gis_end:
+        print("Error: Branch GIS data is missing or invalid.")
+        return
+
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    # Plot windstorm contours
+    ax.scatter(start_lon, start_lat, color='blue', label='Starting Points', zorder=2)
+    for connection in start_concty:
+        idx1, idx2 = connection[0] - 1, connection[1] - 1
+        ax.plot([start_lon[idx1], start_lon[idx2]], [start_lat[idx1], start_lat[idx2]], 'b-', alpha=0.7, zorder=1)
+
+    ax.scatter(end_lon, end_lat, color='red', label='Ending Points', zorder=2)
+    ax.plot(end_lon, end_lat, 'r-', alpha=0.7, zorder=1)
+
+    # Plot branches
+    for bgn, end in zip(bch_gis_bgn, bch_gis_end):
+        ax.plot([bgn[0], end[0]], [bgn[1], end[1]], 'g-', alpha=0.8, zorder=1,
+                label='Branch' if bgn == bch_gis_bgn[0] else "")
+
+    # Set axis limits
+    ax.relim()
+    ax.autoscale()
+
+    # Labels, title, and legend
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    ax.set_title("Branches and Windstorm Contours")
+    ax.legend()
+    ax.grid(True)
+
+    plt.show()
+
+
+def visualize_bch_hrdn_and_fail(results_xlsx: str,
+                                plot_area: tuple | None = None,
+                                hrdn_color="orange",
+                                fail_color="red",
+                                base_color="grey"):
+    """
+    Read the Excel produced by the investment model and highlight
+      • hardened lines  (line_hrdn>0)         – *hrdn_color*
+      • lines that *ever* fail in any scenario – *fail_color*
+    Optional `plot_area = (lon_min, lon_max, lat_min, lat_max)`
+    """
+    book = pd.ExcelFile(results_xlsx)
+
+    # ---- metadata → load the right network -----------------------
+    meta = book.parse("Meta", header=None).set_index(0)[1].to_dict()
+    net_name = meta.get("network_name", "default")
+    net = NetworkClass() if net_name == "default" else make_network(net_name)
+    net.set_gis_data()
+    bgn = net._get_bch_gis_bgn()
+    end = net._get_bch_gis_end()
+    n_lines = len(bgn)
+
+    # ---- hardened lines -----------------------------------------
+    if "line_hrdn" not in book.sheet_names:
+        raise ValueError("Sheet 'line_hrdn' not found!")
+    hrdn = book.parse("line_hrdn")
+    # assume DataFrame columns: index , value
+    hard_set = {int(idx.strip("() ").split(",")[0])  # branch id
+                for idx, val in zip(hrdn["index"], hrdn["value"])
+                if float(val) > 0}
+
+    # ---- failed lines -------------------------------------------
+    if "branch_status" not in book.sheet_names:
+        raise ValueError("Sheet 'branch_status' not found!")
+    bs = book.parse("branch_status")
+
+    fail_set = set()
+    for idx, val in zip(bs["index"], bs["value"]):
+        if float(val) < 0.5:  # status==0
+            br = int(idx.strip("() ").split(",")[1])  # (sc, branch, t)
+            fail_set.add(br)
+
+    # ---- plot ----------------------------------------------------
+    ax = visualize_network_bch(net_name, color=base_color, linewidth=1.0)
+
+    for l in hard_set:
+        p, q = bgn[l - 1], end[l - 1]
+        ax.plot([p[0], q[0]], [p[1], q[1]],
+                color=hrdn_color, lw=2.2, label="Hardened" if l == next(iter(hard_set)) else "")
+
+    for l in fail_set:
+        p, q = bgn[l - 1], end[l - 1]
+        ax.plot([p[0], q[0]], [p[1], q[1]],
+                color=fail_color, lw=2.2, label="Failed" if l == next(iter(fail_set)) else "")
+
+    if plot_area:
+        xmin, xmax, ymin, ymax = plot_area
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
+
+    ax.legend()
+    ax.set_title(f"Hardening & Failure – {net_name}")
+    plt.show()
