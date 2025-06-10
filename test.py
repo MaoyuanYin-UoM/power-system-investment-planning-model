@@ -89,29 +89,29 @@ from network_factory import make_network
 
 
 
-# num_ws_prd = [1]
-# seed = 101
-# generate_ws_scenarios(num_ws_prd=num_ws_prd,
-#                       seed=seed,
-#                       network_preset='UK_transmission_network_with_kearsley_GSP_group',
-#                       windstorm_preset='windstorm_UK_transmission_network')
-#
-# extract_ws_scenarios(full_file=f'Scenario_Results/Full_Scenarios/{len(num_ws_prd)}_full_scenarios_UK_transmission_network_with_kearsley_GSP_group_windstorm_UK_transmission_network_year_seed_{seed}.json',
-#                      out_file=f'Scenario_Results/Extracted_Scenarios/{len(num_ws_prd)}_ws_scenarios_UK-Kearsley_network_seed_{seed}.json')
-#
-# for i in range(len(num_ws_prd)):
-#     for j in range(num_ws_prd[i]):
-#         visualize_windstorm_event(file_path=f'Scenario_Results/Extracted_Scenarios/{len(num_ws_prd)}_ws_scenarios_UK-Kearsley_network_seed_{seed}.json',
-#                                   scenario_number=i, event_number=j)
+num_ws_prd = [1, 1, 1, 1, 1]
+seed = 102
+generate_ws_scenarios(num_ws_prd=num_ws_prd,
+                      seed=seed,
+                      network_preset='UK_transmission_network_with_kearsley_GSP_group',
+                      windstorm_preset='windstorm_UK_transmission_network')
+
+extract_ws_scenarios(full_file=f'Scenario_Results/Full_Scenarios/{len(num_ws_prd)}_full_scenarios_UK_transmission_network_with_kearsley_GSP_group_windstorm_UK_transmission_network_year_seed_{seed}.json',
+                     out_file=f'Scenario_Results/Extracted_Scenarios/{len(num_ws_prd)}_ws_scenarios_UK-Kearsley_network_seed_{seed}.json')
+
+for i in range(len(num_ws_prd)):
+    for j in range(num_ws_prd[i]):
+        visualize_windstorm_event(file_path=f'Scenario_Results/Extracted_Scenarios/{len(num_ws_prd)}_ws_scenarios_UK-Kearsley_network_seed_{seed}.json',
+                                  scenario_number=i, event_number=j)
 
 
 
 
-inv = InvestmentClass()
-model = inv.build_investment_model()
-results = inv.solve_investment_model(model, write_lp=False, write_result=True,
-                                     result_path='Optimization_Results/Investment_Model/results_selected_variable.csv'
-                                     )
+# inv = InvestmentClass()
+# model = inv.build_investment_model()
+# results = inv.solve_investment_model(model, write_lp=False, write_result=True,
+#                                      result_path='Optimization_Results/Investment_Model/results_selected_variable.csv'
+#                                      )
 
 
 

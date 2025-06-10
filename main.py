@@ -7,15 +7,10 @@ from windstorm import *
 from network import *
 from investment_model import *
 
+path_ws_scenarios = "Scenario_Results/Extracted_Scenarios/5_ws_scenarios_UK-Kearsley_network_seed_102.json"
 
-wcon = WindConfig()
-ws = WindClass(wcon)
-
-ncon = NetConfig()
-net = NetworkClass(ncon)
-
-icon = InvestmentConfig()
-inv = InvestmentClass(icon)
-
-model = inv.build_investment_model()
-inv.solve_investment_model(model, solver='gurobi')
+inv = InvestmentClass()
+model = inv.build_investment_model(path_all_ws_scenarios=path_ws_scenarios)
+results = inv.solve_investment_model(model, write_lp=False, write_result=True,
+                                     result_path='Optimization_Results/Investment_Model/results_selected_variable.csv'
+                                     )

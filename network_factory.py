@@ -299,8 +299,8 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         # 7.  Cost-related parameters ---------------------------
         # -----------------------------------------------------------
-        ncon.data.net.Pc_cost = [100] * len(ncon.data.net.bus)  # active load shedding cost
-        ncon.data.net.Qc_cost = [100] * len(ncon.data.net.bus)  # reactive load shedding cost
+        ncon.data.net.Pc_cost = [500] * len(ncon.data.net.bus)  # active load shedding cost
+        ncon.data.net.Qc_cost = [500] * len(ncon.data.net.bus)  # reactive load shedding cost
 
         ncon.data.net.Pimp_cost = 50  # active power importing cost
         ncon.data.net.Pexp_cost = -10  # active power exporting remuneration
@@ -452,7 +452,7 @@ def make_network(name: str) -> NetworkClass:
 
         # 6. Specify additional data that are needed when building the investment model
         # 6.1) line hardening cost
-        ncon.data.cost_rate_hrdn = 1e4  # hardening cost (£) per unit length (km) of the line and per unit amount (m/s)
+        ncon.data.cost_rate_hrdn = 1e5  # hardening cost (£) per unit length (km) of the line and per unit amount (m/s)
         # that the fragility curve is shifted
         ncon.data.cost_bch_hrdn = [
             ncon.data.cost_rate_hrdn * length if ncon.data.net.bch_type[i] == 1 else 0.0
@@ -461,8 +461,8 @@ def make_network(name: str) -> NetworkClass:
         # Note: only distribution line hardening is considered
 
         # 6.2) line repair cost
-        rep_rate_tn = 3e3  # repair cost (£) per unit length (km) of line at transmission level
-        rep_rate_dn = 3e3  # repair cost (£) per unit length (km) of line at distribution level
+        rep_rate_tn = 1e2  # repair cost (£) per unit length (km) of line at transmission level
+        rep_rate_dn = 1e2  # repair cost (£) per unit length (km) of line at distribution level
         ncon.data.cost_bch_rep = [
             rep_rate_tn * length if ncon.data.net.branch_level[i + 1] == 'D' else rep_rate_dn * length
             for i, length in enumerate(ncon.data.net.bch_length_km)
@@ -470,7 +470,7 @@ def make_network(name: str) -> NetworkClass:
 
         # 6.3) line hardening limits and budget
         ncon.data.bch_hrdn_limits = [0.0, 30.0]  # in m/s
-        ncon.data.budget_bch_hrdn = 2.5e5  # in £
+        ncon.data.budget_bch_hrdn = 1e6  # in £
 
         net = NetworkClass(ncon)
         net.name = name

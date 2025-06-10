@@ -25,6 +25,23 @@ def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_
     net = make_network(network_preset)
     ws = make_windstorm(windstorm_preset)
 
+    if num_ws_prd is not None:
+        ws.data.MC.num_prds = len(num_ws_prd)
+        ws.MC.WS.num_ws_prd = list(num_ws_prd)
+        ws.MC.WS.num_ws_total = sum(num_ws_prd)
+
+        # re-draw any arrays that depend on the total number of events
+        max_v, min_v = ws._get_lim_max_v_ws(), ws._get_lim_min_v_ws()
+        lim_lng_ws = ws._get_lim_lng_ws()
+        ws.MC.WS.lim_v_ws_all = [
+            [np.random.uniform(*max_v), np.random.uniform(*min_v)]
+            for _ in range(ws.MC.WS.num_ws_total)
+        ]
+        ws.MC.WS.lng = [
+            np.random.randint(*lim_lng_ws)
+            for _ in range(ws.MC.WS.num_ws_total)
+        ]
+
     ws.crt_bgn_hr()
     ws.init_ws_path0()
 
@@ -37,7 +54,8 @@ def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_
     all_results = []
 
     # loop over each simulation
-    for prd in range(len(num_ws_prd)):
+    global_evt = 0
+    for prd, n_evt in enumerate(num_ws_prd):
         net.set_gis_data()
         bch_gis_bgn = net._get_bch_gis_bgn()
         bch_gis_end = net._get_bch_gis_end()
@@ -50,12 +68,12 @@ def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_
         start_lon, start_lat, end_lon, end_lat = ws.init_ws_path(num_ws_prd[prd])
 
         # loop over each windstorm events in a simulation
-        for i in range(num_ws_prd[prd]):
+        for i in range(n_evt):
             ts = int(ws.MC.WS.bgn_hrs_ws_prd[prd][i])
-            lng_ws = ws._get_lng_ws()[i]
+            lng_ws = ws._get_lng_ws()[global_evt]
             path_ws = ws.crt_ws_path(start_lon[i], start_lat[i], end_lon[i], end_lat[i], lng_ws)
             radius_ws = ws.crt_ws_radius(lng_ws)
-            v_ws = ws.crt_ws_v(ws._get_lim_v_ws_all()[i], lng_ws)
+            v_ws = ws.crt_ws_v(ws._get_lim_v_ws_all()[global_evt], lng_ws)
 
             for t in range(lng_ws):
                 epicentre = path_ws[t]
@@ -71,6 +89,8 @@ def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_
                 "radius": radius_ws.tolist(),
                 "gust_speed": v_ws
             })
+
+            global_evt += 1
 
         ttr_min, ttr_max = ws.data.WS.event.ttr
         bch_ttr = np.random.randint(ttr_min, ttr_max, size=num_bch)
