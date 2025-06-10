@@ -109,4 +109,4 @@ from network_factory import make_network
 
 inv = InvestmentClass()
 model = inv.build_investment_model()
-results = inv.solve_investment_model(model, write_lp=True, csv_path='Optimization_Results/Investment_Model/results_selected_variable.csv')
+results = inv.solve_investment_model(model, write_lp=False, csv_path='Optimization_Results/Investment_Model/results_selected_variable.csv')

@@ -470,7 +470,7 @@ def make_network(name: str) -> NetworkClass:
         ]  # Note: the line repair at both transmission and distribution level are considered
 
         # 6.3) line hardening limits and budget
-        ncon.data.bch_hrdn_limits = [0.0, 60.0]  # in m/s
+        ncon.data.bch_hrdn_limits = [0.0, 30.0]  # in m/s
         ncon.data.budget_bch_hrdn = 2.5e7  # in £
 
         net = NetworkClass(ncon)

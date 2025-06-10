@@ -198,7 +198,7 @@ class InvestmentClass():
 
         # - failure logic related (both tn and dn line failures are considered) (only 'lines' are failable)
         model.shifted_gust_speed = pyo.Var(model.Set_slt_lines,  # represent line hardening
-                                           within=pyo.NonNegativeReals, bounds=(0, 100))
+                                           within=pyo.NonNegativeReals, bounds=(-10, 120))
         model.fail_prob = pyo.Var(model.Set_slt_lines,  #
                                   within=pyo.NonNegativeReals, bounds=(0, 1))
         model.fail_condition = pyo.Var(model.Set_slt_lines, within=pyo.Binary)
@@ -763,8 +763,10 @@ class InvestmentClass():
                  "fail_probs" : { l: [p(t1),…,p(tn)] for l in line_idx } }
         """
         # restrict mins / maxs to *lines* only
-        gmin = min(net.data.frg.thrd_1[l - 1] for l in line_idx)
-        gmax = max(net.data.frg.thrd_2[l - 1] for l in line_idx)
+        # gmin = min(net.data.frg.thrd_1[l - 1] for l in line_idx)
+        # gmax = max(net.data.frg.thrd_2[l - 1] for l in line_idx)
+        gmin = 0
+        gmax = 100
         gust_speeds = np.linspace(gmin, gmax, num_pieces).tolist()
 
         fail_probs = {}
