@@ -1,4 +1,3 @@
-
 import json
 from config import *
 from utils import *
@@ -9,7 +8,6 @@ from investment_model import *
 from compute_baseline_yearly_cost import *
 from scenario_generation_model import *
 from network_factory import make_network
-
 
 # wcon = WindConfig()
 # ws = WindClass(wcon)
@@ -27,7 +25,6 @@ from network_factory import make_network
 # print(inv.piecewise_linearize_fragility(ws, num_pieces=10))
 
 
-
 # visualize_fragility_curve(wcon)
 # visualize_bch_and_ws_contour(network_name='matpower_case22', windstorm_name='windstorm_1_matpower_case22')
 #
@@ -40,7 +37,6 @@ from network_factory import make_network
 # run_full_year_dc_opf()
 
 # visualize_all_windstorm_events()
-
 
 
 # # ==================================
@@ -56,7 +52,6 @@ from network_factory import make_network
 # generate_ws_scenarios(network_preset='matpower_case22', windstorm_preset='windstorm_1_matpower_case22')
 # extract_ws_scenarios('Scenario_Results/all_full_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json',
 #                      'Scenario_Results/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json')
-
 
 
 # visualize_windstorm_event('Scenario_Results/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json', 1, 1)
@@ -93,19 +88,25 @@ from network_factory import make_network
 #                              windstorm_name='windstorm_UK_transmission_network')
 
 
-# generate_ws_scenarios(seed=101,
+
+# num_ws_prd = [1]
+# seed = 101
+# generate_ws_scenarios(num_ws_prd=num_ws_prd,
+#                       seed=seed,
 #                       network_preset='UK_transmission_network_with_kearsley_GSP_group',
 #                       windstorm_preset='windstorm_UK_transmission_network')
-
-# extract_ws_scenarios(full_file='Scenario_Results/Full_Scenarios/all_full_scenarios_UK_transmission_network_with_kearsley_GSP_group_windstorm_UK_transmission_network_year_seed_101.json',
-#                      out_file='Scenario_Results/Extracted_Scenarios/all_ws_scenarios_UK-Kearsley_network_seed_101.json')
 #
-# n_sim = 3
-# for i in range(1, n_sim + 1):
-#     visualize_windstorm_event(file_path='Scenario_Results/Extracted_Scenarios/all_ws_scenarios_UK-Kearsley_network_seed_101.json',
-#                               scenario_number=i, event_number=1)
+# extract_ws_scenarios(full_file=f'Scenario_Results/Full_Scenarios/{len(num_ws_prd)}_full_scenarios_UK_transmission_network_with_kearsley_GSP_group_windstorm_UK_transmission_network_year_seed_{seed}.json',
+#                      out_file=f'Scenario_Results/Extracted_Scenarios/{len(num_ws_prd)}_ws_scenarios_UK-Kearsley_network_seed_{seed}.json')
+#
+# for i in range(len(num_ws_prd)):
+#     for j in range(num_ws_prd[i]):
+#         visualize_windstorm_event(file_path=f'Scenario_Results/Extracted_Scenarios/{len(num_ws_prd)}_ws_scenarios_UK-Kearsley_network_seed_{seed}.json',
+#                                   scenario_number=i, event_number=j)
+
+
 
 
 inv = InvestmentClass()
 model = inv.build_investment_model()
-results = inv.solve_investment_model(model)
+results = inv.solve_investment_model(model, write_lp=True, csv_path='Optimization_Results/Investment_Model/results_selected_variable.csv')

@@ -12,7 +12,7 @@ from network_factory import make_network
 from windstorm_factory import make_windstorm
 
 
-def generate_ws_scenarios(seed=None, out_dir="Scenario_Results/Full_Scenarios",
+def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_Scenarios",
                           network_preset="default", windstorm_preset="default"):
     """
     Generate and save full windstorm scenarios.
@@ -28,7 +28,9 @@ def generate_ws_scenarios(seed=None, out_dir="Scenario_Results/Full_Scenarios",
     ws.crt_bgn_hr()
     ws.init_ws_path0()
 
-    num_ws_prd = ws.MC.WS.num_ws_prd
+    if not num_ws_prd:
+        num_ws_prd = ws.MC.WS.num_ws_prd
+
     num_bch = len(net.data.net.bch)
     num_hrs_prd = ws._get_num_hrs_prd()
 
@@ -97,7 +99,7 @@ def generate_ws_scenarios(seed=None, out_dir="Scenario_Results/Full_Scenarios",
     # write out
     os.makedirs(out_dir, exist_ok=True)
     file_name = (
-        f"all_full_scenarios_"
+        f"{len(num_ws_prd)}_full_scenarios_"
         f"{network_preset}_{windstorm_preset}_{ws.data.MC.lng_prd}_seed_{seed}.json"
     )
     path = os.path.join(out_dir, file_name)

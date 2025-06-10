@@ -30,7 +30,7 @@ class InvestmentClass():
             setattr(self, pars, getattr(obj, pars))
 
     def build_investment_model(self,
-                               path_all_ws_scenarios: str = "Scenario_Results/Extracted_Scenarios/all_ws_scenarios_UK-Kearsley_network_seed_101.json"):
+                               path_all_ws_scenarios: str = "Scenario_Results/Extracted_Scenarios/1_ws_scenarios_UK-Kearsley_network_seed_101.json"):
         """
         Build a Pyomo MILP model for resilience enhancement investment planning (line hardening)
         against windstorms, using the form of stochastic programming over multiple scenarios.
@@ -305,12 +305,6 @@ class InvestmentClass():
                 for t, val in enumerate(sim["flgs_impacted_bch"][l - 1], start=1):
                     impact_dict[(sc, l, t)] = val
 
-        # model.gust_speed = pyo.Param(model.Set_scn,
-        #                              initialize={sc: 0})  # dummy, used only in expression
-        # model.gust_speed = pyo.Param(model.Set_slt_tn_lines | model.Set_slt_dn_lines,
-        #                              initialize={(sc, l, t): gust_dict[(sc, t)] for (sc, l, t) in
-        #                                          model.Set_slt_tn_lines | model.Set_slt_dn_lines}
-        #                              )
         model.gust_speed = pyo.Param(model.Set_st,
                                      initialize=gust_dict)
         model.rand_num = pyo.Param(model.Set_slt_tn | model.Set_slt_dn,
@@ -360,9 +354,9 @@ class InvestmentClass():
             pw_repn="DCC")
 
         # 4.4) Failure logic constraints (unchanged from the original version)
-        BigM = 1e3
+        BigM = 1e6
 
-        # If a branch is not failable, its status must be kept as 1
+        # - If a branch is not failable, its status must be kept as 1
         def fix_nonline_status(model, sc, l, t):
             # net.data.net.bch_type is 1 for real lines, 0 for transformers/couplers
             if net.data.net.bch_type[l - 1] == 0:
@@ -373,6 +367,8 @@ class InvestmentClass():
         model.Constraint_FixNonlineStatus = pyo.Constraint(model.Set_slt_tn | model.Set_slt_dn,
                                                            rule=fix_nonline_status)
 
+        # - If the random number falls within the failure probability (rand_num <= fail_prob), the failure condition is
+        #   met (fail_condition == 1), otherwise failure condition is not met (fail_condition == 0)
         def fail_cond_1(model, sc, l, t):
             return model.fail_prob[sc, l, t] - model.rand_num[sc, l, t] <= BigM * model.fail_condition[sc, l, t]
 
@@ -382,6 +378,8 @@ class InvestmentClass():
         model.Constraint_FailCond1 = pyo.Constraint(model.Set_slt_lines, rule=fail_cond_1)
         model.Constraint_FailCond2 = pyo.Constraint(model.Set_slt_lines, rule=fail_cond_2)
 
+        # - If failure condition is met (fail_condition == 1) and the branch is impacted (impacted_branch == 1),
+        #   the failure indicator is on (fail_indicator == 1), otherwise it is off (fail_indicator == 0)
         def fail_ind_1(model, sc, l, t):
             return model.fail_indicator[sc, l, t] <= model.fail_condition[sc, l, t]
 
@@ -396,15 +394,48 @@ class InvestmentClass():
         model.Constraint_FailInd2 = pyo.Constraint(model.Set_slt_lines, rule=fail_ind_2)
         model.Constraint_FailInd3 = pyo.Constraint(model.Set_slt_lines, rule=fail_ind_3)
 
-        # branch_status = 0 if failed and before repair duration ends
-        def failure_duration_rule(model, sc, l, t):
-            if t > model.branch_ttr[sc, l]:
-                return model.branch_status[sc, l, t] == \
-                    1 - sum(model.fail_applies[sc, l, tp]
-                            for tp in range(t - model.branch_ttr[sc, l], t))
-            return pyo.Constraint.Skip
+        # - If failure indicator is on (fail_indicator == 1) and the branch is operational at the last timestep
+        #   (branch_status[t-1] == 1), the branch fails (fail_applies == 1, and branch_status[t] == 0), otherwise
+        #   nothing happens (fail_applies == 0)
+        def fail_activation_rule_1(model, sc, l, t):
+            """ fail_applies can be 1 only if both branch_status at timestep 't-1' is 1 """
+            if t > 1:
+                return model.fail_applies[sc, l, t] <= model.branch_status[sc, l, t - 1]
+            else:
+                return pyo.Constraint.Skip
 
-        model.Constraint_FailureDuration = pyo.Constraint(model.Set_slt_lines, rule=failure_duration_rule)
+        def fail_activation_rule_2(model, sc, l, t):
+            """ fail_applies can be 1 only if fail_indicator is 1 """
+            return model.fail_applies[sc, l, t] <= model.fail_indicator[sc, l, t]
+
+        def fail_activation_rule_3(model, sc, l, t):
+            """ If both conditions are met, fail_applies must be 1 """
+            if t > 1:
+                return (model.fail_applies[sc, l, t] >= model.branch_status[sc, l, t - 1]
+                                                        + model.fail_indicator[sc, l, t] - 1)
+            else:
+                return pyo.Constraint.Skip
+
+        model.Constraint_FailActivation1 = pyo.Constraint(model.Set_slt_lines, rule=fail_activation_rule_1)
+        model.Constraint_FailActivation2 = pyo.Constraint(model.Set_slt_lines, rule=fail_activation_rule_2)
+        model.Constraint_FailActivation3 = pyo.Constraint(model.Set_slt_lines, rule=fail_activation_rule_3)
+
+        # - If failure applies (fail_applies == 1), the branch status at this timestep must be failed
+        #   (branch_status[t] == 0)
+        def immediate_failure_rule(model, sc, l, t):
+            return model.branch_status[sc, l, t] <= 1 - model.fail_applies[sc, l, t]
+
+        model.Constraint_ImmediateFailure = pyo.Constraint(model.Set_slt_lines, rule=immediate_failure_rule)
+
+        # - If the branch status is operational (branch_status == 1), there must not be no failure applied during the
+        #   last 'ttr' hours (fail_applies[t'] == 0, for t' from (t - ttr) to t)
+        def failure_persistence_rule(model, sc, l, t):
+            window_start = max(1, t - model.branch_ttr[sc, l] + 1)
+            return (model.branch_status[sc, l, t]
+                    + sum(model.fail_applies[sc, l, τ] for τ in range(window_start, t + 1))
+                    ) <= 1
+
+        model.Constraint_FailurePersistence = pyo.Constraint(model.Set_slt_lines, rule=failure_persistence_rule)
 
         # 4.5) Power flow definitions
         def dc_flow_rule(model, sc, l, t):
@@ -584,7 +615,9 @@ class InvestmentClass():
                 )
                 for sc in Set_scn
             )
+
             return inv_cost + exp_op_cost
+            # return exp_op_cost
 
         model.Objective_MinimizeTotalCost = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
@@ -613,6 +646,30 @@ class InvestmentClass():
         csv_path      : If given, write a tidy CSV of selected variables
         solver_options: Extra options forwarded to the solver
         """
+        # import logging
+        # from pyomo.util.infeasible import log_infeasible_constraints
+        # logging.basicConfig(level=logging.INFO)
+        # log_infeasible_constraints(
+        #     model,
+        #     log_expression=True,  # shows the full linear expression
+        # )
+        #
+        # opt = SolverFactory("gurobi_persistent")
+        # opt.set_instance(model)
+        # opt.options["IISMethod"] = 1
+        # opt.options["DualReductions"] = 0
+        # opt.options["InfUnbdInfo"] = 1
+        #
+        # results = opt.solve(tee=True)
+        #
+        # if results.solver.termination_condition == pyo.TerminationCondition.infeasible:
+        #     opt.computeIIS()  # now available
+        #     opt.write("infeasible.ilp")  # LP file with ‘: 1’ marks
+        #     raise RuntimeError("Model infeasible – see infeasible.ilp")
+
+
+
+
         opt = SolverFactory(solver_name)
 
         # --- default options -------------------------------------------------
@@ -657,7 +714,7 @@ class InvestmentClass():
             "runtime_s": results.solver.time
         }
 
-    def _write_selected_variables_to_csv(model, path: str = "Optimization_Results/Investment_Model/results"):
+    def _write_selected_variables_to_csv(model, path: str = "Optimization_Results/Investment_Model/results.csv"):
         """
         Write a subset of model variables to <path> as tidy CSV.
 
