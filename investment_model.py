@@ -1,5 +1,3 @@
-
-
 import numpy as np
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
@@ -32,7 +30,7 @@ class InvestmentClass():
             setattr(self, pars, getattr(obj, pars))
 
     def build_investment_model(self,
-                               path_all_ws_scenarios: str = "Scenario_Results/Extracted_Scenarios/all_ws_scenarios_UK-Kearsley_network_seed_100.json"):
+                               path_all_ws_scenarios: str = "Scenario_Results/Extracted_Scenarios/all_ws_scenarios_UK-Kearsley_network_seed_101.json"):
         """
         Build a Pyomo MILP model for resilience enhancement investment planning (line hardening)
         against windstorms, using the form of stochastic programming over multiple scenarios.
@@ -50,12 +48,22 @@ class InvestmentClass():
         net = make_network("UK_transmission_network_with_kearsley_GSP_group")
 
         with open(path_all_ws_scenarios) as f:
-            ws_scenarios = json.load(f)
+            data = json.load(f)
+
+        # Accept both the “old” (list) and the “new” (dict-with-wrapper) format
+        if isinstance(data, dict):
+            if "ws_scenarios" in data:
+                ws_scenarios = data["ws_scenarios"]
+            elif "scenarios" in data:  # older extractor name
+                ws_scenarios = data["scenarios"]
+            else:
+                raise ValueError("JSON does not contain 'ws_scenarios' or 'scenarios'")
+        else:  # already a list
+            ws_scenarios = data
 
         Set_scn = [sim["simulation_id"] for sim in ws_scenarios]
-        scn_prob = {sc: 1.0 / len(Set_scn) for sc in Set_scn}
+        scn_prob = {sc: 1 / len(Set_scn) for sc in Set_scn}  # uniform
 
-        # helper: absolute-hour mapping (t → hour in full-profile)
         _abs_start = {sim["simulation_id"]: sim["events"][0]["bgn_hr"]
                       for sim in ws_scenarios}
 
@@ -69,11 +77,17 @@ class InvestmentClass():
 
         Set_bch_tn = [l for l in range(1, len(net.data.net.bch) + 1)
                       if net.data.net.branch_level[l] in ("T", "T-D")]
+
         Set_bch_dn = [l for l in range(1, len(net.data.net.bch) + 1)
                       if net.data.net.branch_level[l] == "D"]
 
+        Set_bch_tn_lines = [l for l in Set_bch_tn
+                            if net.data.net.bch_type[l - 1] == 1]  # hardenable branches (i.e., lines) at tn level
+
         Set_bch_dn_lines = [l for l in Set_bch_dn
-                            if net.data.net.bch_type[l - 1] == 1]  # hardenable branches (i.e., distribution lines)
+                            if net.data.net.bch_type[l - 1] == 1]  # hardenable branches (i.e., lines) at dn level
+
+        Set_bch_lines = Set_bch_tn_lines + Set_bch_dn_lines  # all hardenable branches
 
         Set_gen = list(range(1, len(net.data.net.gen) + 1))
 
@@ -83,28 +97,45 @@ class InvestmentClass():
             for sim in ws_scenarios
         }
 
-        # build the usual tuple sets because Pyomo cannot index a Set by Set
+        # Tuple sets:
+        #  - st: scenario, timestep
         #  - sbt: scenario, bus, timestep
         #  - slt: scenario, branch, timestep
         #  - sgt: scenario, gen, timestep
+        Set_st = [(sc, t) for sc in Set_scn for t in Set_ts_scn[sc]]
+
         Set_sbt = [(sc, b, t) for sc in Set_scn
                    for b in net.data.net.bus
                    for t in Set_ts_scn[sc]]
+
+        Set_sbt_tn = [(sc, b, t) for (sc, b, t) in Set_sbt if b in Set_bus_tn]
+
         Set_sbt_dn = [(sc, b, t) for (sc, b, t) in Set_sbt if b in Set_bus_dn]
 
         Set_slt_tn = [(sc, l, t) for sc in Set_scn
                       for l in Set_bch_tn
                       for t in Set_ts_scn[sc]]
+
         Set_slt_dn = [(sc, l, t) for sc in Set_scn
                       for l in Set_bch_dn
                       for t in Set_ts_scn[sc]]
+
+        Set_slt_tn_lines = [(sc, l, t) for sc in Set_scn
+                            for l in Set_bch_tn_lines
+                            for t in Set_ts_scn[sc]]
+
+        Set_slt_dn_lines = [(sc, l, t) for sc in Set_scn
+                            for l in Set_bch_dn_lines
+                            for t in Set_ts_scn[sc]]
+
+        Set_slt_lines = Set_slt_tn_lines + Set_slt_dn_lines
 
         Set_sgt = [(sc, g, t) for sc in Set_scn
                    for g in Set_gen
                    for t in Set_ts_scn[sc]]
 
         # ------------------------------------------------------------------
-        # 2. Sets
+        # 2. Initialize Pyomo sets
         # ------------------------------------------------------------------
         model = pyo.ConcreteModel()
 
@@ -113,16 +144,23 @@ class InvestmentClass():
         model.Set_bus_dn = pyo.Set(initialize=Set_bus_dn)
         model.Set_bch_tn = pyo.Set(initialize=Set_bch_tn)
         model.Set_bch_dn = pyo.Set(initialize=Set_bch_dn)
+        model.Set_bch_tn_lines = pyo.Set(initialize=Set_bch_tn_lines)
         model.Set_bch_dn_lines = pyo.Set(initialize=Set_bch_dn_lines)
+        model.Set_bch_lines = pyo.Set(initialize=Set_bch_lines)
         model.Set_gen = pyo.Set(initialize=Set_gen)
 
         model.Set_ts_scn = {sc: pyo.Set(initialize=Set_ts_scn[sc])
-                            for sc in Set_scn}  # for iteration ease
+                            for sc in Set_scn}
 
+        model.Set_st = pyo.Set(initialize=Set_st, dimen=2)
         model.Set_sbt = pyo.Set(initialize=Set_sbt, dimen=3)
         model.Set_sbt_dn = pyo.Set(initialize=Set_sbt_dn, dimen=3)
+        model.Set_sbt_tn = pyo.Set(initialize=Set_sbt_tn, dimen=3)
         model.Set_slt_tn = pyo.Set(initialize=Set_slt_tn, dimen=3)
         model.Set_slt_dn = pyo.Set(initialize=Set_slt_dn, dimen=3)
+        model.Set_slt_tn_lines = pyo.Set(initialize=Set_slt_tn_lines, dimen=3)
+        model.Set_slt_dn_lines = pyo.Set(initialize=Set_slt_dn_lines, dimen=3)
+        model.Set_slt_lines = pyo.Set(initialize=Set_slt_lines, dimen=3)
         model.Set_sgt = pyo.Set(initialize=Set_sgt, dimen=3)
 
         # ------------------------------------------------------------------
@@ -130,8 +168,8 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         # 3.1) First-stage decision variables:
         model.line_hrdn = pyo.Var(model.Set_bch_dn_lines,
-                                 bounds=self.data.bch_hrdn_limits,
-                                 within=pyo.NonNegativeReals)
+                                  bounds=net.data.bch_hrdn_limits,
+                                  within=pyo.NonNegativeReals)
 
         # 3.2) Second-stage recourse variables  (indexed by scenario)
         # - generation
@@ -151,16 +189,22 @@ class InvestmentClass():
         model.Pc = pyo.Var(model.Set_sbt, within=pyo.NonNegativeReals)
         model.Qc = pyo.Var(model.Set_sbt_dn, within=pyo.NonNegativeReals)
 
-        # - failure logic (same naming as old file)
-        model.shifted_gust_speed = pyo.Var(model.Set_slt_tn | model.Set_slt_dn,
-                                           within=pyo.NonNegativeReals, bounds=(0, 100))
-        model.fail_prob = pyo.Var(model.Set_slt_tn | model.Set_slt_dn,
-                                  within=pyo.NonNegativeReals, bounds=(0, 1))
+        # - grid import/export
+        model.Pimp = pyo.Var(model.Set_st, within=pyo.NonNegativeReals)
+        model.Pexp = pyo.Var(model.Set_st, within=pyo.NonNegativeReals)
+
+        # branch status
         model.branch_status = pyo.Var(model.Set_slt_tn | model.Set_slt_dn, within=pyo.Binary)
-        model.fail_condition = pyo.Var(model.Set_slt_tn | model.Set_slt_dn, within=pyo.Binary)
-        model.fail_indicator = pyo.Var(model.Set_slt_tn | model.Set_slt_dn, within=pyo.Binary)
-        model.fail_applies = pyo.Var(model.Set_slt_tn | model.Set_slt_dn, within=pyo.Binary)
-        model.repair_applies = pyo.Var(model.Set_slt_tn | model.Set_slt_dn, within=pyo.Binary)
+
+        # - failure logic related (both tn and dn line failures are considered) (only 'lines' are failable)
+        model.shifted_gust_speed = pyo.Var(model.Set_slt_lines,  # represent line hardening
+                                           within=pyo.NonNegativeReals, bounds=(0, 100))
+        model.fail_prob = pyo.Var(model.Set_slt_lines,  #
+                                  within=pyo.NonNegativeReals, bounds=(0, 1))
+        model.fail_condition = pyo.Var(model.Set_slt_lines, within=pyo.Binary)
+        model.fail_indicator = pyo.Var(model.Set_slt_lines, within=pyo.Binary)
+        model.fail_applies = pyo.Var(model.Set_slt_lines, within=pyo.Binary)
+        model.repair_applies = pyo.Var(model.Set_slt_lines, within=pyo.Binary)
 
         # ------------------------------------------------------------------
         # 4. Parameters
@@ -206,20 +250,25 @@ class InvestmentClass():
                                  initialize={b: net.data.net.V_max[net.data.net.bus.index(b)] ** 2
                                              for b in Set_bus_dn})
 
-        # - load shedding (curtailment), repair, hardening costs
+        # - load shedding (curtailment), grid import/export, repair, hardening costs
         model.Pc_cost = pyo.Param(model.Set_bus_tn | model.Set_bus_dn,
-                                     initialize={b: self.data.cost_bus_ls[b - 1]
-                                                 for b in net.data.net.bus})
+                                  initialize={b: net.data.net.Pc_cost[net.data.net.bus.index(b)]
+                                              for b in net.data.net.bus})
         model.Qc_cost = pyo.Param(model.Set_bus_dn,
-                                     initialize={b: self.data.cost_bus_ls[b - 1]
-                                                 for b in Set_bus_dn})
+                                  initialize={b: net.data.net.Qc_cost[net.data.net.bus.index(b)]
+                                              for b in Set_bus_dn})
+        model.Pimp_cost = pyo.Param(initialize=net.data.net.Pimp_cost)
+        model.Pexp_cost = pyo.Param(initialize=net.data.net.Pexp_cost)
+
         model.rep_cost = pyo.Param(model.Set_bch_tn | model.Set_bch_dn,
-                                      initialize={l: self.data.cost_bch_rep[l - 1]
-                                                  for l in range(1, len(net.data.net.bch) + 1)})
+                                   initialize={l: net.data.cost_bch_rep[l - 1]
+                                               for l in range(1, len(net.data.net.bch) + 1)},
+                                   within=pyo.NonNegativeReals)
         model.line_hrdn_cost = pyo.Param(model.Set_bch_tn | model.Set_bch_dn,
-                                      initialize={l: self.data.cost_bch_hrdn[l - 1]
-                                                  for l in range(1, len(net.data.net.bch) + 1)})
-        model.budget = pyo.Param(initialize=self.data.budget_bch_hrdn)
+                                         initialize={l: net.data.cost_bch_hrdn[l - 1]
+                                                     for l in range(1, len(net.data.net.bch) + 1)},
+                                         within=pyo.NonNegativeReals)
+        model.budget = pyo.Param(initialize=net.data.budget_bch_hrdn)
 
         # - demand profiles (Pd, Qd) by absolute hour
         Pd_param = {}
@@ -256,11 +305,14 @@ class InvestmentClass():
                 for t, val in enumerate(sim["flgs_impacted_bch"][l - 1], start=1):
                     impact_dict[(sc, l, t)] = val
 
-        model.gust_speed = pyo.Param(model.Set_scn,
-                                     initialize={sc: 0})  # dummy, used only in expression
-        model.gust_speed_ts = pyo.Param(model.Set_scn,
-                                        default=None, mutable=True)
-        # easier: store as dict inside rule – see constraints below
+        # model.gust_speed = pyo.Param(model.Set_scn,
+        #                              initialize={sc: 0})  # dummy, used only in expression
+        # model.gust_speed = pyo.Param(model.Set_slt_tn_lines | model.Set_slt_dn_lines,
+        #                              initialize={(sc, l, t): gust_dict[(sc, t)] for (sc, l, t) in
+        #                                          model.Set_slt_tn_lines | model.Set_slt_dn_lines}
+        #                              )
+        model.gust_speed = pyo.Param(model.Set_st,
+                                     initialize=gust_dict)
         model.rand_num = pyo.Param(model.Set_slt_tn | model.Set_slt_dn,
                                    initialize=rand_dict)
         model.impacted_branches = pyo.Param(model.Set_slt_tn | model.Set_slt_dn,
@@ -280,37 +332,46 @@ class InvestmentClass():
 
         model.Constraint_InvestmentBudget = pyo.Constraint(rule=investment_budget_rule)
 
-        # 4.2) Shifted gust speed
+        # 4.2) Shifted gust speed (i.e. Line hardening) -- Note: only dn lines hardening are considered
         def shifted_gust_rule(model, sc, l, t):
-            gs = gust_dict[(sc, t)]
-            return model.shifted_gust_speed[sc, l, t] == gs - model.line_hrdn[l]
+            # line hardening amount can be non-zero for only dn lines
+            hrdn = model.line_hrdn[l] if l in model.Set_bch_dn_lines else 0
+            return model.shifted_gust_speed[sc, l, t] == model.gust_speed[sc, t] - hrdn
 
-        model.Constraint_ShiftedGust = pyo.Constraint(model.Set_slt_tn | model.Set_slt_dn,
-                                                      rule=shifted_gust_rule)
+        model.Constraint_ShiftedGust = pyo.Constraint(model.Set_slt_lines, rule=shifted_gust_rule)
 
         # 4.3) Piece-wise fragility
-        fragility_data = self.piecewise_linearize_fragility(net, num_pieces=6)
+        # compute linearized fragility data
+        fragility_data = self.piecewise_linearize_fragility(net, line_idx=Set_bch_lines, num_pieces=6)
 
-        # Precompute a lookup so fragility_rule can turn an x-value into its piecewise index
         gust_speeds = fragility_data["gust_speeds"]
-        gust_index_map = {gs: i for i, gs in enumerate(gust_speeds)}
+        gust_index = {x: i for i, x in enumerate(gust_speeds)}
 
         def fragility_rule(model, sc, l, t, x):
-            idx = gust_index_map[x]
-            return fragility_data["fail_probs"][l][idx]
+            return fragility_data["fail_probs"][l][gust_index[x]]
 
         model.Piecewise_Fragility = pyo.Piecewise(
-            model.Set_slt_tn | model.Set_slt_dn,
+            model.Set_slt_lines,
             model.fail_prob,
             model.shifted_gust_speed,
             pw_pts=gust_speeds,
             f_rule=fragility_rule,
             pw_constr_type="EQ",
-            pw_repn="DCC"
-        )
+            pw_repn="DCC")
 
         # 4.4) Failure logic constraints (unchanged from the original version)
         BigM = 1e3
+
+        # If a branch is not failable, its status must be kept as 1
+        def fix_nonline_status(model, sc, l, t):
+            # net.data.net.bch_type is 1 for real lines, 0 for transformers/couplers
+            if net.data.net.bch_type[l - 1] == 0:
+                return model.branch_status[sc, l, t] == 1
+            else:
+                return pyo.Constraint.Skip
+
+        model.Constraint_FixNonlineStatus = pyo.Constraint(model.Set_slt_tn | model.Set_slt_dn,
+                                                           rule=fix_nonline_status)
 
         def fail_cond_1(model, sc, l, t):
             return model.fail_prob[sc, l, t] - model.rand_num[sc, l, t] <= BigM * model.fail_condition[sc, l, t]
@@ -318,8 +379,8 @@ class InvestmentClass():
         def fail_cond_2(model, sc, l, t):
             return model.fail_prob[sc, l, t] - model.rand_num[sc, l, t] >= (model.fail_condition[sc, l, t] - 1) * BigM
 
-        model.Constraint_FailCond1 = pyo.Constraint(model.Set_slt_tn | model.Set_slt_dn, rule=fail_cond_1)
-        model.Constraint_FailCond2 = pyo.Constraint(model.Set_slt_tn | model.Set_slt_dn, rule=fail_cond_2)
+        model.Constraint_FailCond1 = pyo.Constraint(model.Set_slt_lines, rule=fail_cond_1)
+        model.Constraint_FailCond2 = pyo.Constraint(model.Set_slt_lines, rule=fail_cond_2)
 
         def fail_ind_1(model, sc, l, t):
             return model.fail_indicator[sc, l, t] <= model.fail_condition[sc, l, t]
@@ -331,9 +392,9 @@ class InvestmentClass():
             return model.fail_indicator[sc, l, t] >= model.fail_condition[sc, l, t] + \
                 model.impacted_branches[sc, l, t] - 1
 
-        model.Constraint_FailInd1 = pyo.Constraint(model.Set_slt_tn | model.Set_slt_dn, rule=fail_ind_1)
-        model.Constraint_FailInd2 = pyo.Constraint(model.Set_slt_tn | model.Set_slt_dn, rule=fail_ind_2)
-        model.Constraint_FailInd3 = pyo.Constraint(model.Set_slt_tn | model.Set_slt_dn, rule=fail_ind_3)
+        model.Constraint_FailInd1 = pyo.Constraint(model.Set_slt_lines, rule=fail_ind_1)
+        model.Constraint_FailInd2 = pyo.Constraint(model.Set_slt_lines, rule=fail_ind_2)
+        model.Constraint_FailInd3 = pyo.Constraint(model.Set_slt_lines, rule=fail_ind_3)
 
         # branch_status = 0 if failed and before repair duration ends
         def failure_duration_rule(model, sc, l, t):
@@ -343,8 +404,7 @@ class InvestmentClass():
                             for tp in range(t - model.branch_ttr[sc, l], t))
             return pyo.Constraint.Skip
 
-        model.Constraint_FailureDuration = pyo.Constraint(model.Set_slt_tn | model.Set_slt_dn,
-                                                          rule=failure_duration_rule)
+        model.Constraint_FailureDuration = pyo.Constraint(model.Set_slt_lines, rule=failure_duration_rule)
 
         # 4.5) Power flow definitions
         def dc_flow_rule(model, sc, l, t):
@@ -423,12 +483,11 @@ class InvestmentClass():
             Pf_out = sum(model.Pf_tn[sc, l, t]
                          for l in model.Set_bch_tn
                          if net.data.net.bch[l - 1][0] == b)
-            Pgrid = (model.Pimp[t] - model.Pexp[t]) if b == slack_bus else 0
+            Pgrid = (model.Pimp[sc, t] - model.Pexp[sc, t]) if b == slack_bus else 0
 
             return Pg + Pgrid + Pf_in - Pf_out == model.Pd[sc, b, t] - model.Pc[sc, b, t]
 
-        model.Constraint_PBalance_TN = pyo.Constraint(model.Set_sbt, filter=lambda idx: idx[1] in Set_bus_tn,
-                                                  rule=P_balance_tn)
+        model.Constraint_PBalance_TN = pyo.Constraint(model.Set_sbt_tn, rule=P_balance_tn)
 
         def P_balance_dn(model, sc, b, t):
             Pg = sum(model.Pg[sc, g, t]
@@ -504,30 +563,32 @@ class InvestmentClass():
             inv_cost = sum(
                 # line hardening cost
                 model.line_hrdn_cost[l] * model.line_hrdn[l]
-                for l in model.Set_bch_tn | model.Set_bch_dn
+                for l in model.Set_bch_dn_lines
             )
             exp_op_cost = sum(
                 model.scn_prob[sc] * (
                     # generation cost
-                    sum(model.gen_cost_coef[g, 0] + model.gen_cost_coef[g, 1] * model.Pg[sc, g, t]
-                        for g in model.Set_gen for t in Set_ts_scn[sc])
-                    # load shedding cost
-                    + sum(model.Pc_cost[b] * model.Pc[sc, b, t]
-                          for b in net.data.net.bus for t in Set_ts_scn[sc])
-                    + sum(model.Qc_cost[b] * model.Qc[sc, b, t]
-                          for b in Set_bus_dn for t in Set_ts_scn[sc])
-                    # repair cost
-                    + sum(model.rep_cost[l] * model.repair_applies[sc, l, t]
-                          for l in model.Set_bch_tn | model.Set_bch_dn
-                          for t in Set_ts_scn[sc])
+                        sum(model.gen_cost_coef[g, 0] + model.gen_cost_coef[g, 1] * model.Pg[sc, g, t]
+                            for g in model.Set_gen for t in Set_ts_scn[sc])
+                        # grid import/export cost
+                        + sum(model.Pimp_cost * model.Pimp[sc, t] + model.Pexp_cost * model.Pexp[sc, t]
+                              for t in Set_ts_scn[sc])
+                        # load shedding cost
+                        + sum(model.Pc_cost[b] * model.Pc[sc, b, t]
+                              for b in net.data.net.bus for t in Set_ts_scn[sc])
+                        + sum(model.Qc_cost[b] * model.Qc[sc, b, t]
+                              for b in Set_bus_dn for t in Set_ts_scn[sc])
+                        # repair cost
+                        + sum(model.rep_cost[l] * model.repair_applies[sc, l, t]
+                              for (sc, l, t) in model.Set_slt_lines)
                 )
                 for sc in Set_scn
             )
             return inv_cost + exp_op_cost
 
-        model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
+        model.Objective_MinimizeTotalCost = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
-        # done
+
         return model
 
     def solve_investment_model(
@@ -596,7 +657,6 @@ class InvestmentClass():
             "runtime_s": results.solver.time
         }
 
-
     def _write_selected_variables_to_csv(model, path: str = "Optimization_Results/Investment_Model/results"):
         """
         Write a subset of model variables to <path> as tidy CSV.
@@ -640,36 +700,33 @@ class InvestmentClass():
                     for idx in var:
                         wr.writerow([name, str(idx), pyo.value(var[idx])])
 
-
-    def piecewise_linearize_fragility(self, net, num_pieces):
+    def piecewise_linearize_fragility(self, net, line_idx, num_pieces):
         """
-        Piecewise linearize the fragility curve function
-
-        Parameters:
-        - net: Instance of NetworkClass (contains fragility curve data).
-        - num_pieces: Number of linear segments for approximation.
-
-        Returns:
-        - A dictionary containing piecewise linear points (gust speed vs failure probability).
+        Return { "gust_speeds": [...],
+                 "fail_probs" : { l: [p(t1),…,p(tn)] for l in line_idx } }
         """
+        # restrict mins / maxs to *lines* only
+        gmin = min(net.data.frg.thrd_1[l - 1] for l in line_idx)
+        gmax = max(net.data.frg.thrd_2[l - 1] for l in line_idx)
+        gust_speeds = np.linspace(gmin, gmax, num_pieces).tolist()
 
-        gust_speeds = np.linspace(min(net.data.fragility.thrd_1),
-                                  max(net.data.fragility.thrd_2),
-                                  num_pieces).tolist()
-        # for each branch, build a little array of fail‐probs
-        fail_probs = {
-            l: [
-                0.0 if (x - net.data.fragility.shift_f[l - 1]) < net.data.fragility.thrd_1[l - 1]
-                else 1.0 if (x - net.data.fragility.shift_f[l - 1]) > net.data.fragility.thrd_2[l - 1]
-                else float(lognorm.cdf(
-                    x - net.data.fragility.shift_f[l - 1],
-                    s=net.data.fragility.sigma[l - 1],
-                    scale=math.exp(net.data.fragility.mu[l - 1])
-                ))
-                for x in gust_speeds
-            ]
-            for l in range(1, len(net.data.net.bch) + 1)
-        }
+        fail_probs = {}
+        for l in line_idx:
+            mu, sg = net.data.frg.mu[l - 1], net.data.frg.sigma[l - 1]
+            th1, th2 = net.data.frg.thrd_1[l - 1], net.data.frg.thrd_2[l - 1]
+            sf = net.data.frg.shift_f[l - 1]
+
+            fp = []
+            for x in gust_speeds:
+                z = x - sf
+                if z < th1:
+                    fp.append(0.0)
+                elif z > th2:
+                    fp.append(1.0)
+                else:
+                    fp.append(float(lognorm.cdf(z, s=sg, scale=np.exp(mu))))
+            fail_probs[l] = fp
+
         return {"gust_speeds": gust_speeds, "fail_probs": fail_probs}
 
     def _get_bch_hrdn_limits(self):

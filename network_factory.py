@@ -126,11 +126,6 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_Smax = S_max.tolist()
         ncon.data.net.bch_Pmax = S_max.tolist()  # Assumes power factor = 1
 
-        ncon.data.net.bch_length_km = (
-                line_df["length_km"].tolist()  # real transmission‐line lengths
-                + [0.0] * len(trafo_df)  # transformers → 0 km
-        )
-
         # -- transformers:
         tr_bch = trafo_df[["hv_bus", "lv_bus"]].values.tolist()
 
@@ -150,6 +145,13 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_X += tr_X
         ncon.data.net.bch_Smax += tr_Smax
         ncon.data.net.bch_Pmax += tr_Pmax
+
+        # set branch length and type (1=line, 0=transformer)
+        ncon.data.net.bch_length_km = (
+                line_df["length_km"].tolist()  # real transmission‐line lengths
+                + [0.0] * len(trafo_df)  # transformers → 0 km
+        )
+        ncon.data.net.bch_type = ([1] * len(line_df) + [0] * len(trafo_df))
 
         # — geographic coordinates for plotting/impacts
         bus_geo = bus_geo_df.reindex(ncon.data.net.bus)
@@ -385,6 +387,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Qd_max.extend(dn.Qd_max)
         ncon.data.net.Pc_cost.extend(dn.Pc_cost)
         ncon.data.net.Qc_cost.extend(dn.Qc_cost)
+
         if dn.bus_lon is not None:
             ncon.data.net.bus_lon.extend(dn.bus_lon)
             ncon.data.net.bus_lat.extend(dn.bus_lat)
@@ -403,20 +406,20 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_X.extend(dn.bch_X)
         ncon.data.net.bch_Smax.extend(dn.bch_Smax)
         ncon.data.net.bch_Pmax.extend(dn.bch_Pmax)
+        ncon.data.net.bch_length_km.extend(dn.bch_length_km)
 
         # 4.3) Add a zero-impedance coupling branch between bus-184 (UK) and remapped bus-1 (DN)
         #      (inserted exactly after the transmission branches)
-        ncon.data.net.bch.insert(len(uk.bch), [184, dn_bus_map[1]])
+        idx_cpl = len(uk.bch)
+        ncon.data.net.bch.insert(idx_cpl, [184, dn_bus_map[1]])
         ncon.data.net.bch_R.insert(len(uk.bch), 0)
         ncon.data.net.bch_X.insert(len(uk.bch), 0.0001)
         ncon.data.net.bch_Smax.insert(len(uk.bch), 1e6)
         ncon.data.net.bch_Pmax.insert(len(uk.bch), 1e6)
         ncon.data.net.bch_length_km.insert(len(uk.bch), 0.0)  # padding value
 
-        idx_cpl = len(uk.bch) + 1
+        ncon.data.net.bch_type.insert(idx_cpl, 0)  # treat this virtual coupling branch as non-hardenable
         ncon.data.net.branch_level[idx_cpl] = 'T-D'  # tag it as 'T-D' which will present in both tn and dn level
-        ncon.data.net.bch_type[idx_cpl - 1] = 0  # treat this virtual coupling branch as non-hardenable
-
 
         # 4.4) Rebuild the 'branch_level' (ensure indices are correct after inserting the coupling branch)
         num_tn = len(uk.bch)
@@ -435,6 +438,13 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Qg_max.extend(dn.Qg_max)
         ncon.data.net.Qg_min.extend(dn.Qg_min)
         ncon.data.net.gen_cost_coef.extend(dn.gen_cost_coef)
+
+        # 4.6) Merge the fragility data
+        ncon.data.frg.mu = list(uk_net.data.frg.mu) + list(dn_net.data.frg.mu)
+        ncon.data.frg.sigma = list(uk_net.data.frg.sigma) + list(dn_net.data.frg.sigma)
+        ncon.data.frg.thrd_1 = list(uk_net.data.frg.thrd_1) + list(dn_net.data.frg.thrd_1)
+        ncon.data.frg.thrd_2 = list(uk_net.data.frg.thrd_2) + list(dn_net.data.frg.thrd_2)
+        ncon.data.frg.shift_f = list(uk_net.data.frg.shift_f) + list(dn_net.data.frg.shift_f)
 
         # 5. Set slack & base values (same to UK transmission network)
         ncon.data.net.slack_bus = uk.slack_bus
