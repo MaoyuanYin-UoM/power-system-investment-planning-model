@@ -95,6 +95,14 @@ class InvestmentClass():
 
         Set_bch_lines = Set_bch_tn_lines + Set_bch_dn_lines  # all hardenable branches
 
+        Set_bch_tn_hrdn = [l for l in Set_bch_tn_lines
+                           if net.data.net.bch_hardenable[l - 1] == 1]  # tn lines that are hardenable
+
+        Set_bch_dn_hrdn = [l for l in Set_bch_dn_lines
+                           if net.data.net.bch_hardenable[l - 1] == 1]  # dn lines that are hardenable
+
+        Set_bch_hrdn_lines = Set_bch_tn_hrdn + Set_bch_dn_hrdn  # all lines that are hardenable
+
         Set_gen = list(range(1, len(net.data.net.gen) + 1))
 
         # scenario-specific timestep sets ----------------------------------
@@ -153,6 +161,7 @@ class InvestmentClass():
         model.Set_bch_tn_lines = pyo.Set(initialize=Set_bch_tn_lines)
         model.Set_bch_dn_lines = pyo.Set(initialize=Set_bch_dn_lines)
         model.Set_bch_lines = pyo.Set(initialize=Set_bch_lines)
+        model.Set_bch_hrdn_lines = pyo.Set(initialize=Set_bch_hrdn_lines)
         model.Set_gen = pyo.Set(initialize=Set_gen)
 
         model.Set_ts_scn = {sc: pyo.Set(initialize=Set_ts_scn[sc])
@@ -173,8 +182,8 @@ class InvestmentClass():
         # 3. Variables
         # ------------------------------------------------------------------
         # 3.1) First-stage decision variables:
-        model.line_hrdn = pyo.Var(model.Set_bch_lines,
-                                  bounds=(0, 30),
+        model.line_hrdn = pyo.Var(model.Set_bch_hrdn_lines,
+                                  bounds=(net.data.bch_hrdn_limits[0], net.data.bch_hrdn_limits[1]),
                                   within=pyo.NonNegativeReals)
 
         # 3.2) Second-stage recourse variables  (indexed by scenario)
@@ -331,7 +340,7 @@ class InvestmentClass():
         def investment_budget_rule(model):
             return sum(
                 model.line_hrdn_cost[l] * model.line_hrdn[l]
-                for l in model.Set_bch_lines
+                for l in model.Set_bch_hrdn_lines
             ) <= model.budget
 
         model.Constraint_InvestmentBudget = pyo.Constraint(rule=investment_budget_rule)
@@ -339,13 +348,10 @@ class InvestmentClass():
         # 4.2) Shifted gust speed (i.e. Line hardening) -- Note: only dn lines hardening are considered
         def shifted_gust_rule(model, sc, l, t):
             # line hardening amount can be non-zero for only lines
-            hrdn = model.line_hrdn[l] if l in model.Set_bch_lines else 0
+            hrdn = model.line_hrdn[l] if l in model.Set_bch_hrdn_lines else 0
             return model.shifted_gust_speed[sc, l, t] >= model.gust_speed[sc, t] - hrdn
 
         model.Constraint_ShiftedGust = pyo.Constraint(model.Set_slt_lines, rule=shifted_gust_rule)
-
-        # for debug:
-        model.test_constraint = pyo.Constraint(expr=sum(model.line_hrdn[l] for l in model.Set_bch_lines) >= 10)
 
         # 4.3) Piece-wise fragility
         # compute linearized fragility data
@@ -651,7 +657,7 @@ class InvestmentClass():
             inv_cost = sum(
                 # line hardening cost
                 model.line_hrdn_cost[l] * model.line_hrdn[l]
-                for l in model.Set_bch_lines
+                for l in model.Set_bch_hrdn_lines
             )
             exp_op_cost = sum(
                 model.scn_prob[sc] * (
@@ -684,8 +690,8 @@ class InvestmentClass():
             self,
             model,
             solver_name: str = "gurobi",
-            mip_gap: float = 1e-2,
-            time_limit: int = 120,
+            mip_gap: float = 5e-3,
+            time_limit: int = 60,
             write_lp: bool = False,
             write_result: bool = False,
             result_path: str = 'Optimization_Results/Investment_Model/results_selected_variable.csv',

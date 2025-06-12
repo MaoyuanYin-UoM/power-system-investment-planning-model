@@ -261,6 +261,9 @@ def make_network(name: str) -> NetworkClass:
         # branch length (will be used for branch hardening)
         ncon.data.net.bch_length_km = df_bch["Length (km)"].astype(float).tolist()
 
+        # if the branch is hardenable
+        ncon.data.net.bch_hardenable = (df_bch["If Hardenable"].fillna(0).astype(int).tolist())
+
         # -----------------------------------------------------------
         # 5.  Load data ---------------------------------------------
         # -----------------------------------------------------------
@@ -548,6 +551,9 @@ def make_network(name: str) -> NetworkClass:
         # Line length (km) – used for hardening / repair cost
         ncon.data.net.bch_length_km = df_bch["Length (km)"].astype(float).tolist()
 
+        # If branch is hardenable
+        ncon.data.net.bch_hardenable = (df_bch["If Hardenable"].fillna(0).astype(int).tolist())
+
         # -----------------------------------------------------------
         # 5.  Load data
         # -----------------------------------------------------------
@@ -656,20 +662,20 @@ def make_network(name: str) -> NetworkClass:
         offset = max(gb.bus)  # 29
         dn_bus_map = {b: b + offset for b in dn.bus}
 
-        def _m(b):  # map a single bus
+        def _map(b):  # map a single bus
 
             return dn_bus_map[b]
 
-        def _pair(p):  # map a branch [from, to]
+        def _map_pair(p):  # map a branch [from, to]
 
-            return [_m(p[0]), _m(p[1])]
+            return [_map(p[0]), _map(p[1])]
 
         # ------------------------------------------------------------------
         # 4.  Append the DN data
         # ------------------------------------------------------------------
         # 4.1  Buses and their attributes
 
-        new_dn_buses = [_m(b) for b in dn.bus]
+        new_dn_buses = [_map(b) for b in dn.bus]
         ncon.data.net.bus.extend(new_dn_buses)
         ncon.data.net.V_min.extend(dn.V_min)
         ncon.data.net.V_max.extend(dn.V_max)
@@ -688,23 +694,25 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bus_level.update({b: 'D' for b in new_dn_buses})
 
         # 4.2  Branches
-        ncon.data.net.bch.extend([_pair(p) for p in dn.bch])
+        ncon.data.net.bch.extend([_map_pair(p) for p in dn.bch])
         ncon.data.net.bch_type = list(gb.bch_type) + list(dn.bch_type)
         ncon.data.net.bch_R.extend(dn.bch_R)
         ncon.data.net.bch_X.extend(dn.bch_X)
         ncon.data.net.bch_Smax.extend(dn.bch_Smax)
         ncon.data.net.bch_Pmax.extend(dn.bch_Pmax)
         ncon.data.net.bch_length_km.extend(dn.bch_length_km)
+        ncon.data.net.bch_hardenable.extend(dn.bch_hardenable)
 
         # 4.3  Insert the TN–DN coupling branch (after the TN list)
         idx_cpl = len(gb.bch)  # position in the master list
-        ncon.data.net.bch.insert(idx_cpl, [21, _m(1)])  # 21 ←→ Kearsley-bus 1
+        ncon.data.net.bch.insert(idx_cpl, [21, _map(1)])  # 21 ←→ Kearsley-bus 1
+        ncon.data.net.bch_type.insert(idx_cpl, 0)  # treat as transformer
         ncon.data.net.bch_R.insert(idx_cpl, 0.0)
         ncon.data.net.bch_X.insert(idx_cpl, 0.0001)
         ncon.data.net.bch_Smax.insert(idx_cpl, 1e6)
         ncon.data.net.bch_Pmax.insert(idx_cpl, 1e6)
         ncon.data.net.bch_length_km.insert(idx_cpl, 0.0)
-        ncon.data.net.bch_type.insert(idx_cpl, 0)  # treat as transformer
+        ncon.data.net.bch_hardenable.insert(idx_cpl, 0)
 
         # 4.4  Re-build branch-level tags
         num_tn = len(gb.bch)
@@ -720,7 +728,7 @@ def make_network(name: str) -> NetworkClass:
             ncon.data.net.branch_level[num_tn + 2 + k] = 'D'
 
         # 4.5  Generators
-        ncon.data.net.gen.extend([_m(b) for b in dn.gen])
+        ncon.data.net.gen.extend([_map(b) for b in dn.gen])
         ncon.data.net.Pg_max.extend(dn.Pg_max)
         ncon.data.net.Pg_min.extend(dn.Pg_min)
         ncon.data.net.Qg_max.extend(dn.Qg_max)
