@@ -203,8 +203,9 @@ class InvestmentClass():
         model.branch_status = pyo.Var(model.Set_slt_tn | model.Set_slt_dn, within=pyo.Binary)
 
         # - failure logic related (both tn and dn line failures are considered) (only 'lines' are failable)
-        model.shifted_gust_speed = pyo.Var(model.Set_slt_lines,  # represent line hardening
-                                           within=pyo.NonNegativeReals, bounds=(-10, 120))
+        model.shifted_gust_speed = pyo.Var(model.Set_slt_lines,  # or Set_slt / Set_bch, depending on the block
+                                           within=pyo.NonNegativeReals,  # keep ≥ 0
+                                           bounds=(0, 120))  # upper bound ≥ largest breakpoint
         model.fail_prob = pyo.Var(model.Set_slt_lines,  #
                                   within=pyo.NonNegativeReals, bounds=(0, 1))
         model.fail_condition = pyo.Var(model.Set_slt_lines, within=pyo.Binary)
@@ -337,11 +338,14 @@ class InvestmentClass():
 
         # 4.2) Shifted gust speed (i.e. Line hardening) -- Note: only dn lines hardening are considered
         def shifted_gust_rule(model, sc, l, t):
-            # line hardening amount can be non-zero for only dn lines
+            # line hardening amount can be non-zero for only lines
             hrdn = model.line_hrdn[l] if l in model.Set_bch_lines else 0
-            return model.shifted_gust_speed[sc, l, t] == model.gust_speed[sc, t] - hrdn
+            return model.shifted_gust_speed[sc, l, t] >= model.gust_speed[sc, t] - hrdn
 
         model.Constraint_ShiftedGust = pyo.Constraint(model.Set_slt_lines, rule=shifted_gust_rule)
+
+        # for debug:
+        model.test_constraint = pyo.Constraint(expr=sum(model.line_hrdn[l] for l in model.Set_bch_lines) >= 10)
 
         # 4.3) Piece-wise fragility
         # compute linearized fragility data
@@ -664,7 +668,7 @@ class InvestmentClass():
                               for b in Set_bus_dn for t in Set_ts_scn[sc])
                         # repair cost
                         + sum(model.rep_cost[l] * model.repair_applies[sc, l, t]
-                              for (sc, l, t) in model.Set_slt_lines)
+                              for l in Set_bch_lines for t in Set_ts_scn[sc])
                 )
                 for sc in Set_scn
             )
@@ -680,8 +684,8 @@ class InvestmentClass():
             self,
             model,
             solver_name: str = "gurobi",
-            mip_gap: float = 5e-3,
-            time_limit: int = 60,
+            mip_gap: float = 1e-2,
+            time_limit: int = 120,
             write_lp: bool = False,
             write_result: bool = False,
             result_path: str = 'Optimization_Results/Investment_Model/results_selected_variable.csv',
@@ -760,7 +764,7 @@ class InvestmentClass():
             "line_hrdn",
             "Pg", "Qg", "Pc", "Qc",
             "Pf_tn", "Pf_dn",
-            "rand_num", "branch_status", "fail_prob", "fail_condition",
+            "rand_num", "shifted_gust_speed", "branch_status", "fail_prob", "fail_condition",
             "impacted_branches", "fail_indicator",
             "fail_applies", "repair_applies"
         )
@@ -773,7 +777,7 @@ class InvestmentClass():
                 "written_at": datetime.now().isoformat(timespec="seconds"),
                 "objective_value": float(pyo.value(model.Objective)),
                 "network_name": "UK_transmission_network_with_kearsley_GSP_group",
-                "windstorm_name":"windstorm_UK_transmission_network",
+                "windstorm_name": "windstorm_UK_transmission_network",
             }
 
         from network_factory import make_network
@@ -781,9 +785,9 @@ class InvestmentClass():
 
         with pd.ExcelWriter(path, engine="xlsxwriter") as xl:
             # 1) META sheet
-            pd.Series(meta, name="value")\
-              .to_frame()\
-              .to_excel(xl, sheet_name="Meta", header=False)
+            pd.Series(meta, name="value") \
+                .to_frame() \
+                .to_excel(xl, sheet_name="Meta", header=False)
 
             # 2) PARAMETER sheets
             branch_ids = list(range(1, len(net.data.net.bch) + 1))

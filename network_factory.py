@@ -464,7 +464,7 @@ def make_network(name: str) -> NetworkClass:
         rep_rate_tn = 1e2  # repair cost (£) per unit length (km) of line at transmission level
         rep_rate_dn = 1e2  # repair cost (£) per unit length (km) of line at distribution level
         ncon.data.cost_bch_rep = [
-            rep_rate_tn * length if ncon.data.net.branch_level[i + 1] == 'D' else rep_rate_dn * length
+            rep_rate_dn * length if ncon.data.net.branch_level[i + 1] == 'D' else rep_rate_tn * length
             for i, length in enumerate(ncon.data.net.bch_length_km)
         ]  # Note: the line repair at both transmission and distribution level are considered
 
@@ -757,7 +757,7 @@ def make_network(name: str) -> NetworkClass:
         rep_rate_tn = 1e2  # repair cost (£) per unit length (km) of line at transmission level
         rep_rate_dn = 1e2  # repair cost (£) per unit length (km) of line at distribution level
         ncon.data.cost_bch_rep = [
-            rep_rate_tn * length if ncon.data.net.branch_level[i + 1] == 'D' else rep_rate_dn * length
+            rep_rate_dn * length if ncon.data.net.branch_level[i + 1] == 'D' else rep_rate_tn * length
             for i, length in enumerate(ncon.data.net.bch_length_km)
         ]  # Note: the line repair at both transmission and distribution level are considered
 

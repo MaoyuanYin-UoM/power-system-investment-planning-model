@@ -94,8 +94,8 @@ from network_factory import make_network
 
 
 
-num_ws_prd = [1, 1, 1, 1, 1]
-seed = 102
+num_ws_prd = [1]
+seed = 104
 generate_ws_scenarios(num_ws_prd=num_ws_prd,
                       seed=seed,
                       network_preset='29_bus_GB_transmission_network_with_kearsley_GSP_group',
