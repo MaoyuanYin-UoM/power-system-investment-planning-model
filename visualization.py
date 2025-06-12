@@ -19,42 +19,76 @@ from windstorm_factory import make_windstorm
 
 def visualize_network_bch(network_name: str = "default",
                           ax=None,
-                          color="grey",
-                          alpha=0.8,
-                          linewidth=1.2):
+                          color: str = "grey",
+                          alpha: float = 0.8,
+                          linewidth: float = 1.2,
+                          label_buses: bool = True,
+                          label_fontsize: int = 8,
+                          label_offset_lon: float = 0.02,
+                          label_color: str = "black"):
     """
-    Quick map of all branches of `network_name`.
+    Quick map of all branches of `network_name`, with optional
+    bus‐number labels.
 
     Parameters
     ----------
     network_name : str
         Name of the network preset registered in `network_factory`.
     ax : matplotlib.axes.Axes | None
-        If given, draw on this axis; otherwise create a fresh figure/axis
-        **and show it before returning**.
-    color, alpha, linewidth : matplotlib styling knobs.
+        If given, draw on this axis; otherwise create a fresh
+        figure/axis and show it before returning.
+    color, alpha, linewidth : matplotlib styling knobs for branches.
+    label_buses : bool, optional
+        If True, write the bus ID next to each plotted node.
+    label_fontsize : int
+        Font size for the labels.
+    label_offset_lon : float
+        Horizontal offset (in degrees) applied to the label so it
+        does not overlap the node marker.
+    label_color : str
+        Text colour of the bus labels.
 
     Returns
     -------
     matplotlib.axes.Axes
-        The axis the branches were drawn on.
+        The axis the branches (and labels) were drawn on.
     """
     # ----- load network & GIS data ----------------------------------------
     net = NetworkClass() if network_name == "default" else make_network(network_name)
     net.set_gis_data()
-    bgn = net._get_bch_gis_bgn()
+
+    # branch end-points
+    bgn = net._get_bch_gis_bgn()        # list[(lon, lat)]
     end = net._get_bch_gis_end()
+
+    # bus points -- needed for labels
+    bus_lon = net._get_bus_lon()        # list[float]
+    bus_lat = net._get_bus_lat()        # list[float]
+    bus_ids = net.data.net.bus          # list[int]
 
     # ----- prepare axis ----------------------------------------------------
     created_fig = False
     if ax is None:
         fig, ax = plt.subplots(figsize=(10, 8))
-        created_fig = True          # remember we own the figure
+        created_fig = True
 
     # ----- draw every branch ----------------------------------------------
     for p, q in zip(bgn, end):
         ax.plot([p[0], q[0]], [p[1], q[1]],
                 color=color, alpha=alpha, lw=linewidth)
+
+    # ----- draw bus markers & labels --------------------------------------
+    if label_buses:
+        for lon, lat, bid in zip(bus_lon, bus_lat, bus_ids):
+            # a tiny marker (optional -- comment out if cluttered)
+            ax.scatter(lon, lat, s=10, c=label_color, zorder=3)
+            # text label, slightly offset in longitude
+            ax.text(lon + label_offset_lon, lat,
+                    str(bid),
+                    fontsize=label_fontsize,
+                    ha="left", va="center",
+                    color=label_color,
+                    zorder=4)
 
     # ----- cosmetics -------------------------------------------------------
     ax.set_xlabel("Longitude")

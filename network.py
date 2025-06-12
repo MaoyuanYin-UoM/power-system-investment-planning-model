@@ -58,6 +58,8 @@ class NetworkClass:
         model.Set_gen = pyo.Set(initialize=range(1, len(self.data.net.gen) + 1))
 
         # 2. Parameters:
+        model.base_MVA = pyo.Param(initialize=self.data.net.base_MVA)
+
         model.Pd = pyo.Param(model.Set_bus, initialize={b + 1: self.data.net.Pd_max[b]
                                                         for b in range(len(self.data.net.Pd_max))})
 
@@ -146,19 +148,20 @@ class NetworkClass:
         # 2) Line flow constraints
         def line_flow_rule(model, line_idx):
             i, j = self.data.net.bch[line_idx - 1]
-            return model.Pf[line_idx] == model.bch_B[line_idx] * (model.theta[i] - model.theta[j])
+            return model.Pf[line_idx] == model.base_MVA * model.bch_B[line_idx] * (model.theta[i] - model.theta[j])
 
         model.Constraint_LineFlow = pyo.Constraint(model.Set_bch, rule=line_flow_rule)
 
         # 3) Line angle difference constraints
-        ANGLE_MAX = math.radians(30)
+        ang_diff_max = (self.data.net.theta_limits[1] -
+                        self.data.net.theta_limits[0])  # maximum allowable angle difference (rad)
         def angle_diff_upper_rule(model, l):
             i, j = self.data.net.bch[l - 1]
-            return model.theta[i] - model.theta[j] <= ANGLE_MAX
+            return model.theta[i] - model.theta[j] <= ang_diff_max
 
         def angle_diff_lower_rule(model, l):
             i, j = self.data.net.bch[l - 1]
-            return model.theta[i] - model.theta[j] >= -ANGLE_MAX
+            return model.theta[i] - model.theta[j] >= -ang_diff_max
 
         model.Constraint_AngleDiffUpper = pyo.Constraint(model.Set_bch,
                                                          rule=angle_diff_upper_rule)
@@ -530,6 +533,9 @@ class NetworkClass:
         # ------------------------------------------------------------------
         # 2.  Parameters
         # ------------------------------------------------------------------
+        # 2.0 Base value
+        model.base_MVA = pyo.Param(initialize=self.data.net.base_MVA)
+
         # 2.1  Demand profiles (for both Pd and Qd) for every (bus, t)
         Pd = {(b, t): self.data.net.profile_Pd[b - 1][t - 1]
               for b in self.data.net.bus for t in Set_ts}
@@ -636,23 +642,24 @@ class NetworkClass:
         # 4.2 DC power flow on transmission branches
         def DC_line_flow_tn_rule(model, l, t):
             i, j = self.data.net.bch[l - 1]
-            return model.Pf_tn[l, t] == model.B_tn[l] * (model.theta[i, t] - model.theta[j, t])
+            return model.Pf_tn[l, t] == model.base_MVA * model.B_tn[l] * (model.theta[i, t] - model.theta[j, t])
 
         model.Constraint_FlowDef_TN = pyo.Constraint(model.Set_bch_tn, model.Set_ts,
                                                      rule=DC_line_flow_tn_rule)
 
         # 4.3 Angle-difference at lines
-        ANGLE_MAX = math.radians(30)  # maximum allowable angle difference: 30° (approx. 0.524 rad)
+        ang_diff_max = (self.data.net.theta_limits[1] -
+                        self.data.net.theta_limits[0])  # maximum allowable angle difference (rad)
         def line_angle_difference_upper_rule(m, l, t):
             i, j = self.data.net.bch[l - 1]
             if self.data.net.branch_level[l] == 'T':
-                return m.theta[i, t] - m.theta[j, t] <= ANGLE_MAX
+                return m.theta[i, t] - m.theta[j, t] <= ang_diff_max
             return pyo.Constraint.Skip
 
         def line_angle_difference_lower_rule(m, l, t):
             i, j = self.data.net.bch[l - 1]
             if self.data.net.branch_level[l] == 'T':
-                return m.theta[i, t] - m.theta[j, t] >= -ANGLE_MAX
+                return m.theta[i, t] - m.theta[j, t] >= -ang_diff_max
             return pyo.Constraint.Skip
 
         model.Constraint_AngleDiffUpperLimit = pyo.Constraint(model.Set_bch_tn, model.Set_ts,
@@ -800,10 +807,10 @@ class NetworkClass:
             ls_dn_cost = sum(model.Pc_cost[b] * model.Pc[b, t] for b in model.Set_bus_dn for t in model.Set_ts) + \
                         sum(model.Qc_cost[b] * model.Qc[b, t] for b in model.Set_bus_dn for t in model.Set_ts)
 
-            # ls_tn_cost = sum(model.Pc_cost[b] * model.Pc[b, t] for b in model.Set_bus_tn for t in model.Set_ts)
+            ls_tn_cost = sum(model.Pc_cost[b] * model.Pc[b, t] for b in model.Set_bus_tn for t in model.Set_ts)
 
             return (gen_cost + grid_cost + ls_dn_cost
-                    # + ls_tn_cost
+                    + ls_tn_cost
                     )
 
 

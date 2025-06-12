@@ -21,7 +21,7 @@ def make_network(name: str) -> NetworkClass:
         """
 
         # 1) Load all the relevant sheets once
-        net_data = pd.ExcelFile(r"Input_Data\GB_Network\GBNetwork_New.xlsx")
+        net_data = pd.ExcelFile(r"Input_Data/GB_Network_full\GBNetwork_New.xlsx")
 
         # - bus data:
         bus_df = net_data.parse(
@@ -169,9 +169,9 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Qc_cost = [100] * len(ncon.data.net.bus)  # cost of curtailed reactive power at bus per MW
 
         ncon.data.net.Pimp_cost = 50
-        ncon.data.net.Pexp_cost = -10  # remuneration for exporting electricity to distribution network
+        ncon.data.net.Pexp_cost = 0  # remuneration for exporting electricity to distribution network
         ncon.data.net.Qimp_cost = 50
-        ncon.data.net.Qexp_cost = -10
+        ncon.data.net.Qexp_cost = 0
 
         # 5) Fragility data:
         num_bch = len(ncon.data.net.bch)
@@ -224,10 +224,10 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.slack_bus = int(df_bus.loc[df_bus["If Slack"] == 1,
         "Bus ID"].iloc[0])
 
-        # θ limits (taken from the first row – all rows identical in your file)
+        # angle limits (taken from the first row – all rows identical in your file)
         ncon.data.net.theta_limits = [
-            float(df_bus["V_angle_min"].iloc[0]),
-            float(df_bus["V_angle_max"].iloc[0])
+            float(df_bus["V_angle_min (rad)"].iloc[0]),
+            float(df_bus["V_angle_max (rad)"].iloc[0])
         ]
 
         # voltage-magnitude limits
@@ -255,8 +255,8 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_X = df_bch["Reactance (pu)"].astype(float).tolist()
 
         # Apparent- and active-power limits
-        ncon.data.net.bch_Smax = df_bch["S_max"].astype(float).tolist()
-        ncon.data.net.bch_Pmax = df_bch["P_max"].astype(float).tolist()
+        ncon.data.net.bch_Smax = df_bch["S_max (MW)"].astype(float).tolist()
+        ncon.data.net.bch_Pmax = df_bch["P_max (MW)"].astype(float).tolist()
 
         # branch length (will be used for branch hardening)
         ncon.data.net.bch_length_km = df_bch["Length (km)"].astype(float).tolist()
@@ -292,20 +292,20 @@ def make_network(name: str) -> NetworkClass:
 
         # generation cost coefficients  (quadratic - linear)
         ncon.data.net.gen_cost_coef = (
-            df_gen[["gen_cost_coef_2", "gen_cost_coef_1"]]
+            df_gen[["gen_cost_coef_0", "gen_cost_coef_1"]]
             .fillna(0).values.tolist()
         )
 
         # -----------------------------------------------------------
         # 7.  Cost-related parameters ---------------------------
         # -----------------------------------------------------------
-        ncon.data.net.Pc_cost = [500] * len(ncon.data.net.bus)  # active load shedding cost
-        ncon.data.net.Qc_cost = [500] * len(ncon.data.net.bus)  # reactive load shedding cost
+        ncon.data.net.Pc_cost = [1e3] * len(ncon.data.net.bus)  # active load shedding cost
+        ncon.data.net.Qc_cost = [1e3] * len(ncon.data.net.bus)  # reactive load shedding cost
 
         ncon.data.net.Pimp_cost = 50  # active power importing cost
-        ncon.data.net.Pexp_cost = -10  # active power exporting remuneration
+        ncon.data.net.Pexp_cost = 0  # active power exporting remuneration
         ncon.data.net.Qimp_cost = 50  # reactive power importing cost
-        ncon.data.net.Qexp_cost = -10  # reactive power exporting remuneration
+        ncon.data.net.Qexp_cost = 0  # reactive power exporting remuneration
 
         # placeholders – will be set by NetworkClass.set_gis_data()
         ncon.data.net.all_bus_coords_in_tuple = None
@@ -452,7 +452,7 @@ def make_network(name: str) -> NetworkClass:
 
         # 6. Specify additional data that are needed when building the investment model
         # 6.1) line hardening cost
-        ncon.data.cost_rate_hrdn = 1e5  # hardening cost (£) per unit length (km) of the line and per unit amount (m/s)
+        ncon.data.cost_rate_hrdn = 1e2  # hardening cost (£) per unit length (km) of the line and per unit amount (m/s)
         # that the fragility curve is shifted
         ncon.data.cost_bch_hrdn = [
             ncon.data.cost_rate_hrdn * length if ncon.data.net.bch_type[i] == 1 else 0.0
@@ -470,11 +470,307 @@ def make_network(name: str) -> NetworkClass:
 
         # 6.3) line hardening limits and budget
         ncon.data.bch_hrdn_limits = [0.0, 30.0]  # in m/s
-        ncon.data.budget_bch_hrdn = 1e6  # in £
+        ncon.data.budget_bch_hrdn = 1e8  # in £
 
         net = NetworkClass(ncon)
         net.name = name
         return net
+
+
+    elif name == 'GB_Transmission_Network_29_Bus':
+        """
+        29-bus simplified GB transmission system (DC-OPF compatible)
+
+        """
+
+        # -----------------------------------------------------------
+        # 1.  Read workbook
+        # -----------------------------------------------------------
+        wb_path = Path(r"Input_Data/GB_Network_29bus/GB_Transmission_Network_29_Bus.xlsx")
+        wb = pd.ExcelFile(wb_path)
+
+        df_base = wb.parse("base_values")
+        df_bus = wb.parse("bus")
+        df_bch = wb.parse("line&trafo")
+        df_load = wb.parse("load")
+        df_gen = wb.parse("gen")
+
+        # -----------------------------------------------------------
+        # 2.  Base values
+        # -----------------------------------------------------------
+        ncon.data.net.base_MVA = float(
+            df_base.loc[df_base["Name"] == "Base_MVA", "Value"].fillna(100).iloc[0]
+        )
+        ncon.data.net.base_kV = float(
+            df_base.loc[df_base["Name"] == "Base_kV", "Value"].fillna(400).iloc[0]
+        )
+
+        # -----------------------------------------------------------
+        # 3.  Bus data
+        # -----------------------------------------------------------
+        ncon.data.net.bus = df_bus["Bus ID"].astype(int).tolist()
+
+        # slack bus – unique row where “If Slack” == 1
+        ncon.data.net.slack_bus = int(df_bus.loc[df_bus["If Slack"] == 1, "Bus ID"].iloc[0])
+
+        # angle limits (rad) – identical for all rows
+        ncon.data.net.theta_limits = [
+            float(df_bus["V_angle_min (rad)"].iloc[0]),
+            float(df_bus["V_angle_max (rad)"].iloc[0]),
+        ]
+
+        # voltage magnitude limits (pu²) – only cosmetic for DC OPF
+        ncon.data.net.V_min = (df_bus["V_min (pu)"] ** 2).tolist()
+        ncon.data.net.V_max = (df_bus["V_max (pu)"] ** 2).tolist()
+
+        # GEO coordinates (optional but helpful for plotting / wind-storm overlay)
+        ncon.data.net.bus_lon = df_bus["Geo_lon"].tolist()
+        ncon.data.net.bus_lat = df_bus["Geo_lat"].tolist()
+
+        # -----------------------------------------------------------
+        # 4.  Branch data
+        # -----------------------------------------------------------
+        ncon.data.net.bch = (
+            df_bch[["From_bus ID", "To_bus ID"]]
+            .astype(int).values.tolist()
+        )
+
+        ncon.data.net.bch_type = df_bch["Type (1 for line, 0 for transformer)"].astype(int).tolist()
+
+        # R & X already given in p.u.
+        ncon.data.net.bch_R = df_bch["Resistance (pu)"].astype(float).tolist()
+        ncon.data.net.bch_X = df_bch["Reactance (pu)"].astype(float).tolist()
+
+        # Apparent- and active-power limits
+        ncon.data.net.bch_Smax = df_bch["S_max (MW)"].astype(float).tolist()
+        ncon.data.net.bch_Pmax = df_bch["P_max (MW)"].astype(float).tolist()
+
+        # Line length (km) – used for hardening / repair cost
+        ncon.data.net.bch_length_km = df_bch["Length (km)"].astype(float).tolist()
+
+        # -----------------------------------------------------------
+        # 5.  Load data
+        # -----------------------------------------------------------
+        load_agg = (
+            df_load.set_index("Bus ID")[["Pd_max", "Pd_min", "Qd_max", "Qd_min"]]
+            .astype(float)
+            .groupby(level=0).sum()  # merge duplicates
+            .reindex(ncon.data.net.bus)  # fill missing with 0
+            .fillna(0)
+        )
+        ncon.data.net.Pd_max = load_agg["Pd_max"].tolist()
+        ncon.data.net.Pd_min = load_agg["Pd_min"].tolist()
+        ncon.data.net.Qd_max = load_agg["Qd_max"].tolist()
+        ncon.data.net.Qd_min = load_agg["Qd_min"].tolist()
+
+        # profiles will be filled later by NetworkClass.set_scaled_profile_for_buses()
+        ncon.data.net.profile_Pd = None
+        ncon.data.net.profile_Qd = None
+
+        # -----------------------------------------------------------
+        # 6.  Generator data
+        # -----------------------------------------------------------
+        ncon.data.net.gen = df_gen["Bus ID"].astype(int).tolist()
+        ncon.data.net.Pg_max = df_gen["Pg_max"].astype(float).tolist()
+        ncon.data.net.Pg_min = df_gen["Pg_min"].astype(float).tolist()
+        ncon.data.net.Qg_max = df_gen["Qg_max"].astype(float).tolist()
+        ncon.data.net.Qg_min = df_gen["Qg_min"].astype(float).tolist()
+
+        # cost coefficients  (quadratic  + linear)
+        ncon.data.net.gen_cost_coef = (
+            df_gen[["gen_cost_coef_0", "gen_cost_coef_1"]]
+            .fillna(0).values.tolist()
+        )
+
+        # -----------------------------------------------------------
+        # 7.  Economic parameters
+        # -----------------------------------------------------------
+        ncon.data.net.Pc_cost = [100] * len(ncon.data.net.bus)  # load-shedding penalty £/MW
+        ncon.data.net.Pimp_cost = 50  # grid import £/MW
+        ncon.data.net.Pexp_cost = 0  # export remuneration £/MW
+
+        # No reactive-power modelling – set dummies
+        ncon.data.net.Qc_cost = [0] * len(ncon.data.net.bus)
+        ncon.data.net.Qimp_cost = 50
+        ncon.data.net.Qexp_cost = 0
+
+        # -----------------------------------------------------------
+        # 8.  Fragility data (uniform defaults)
+        # -----------------------------------------------------------
+        num_bch = len(ncon.data.net.bch)
+        ncon.data.frg.mu = [3.8] * num_bch
+        ncon.data.frg.sigma = [0.122] * num_bch
+        ncon.data.frg.thrd_1 = [20] * num_bch
+        ncon.data.frg.thrd_2 = [90] * num_bch
+        ncon.data.frg.shift_f = [0.0] * num_bch
+
+        # -----------------------------------------------------------
+        # 9.  Instantiate & label the network
+        # -----------------------------------------------------------
+        net = NetworkClass(ncon)
+        net.name = name
+        return net
+
+
+
+    elif name == '29_bus_GB_transmission_network_with_kearsley_GSP_group':
+        """
+        Composite test system
+            • 29-bus simplified GB transmission network (DC-OPF compatible)
+            • ‘Kearsley’ distribution group (linearised AC compatible)
+
+        Coupling (TSO–DSO) link
+            – GB-bus 21  ←→  Kearsley-bus 1
+              modelled as a near-zero-impedance branch inserted between the
+              TN and DN graphs.
+
+        Slack bus
+            – identical to the slack defined in the 29-bus GB template
+
+        """
+
+        import copy
+
+        # ------------------------------------------------------------------
+        # 1.  Load the two component networks
+        # ------------------------------------------------------------------
+        gb_net = make_network('GB_Transmission_Network_29_Bus')  # 29-bus TN
+        dn_net = make_network('Manchester_distribution_network_kearsley')  # Kearsley DN
+
+        gb = gb_net.data.net
+        dn = dn_net.data.net
+
+        # ------------------------------------------------------------------
+        # 2.  Start a fresh NetConfig seeded with the transmission template
+        # ------------------------------------------------------------------
+        ncon = NetConfig()
+        ncon.data.net = copy.deepcopy(gb)  # clone the GB TN as the base
+
+        # Tag existing objects as transmission level
+        ncon.data.net.bus_level = {b: 'T' for b in gb.bus}
+        ncon.data.net.branch_level = {i + 1: 'T' for i in range(len(gb.bch))}
+
+        # ------------------------------------------------------------------
+        # 3.  Re-index the DN buses so IDs are unique
+        # ------------------------------------------------------------------
+        offset = max(gb.bus)  # 29
+        dn_bus_map = {b: b + offset for b in dn.bus}
+
+        def _m(b):  # map a single bus
+
+            return dn_bus_map[b]
+
+        def _pair(p):  # map a branch [from, to]
+
+            return [_m(p[0]), _m(p[1])]
+
+        # ------------------------------------------------------------------
+        # 4.  Append the DN data
+        # ------------------------------------------------------------------
+        # 4.1  Buses and their attributes
+
+        new_dn_buses = [_m(b) for b in dn.bus]
+        ncon.data.net.bus.extend(new_dn_buses)
+        ncon.data.net.V_min.extend(dn.V_min)
+        ncon.data.net.V_max.extend(dn.V_max)
+        ncon.data.net.Pd_max.extend(dn.Pd_max)
+        ncon.data.net.Qd_max.extend(dn.Qd_max)
+        ncon.data.net.Pc_cost.extend(dn.Pc_cost)
+        ncon.data.net.Qc_cost.extend(dn.Qc_cost)
+        ncon.data.net.Pd_min.extend(dn.Pd_min)
+        ncon.data.net.Qd_min.extend(dn.Qd_min)
+
+        if dn.bus_lon is not None:  # GIS coords
+            ncon.data.net.bus_lon.extend(dn.bus_lon)
+            ncon.data.net.bus_lat.extend(dn.bus_lat)
+
+        # tag
+        ncon.data.net.bus_level.update({b: 'D' for b in new_dn_buses})
+
+        # 4.2  Branches
+        ncon.data.net.bch.extend([_pair(p) for p in dn.bch])
+        ncon.data.net.bch_type = list(gb.bch_type) + list(dn.bch_type)
+        ncon.data.net.bch_R.extend(dn.bch_R)
+        ncon.data.net.bch_X.extend(dn.bch_X)
+        ncon.data.net.bch_Smax.extend(dn.bch_Smax)
+        ncon.data.net.bch_Pmax.extend(dn.bch_Pmax)
+        ncon.data.net.bch_length_km.extend(dn.bch_length_km)
+
+        # 4.3  Insert the TN–DN coupling branch (after the TN list)
+        idx_cpl = len(gb.bch)  # position in the master list
+        ncon.data.net.bch.insert(idx_cpl, [21, _m(1)])  # 21 ←→ Kearsley-bus 1
+        ncon.data.net.bch_R.insert(idx_cpl, 0.0)
+        ncon.data.net.bch_X.insert(idx_cpl, 0.0001)
+        ncon.data.net.bch_Smax.insert(idx_cpl, 1e6)
+        ncon.data.net.bch_Pmax.insert(idx_cpl, 1e6)
+        ncon.data.net.bch_length_km.insert(idx_cpl, 0.0)
+        ncon.data.net.bch_type.insert(idx_cpl, 0)  # treat as transformer
+
+        # 4.4  Re-build branch-level tags
+        num_tn = len(gb.bch)
+        num_dn = len(dn.bch)
+        ncon.data.net.branch_level = {}
+
+        for i in range(1, num_tn + 1):
+            ncon.data.net.branch_level[i] = 'T'
+
+        ncon.data.net.branch_level[num_tn + 1] = 'T-D'  # the coupling link
+
+        for k in range(num_dn):
+            ncon.data.net.branch_level[num_tn + 2 + k] = 'D'
+
+        # 4.5  Generators
+        ncon.data.net.gen.extend([_m(b) for b in dn.gen])
+        ncon.data.net.Pg_max.extend(dn.Pg_max)
+        ncon.data.net.Pg_min.extend(dn.Pg_min)
+        ncon.data.net.Qg_max.extend(dn.Qg_max)
+        ncon.data.net.Qg_min.extend(dn.Qg_min)
+        ncon.data.net.gen_cost_coef.extend(dn.gen_cost_coef)
+
+        # 4.6  Fragility vectors
+        ncon.data.frg.mu = list(gb_net.data.frg.mu) + list(dn_net.data.frg.mu)
+        ncon.data.frg.sigma = list(gb_net.data.frg.sigma) + list(dn_net.data.frg.sigma)
+        ncon.data.frg.thrd_1 = list(gb_net.data.frg.thrd_1) + list(dn_net.data.frg.thrd_1)
+        ncon.data.frg.thrd_2 = list(gb_net.data.frg.thrd_2) + list(dn_net.data.frg.thrd_2)
+        ncon.data.frg.shift_f = list(gb_net.data.frg.shift_f) + list(dn_net.data.frg.shift_f)
+
+        # ------------------------------------------------------------------
+        # 5.  Slack and base values
+        # ------------------------------------------------------------------
+        ncon.data.net.slack_bus = gb.slack_bus
+        ncon.data.net.base_MVA = gb.base_MVA
+        ncon.data.net.base_kV = gb.base_kV
+
+        # ------------------------------------------------------------------
+        # 6. Specify additional data that are needed when building the investment model
+        # ------------------------------------------------------------------
+        # 6.1) line hardening cost
+        ncon.data.cost_rate_hrdn = 1e2  # hardening cost (£) per unit length (km) of the line and per unit amount (m/s)
+        # that the fragility curve is shifted
+        ncon.data.cost_bch_hrdn = [
+            ncon.data.cost_rate_hrdn * length if ncon.data.net.bch_type[i] == 1 else 0.0
+            for i, length in enumerate(ncon.data.net.bch_length_km)
+        ]  # cost per unit fragility curve shift
+        # Note: only distribution line hardening is considered
+
+        # 6.2) line repair cost
+        rep_rate_tn = 1e2  # repair cost (£) per unit length (km) of line at transmission level
+        rep_rate_dn = 1e2  # repair cost (£) per unit length (km) of line at distribution level
+        ncon.data.cost_bch_rep = [
+            rep_rate_tn * length if ncon.data.net.branch_level[i + 1] == 'D' else rep_rate_dn * length
+            for i, length in enumerate(ncon.data.net.bch_length_km)
+        ]  # Note: the line repair at both transmission and distribution level are considered
+
+        # 6.3) line hardening limits and budget
+        ncon.data.bch_hrdn_limits = [0.0, 30.0]  # in m/s
+        ncon.data.budget_bch_hrdn = 1e8  # in £
+
+
+        net = NetworkClass(ncon)
+        net.name = name
+
+        return net
+
 
 
     elif name == 'matpower_case22':

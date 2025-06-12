@@ -33,7 +33,7 @@ class InvestmentClass():
             setattr(self, pars, getattr(obj, pars))
 
     def build_investment_model(self,
-                               path_all_ws_scenarios: str = "Scenario_Results/Extracted_Scenarios/1_ws_scenarios_UK-Kearsley_network_seed_101.json"):
+                               path_all_ws_scenarios: str = "Scenario_Results/Extracted_Scenarios/5_ws_scenarios_GB29-Kearsley_network_seed_102.json"):
         """
         Build a Pyomo MILP model for resilience enhancement investment planning (line hardening)
         against windstorms, using the form of stochastic programming over multiple scenarios.
@@ -47,8 +47,11 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         # 0. Preliminaries
         # ------------------------------------------------------------------
-        ws = make_windstorm("windstorm_UK_transmission_network")
-        net = make_network("UK_transmission_network_with_kearsley_GSP_group")
+        network_name = "29_bus_GB_transmission_network_with_kearsley_GSP_group"
+        windstorm_name = "windstorm_UK_transmission_network"
+
+        net = make_network(network_name)
+        ws = make_windstorm(windstorm_name)
 
         with open(path_all_ws_scenarios) as f:
             data = json.load(f)
@@ -171,7 +174,7 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         # 3.1) First-stage decision variables:
         model.line_hrdn = pyo.Var(model.Set_bch_lines,
-                                  bounds=net.data.bch_hrdn_limits,
+                                  bounds=(0, 30),
                                   within=pyo.NonNegativeReals)
 
         # 3.2) Second-stage recourse variables  (indexed by scenario)
@@ -216,6 +219,9 @@ class InvestmentClass():
         model.scn_prob = pyo.Param(model.Set_scn, initialize=scn_prob)
 
         # 4.2)  Network static data  (costs, limits …)  – match names exactly
+        # - base value
+        model.base_MVA = pyo.Param(initialize=net.data.net.base_MVA)
+
         # - generator cost (c0 + c1·P)
         coef_len = len(net.data.net.gen_cost_coef[0])
         model.gen_cost_coef = pyo.Param(
@@ -461,9 +467,35 @@ class InvestmentClass():
         # 4.5) Power flow definitions
         def dc_flow_rule(model, sc, l, t):
             i, j = net.data.net.bch[l - 1]
-            return model.Pf_tn[sc, l, t] == model.B_tn[l] * (model.theta[sc, i, t] - model.theta[sc, j, t])
+            return model.Pf_tn[sc, l, t] == model.base_MVA * model.B_tn[l] * (model.theta[sc, i, t]
+                                                                              - model.theta[sc, j, t])
 
         model.Constraint_FlowDef_TN = pyo.Constraint(model.Set_slt_tn, rule=dc_flow_rule)
+
+        # 4.6) Maximum allowable angle difference at lines
+        ang_diff_max = net.data.net.theta_limits[1] - net.data.net.theta_limits[0]
+
+        def line_angle_difference_upper_rule(model, sc, l, t):
+            # fetch the two end‐buses of branch l
+            i, j = net.data.net.bch[l - 1]
+            # only enforce on pure TN branches
+            if net.data.net.branch_level[l] == 'T':
+                return model.theta[sc, i, t] - model.theta[sc, j, t] <= ang_diff_max
+            return pyo.Constraint.Skip
+
+        def line_angle_difference_lower_rule(model, sc, l, t):
+            i, j = net.data.net.bch[l - 1]
+            if net.data.net.branch_level[l] == 'T':
+                return model.theta[sc, i, t] - model.theta[sc, j, t] >= -ang_diff_max
+            return pyo.Constraint.Skip
+
+        # Now index over the (scenario, tn‐branch, time) tuple set
+        model.Constraint_AngleDiffUpperLimit = pyo.Constraint(
+            model.Set_slt_tn, rule=line_angle_difference_upper_rule
+        )
+        model.Constraint_AngleDiffLowerLimit = pyo.Constraint(
+            model.Set_slt_tn, rule=line_angle_difference_lower_rule
+        )
 
         def voltage_drop_rule(model, sc, l, t):
             i, j = net.data.net.bch[l - 1]
@@ -713,44 +745,68 @@ class InvestmentClass():
         }
 
     def _write_selected_variables_to_excel(self, model,
-                                           path: str = "Optimization_Results/Investment_Model/results.csv",
+                                           path: str = "Optimization_Results/Investment_Model/results.xlsx",
                                            meta: dict | None = None):
         """
-        Export selected variables to a multi-sheet .xlsx workbook.
+        Export selected variables and key parameters to a multi-sheet .xlsx workbook.
 
         Sheet order:
           1) “Meta”        – network name, windstorm name, solver info, objective…
-          2) one sheet per selected variable (exact Pyomo index is kept)
+          2) “branch_level” – list of branch‐level strings
+          3) “bch_type”     – list of branch‐type ints
+          4) one sheet per selected variable
         """
-        # ------------ variable list -----------------------------------
         important = (
             "line_hrdn",
             "Pg", "Qg", "Pc", "Qc",
             "Pf_tn", "Pf_dn",
-            "rand_num", "branch_status", "fail_prob", "fail_condition", "impacted_branches", "fail_indicator",
+            "rand_num", "branch_status", "fail_prob", "fail_condition",
+            "impacted_branches", "fail_indicator",
             "fail_applies", "repair_applies"
         )
 
-        path = Path(path)
+        path = Path(path).with_suffix(".xlsx")
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        # ------------ default metadata --------------------------------
         if meta is None:
             meta = {
                 "written_at": datetime.now().isoformat(timespec="seconds"),
                 "objective_value": float(pyo.value(model.Objective)),
-                "solver_status": str(model.solver_status) if hasattr(model, "solver_status") else "n/a",
-                # fall-back to “unknown” when attributes are missing
-                "network_name": getattr(self, "network_name", "unknown"),
-                "windstorm_name": getattr(self, "windstorm_name", "unknown"),
+                "network_name": "UK_transmission_network_with_kearsley_GSP_group",
+                "windstorm_name":"windstorm_UK_transmission_network",
             }
 
-        with pd.ExcelWriter(path, engine="xlsxwriter") as xl:
-            # 1) META sheet -----------------------------------------------------
-            pd.Series(meta, name="value").to_frame().to_excel(
-                xl, sheet_name="Meta", header=False)
+        from network_factory import make_network
+        net = make_network(meta.get("network_name", "default"))
 
-            # 2) one sheet per variable ---------------------------------------
+        with pd.ExcelWriter(path, engine="xlsxwriter") as xl:
+            # 1) META sheet
+            pd.Series(meta, name="value")\
+              .to_frame()\
+              .to_excel(xl, sheet_name="Meta", header=False)
+
+            # 2) PARAMETER sheets
+            branch_ids = list(range(1, len(net.data.net.bch) + 1))
+
+            # Ensure branch_level is a list, not a dict
+            bl = net.data.net.branch_level
+            if isinstance(bl, dict):
+                bl = pd.Series(bl).reindex(branch_ids).tolist()
+            df_bl = pd.DataFrame({
+                "branch": branch_ids,
+                "branch_level": bl
+            })
+            df_bl.to_excel(xl, sheet_name="branch_level", index=False)
+
+            # bch_type is expected as a list
+            bt = net.data.net.bch_type
+            df_bt = pd.DataFrame({
+                "branch": branch_ids,
+                "bch_type": bt
+            })
+            df_bt.to_excel(xl, sheet_name="bch_type", index=False)
+
+            # 3) one sheet per selected variable
             for name in important:
                 var = getattr(model, name, None)
                 if var is None:
@@ -761,15 +817,17 @@ class InvestmentClass():
                     rows.append({"index": "", "value": float(pyo.value(var))})
                 else:
                     for idx in var:
-                        rows.append({"index": str(idx), "value": float(pyo.value(var[idx]))})
+                        rows.append({
+                            "index": str(idx),
+                            "value": float(pyo.value(var[idx]))
+                        })
 
                 df = pd.DataFrame(rows)
-                # sheet names must be ≤31 chars and unique
                 sheet = name[:29]
-                xl.book.add_worksheet(sheet)  # ensure uniqueness
                 df.to_excel(xl, sheet_name=sheet, index=False)
 
     def piecewise_linearize_fragility(self, net, line_idx, num_pieces):
+
         """
         Return { "gust_speeds": [...],
                  "fail_probs" : { l: [p(t1),…,p(tn)] for l in line_idx } }
