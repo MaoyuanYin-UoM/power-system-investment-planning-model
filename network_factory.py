@@ -11,9 +11,9 @@ def make_network(name: str) -> NetworkClass:
     # build the right config object
     ncon = NetConfig()  # initialize the 'ncon' objective as the default
 
-    if name == 'UK_transmission_network':
+    if name == 'GB_transmission_network':
         """
-        This loads the UK transmission network from a prepared spread sheet
+        This loads the GB transmission network from a prepared spread sheet
         Note: 1) the network model data is only suitable for a DC power flow
               2) the network model read from the .xlsx file has inherently some islanded buses:
               --> [224, 225, 248, 437, 438, 439, 440] (1-based indexing)
@@ -186,7 +186,7 @@ def make_network(name: str) -> NetworkClass:
         return net
 
 
-    elif name == 'Manchester_distribution_network_kearsley':
+    elif name == 'Manchester_distribution_network_Kearsley':
         """
         This loads the distribution network at GSP, BSP, PS level, corresponding to 'Kearsley' GSP group.
         
@@ -330,17 +330,17 @@ def make_network(name: str) -> NetworkClass:
         return net
 
 
-    elif name == 'UK_transmission_network_with_kearsley_GSP_group':
+    elif name == 'GB_transmission_network_with_Kearsley_GSP_group':
         """
         A composite network model:
-          • UK transmission network (compatible DC power flow)
+          • GB transmission network (compatible DC power flow)
           • Manchester ‘Kearsley’ distribution group (compatible with linearized AC power flow)
 
         TSO-DSO coupling point:
-          – bus 184 (UK)  ←→  bus 1 (Kearsley) via a “zero-impedance” link
+          – bus 184 (GB)  ←→  bus 1 (Kearsley) via a “zero-impedance” link
         
         Slack bus:
-          – identical to the UK‐transmission slack bus (Bus 184)
+          – identical to the GB‐transmission slack bus (Bus 184)
           
         Note:
           – 'ncon.data.net.bus_level' and 'ncon.data.net.branch_level' specify the buses and branches at transmission or
@@ -348,22 +348,23 @@ def make_network(name: str) -> NetworkClass:
         """
 
         # 1. Load the two networks exactly as already defined
-        uk_net = make_network('UK_transmission_network')  # UK transmission network
-        dn_net = make_network('Manchester_distribution_network_kearsley')  # Manchester distribution network
+        gb_net = make_network('GB_transmission_network')  # GB transmission network
+        dn_net = make_network('Manchester_distribution_network_Kearsley')  # Manchester distribution network
 
-        uk = uk_net.data.net  # shorthand
+        # shorthand:
+        gb = gb_net.data.net  
         dn = dn_net.data.net
 
         # 2. Create a fresh NetConfig initialized with the transmission network model
         ncon = NetConfig()
-        ncon.data.net = copy.deepcopy(uk)  # start from the UK template
+        ncon.data.net = copy.deepcopy(gb)  # start from the GB template
 
-        # Tag the buses and branches from uk_net as transmission level
-        ncon.data.net.bus_level = {b: 'T' for b in uk.bus}
-        ncon.data.net.branch_level = {i + 1: 'T' for i in range(len(uk.bch))}
+        # Tag the buses and branches from gb_net as transmission level
+        ncon.data.net.bus_level = {b: 'T' for b in gb.bus}
+        ncon.data.net.branch_level = {i + 1: 'T' for i in range(len(gb.bch))}
 
-        # 3. Re-index the distribution buses so we have unique IDs (simply shift them by max(uk.bus))
-        offset = max(uk.bus)
+        # 3. Re-index the distribution buses so we have unique IDs (simply shift them by max(gb.bus))
+        offset = max(gb.bus)
         dn_bus_map = {b: b + offset for b in dn.bus}  # distribution bus index: old->new
 
         # helper to remap a bus index or a [from,to] pair
@@ -378,11 +379,11 @@ def make_network(name: str) -> NetworkClass:
         new_dn_buses = [_map_bus(b) for b in dn.bus]
         ncon.data.net.bus.extend(new_dn_buses)
 
-        # ensure V_min and V_max exist on the copied UK net before extending (assign default values if not exist)
+        # ensure V_min and V_max exist on the copied GB net before extending (assign default values if not exist)
         if getattr(ncon.data.net, 'V_min', None) is None:
-            ncon.data.net.V_min = [0.95] * len(uk.bus)
+            ncon.data.net.V_min = [0.95] * len(gb.bus)
         if getattr(ncon.data.net, 'V_max', None) is None:
-            ncon.data.net.V_max = [1.05] * len(uk.bus)
+            ncon.data.net.V_max = [1.05] * len(gb.bus)
 
         ncon.data.net.V_min.extend(dn.V_min)
         ncon.data.net.V_max.extend(dn.V_max)
@@ -402,7 +403,7 @@ def make_network(name: str) -> NetworkClass:
         dn_pairs_mapped = [_map_pair(p) for p in dn.bch]
         ncon.data.net.bch.extend(dn_pairs_mapped)
 
-        ncon.data.net.bch_type = list(uk.bch_type) + list(dn.bch_type)
+        ncon.data.net.bch_type = list(gb.bch_type) + list(dn.bch_type)
 
         ncon.data.net.bch_R.extend(dn.bch_R)
         ncon.data.net.bch_X.extend(dn.bch_X)
@@ -410,21 +411,21 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_Pmax.extend(dn.bch_Pmax)
         ncon.data.net.bch_length_km.extend(dn.bch_length_km)
 
-        # 4.3) Add a zero-impedance coupling branch between bus-184 (UK) and remapped bus-1 (DN)
+        # 4.3) Add a zero-impedance coupling branch between bus-184 (GB) and remapped bus-1 (DN)
         #      (inserted exactly after the transmission branches)
-        idx_cpl = len(uk.bch)
+        idx_cpl = len(gb.bch)
         ncon.data.net.bch.insert(idx_cpl, [184, dn_bus_map[1]])
-        ncon.data.net.bch_R.insert(len(uk.bch), 0)
-        ncon.data.net.bch_X.insert(len(uk.bch), 0.0001)
-        ncon.data.net.bch_Smax.insert(len(uk.bch), 1e6)
-        ncon.data.net.bch_Pmax.insert(len(uk.bch), 1e6)
-        ncon.data.net.bch_length_km.insert(len(uk.bch), 0.0)  # padding value
+        ncon.data.net.bch_R.insert(len(gb.bch), 0)
+        ncon.data.net.bch_X.insert(len(gb.bch), 0.0001)
+        ncon.data.net.bch_Smax.insert(len(gb.bch), 1e6)
+        ncon.data.net.bch_Pmax.insert(len(gb.bch), 1e6)
+        ncon.data.net.bch_length_km.insert(len(gb.bch), 0.0)  # padding value
 
         ncon.data.net.bch_type.insert(idx_cpl, 0)  # treat this virtual coupling branch as non-hardenable
         ncon.data.net.branch_level[idx_cpl] = 'T-D'  # tag it as 'T-D' which will present in both tn and dn level
 
         # 4.4) Rebuild the 'branch_level' (ensure indices are correct after inserting the coupling branch)
-        num_tn = len(uk.bch)
+        num_tn = len(gb.bch)
         num_dn = len(dn.bch)
         ncon.data.net.branch_level = {}
         for i in range(1, num_tn + 1):
@@ -442,16 +443,16 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.gen_cost_coef.extend(dn.gen_cost_coef)
 
         # 4.6) Merge the fragility data
-        ncon.data.frg.mu = list(uk_net.data.frg.mu) + list(dn_net.data.frg.mu)
-        ncon.data.frg.sigma = list(uk_net.data.frg.sigma) + list(dn_net.data.frg.sigma)
-        ncon.data.frg.thrd_1 = list(uk_net.data.frg.thrd_1) + list(dn_net.data.frg.thrd_1)
-        ncon.data.frg.thrd_2 = list(uk_net.data.frg.thrd_2) + list(dn_net.data.frg.thrd_2)
-        ncon.data.frg.shift_f = list(uk_net.data.frg.shift_f) + list(dn_net.data.frg.shift_f)
+        ncon.data.frg.mu = list(gb_net.data.frg.mu) + list(dn_net.data.frg.mu)
+        ncon.data.frg.sigma = list(gb_net.data.frg.sigma) + list(dn_net.data.frg.sigma)
+        ncon.data.frg.thrd_1 = list(gb_net.data.frg.thrd_1) + list(dn_net.data.frg.thrd_1)
+        ncon.data.frg.thrd_2 = list(gb_net.data.frg.thrd_2) + list(dn_net.data.frg.thrd_2)
+        ncon.data.frg.shift_f = list(gb_net.data.frg.shift_f) + list(dn_net.data.frg.shift_f)
 
-        # 5. Set slack & base values (same to UK transmission network)
-        ncon.data.net.slack_bus = uk.slack_bus
-        ncon.data.net.base_MVA = uk.base_MVA
-        ncon.data.net.base_kV = uk.base_kV
+        # 5. Set slack & base values (same to GB transmission network)
+        ncon.data.net.slack_bus = gb.slack_bus
+        ncon.data.net.base_MVA = gb.base_MVA
+        ncon.data.net.base_kV = gb.base_kV
 
         # 6. Specify additional data that are needed when building the investment model
         # 6.1) line hardening cost
@@ -619,7 +620,7 @@ def make_network(name: str) -> NetworkClass:
 
 
 
-    elif name == '29_bus_GB_transmission_network_with_kearsley_GSP_group':
+    elif name == '29_bus_GB_transmission_network_with_Kearsley_GSP_group':
         """
         Composite test system
             • 29-bus simplified GB transmission network (DC-OPF compatible)
@@ -641,7 +642,7 @@ def make_network(name: str) -> NetworkClass:
         # 1.  Load the two component networks
         # ------------------------------------------------------------------
         gb_net = make_network('GB_Transmission_Network_29_Bus')  # 29-bus TN
-        dn_net = make_network('Manchester_distribution_network_kearsley')  # Kearsley DN
+        dn_net = make_network('Manchester_distribution_network_Kearsley')  # Kearsley DN
 
         gb = gb_net.data.net
         dn = dn_net.data.net
@@ -753,7 +754,7 @@ def make_network(name: str) -> NetworkClass:
         # 6. Specify additional data that are needed when building the investment model
         # ------------------------------------------------------------------
         # 6.1) line hardening cost
-        ncon.data.cost_rate_hrdn = 1e2  # hardening cost (£) per unit length (km) of the line and per unit amount (m/s)
+        ncon.data.cost_rate_hrdn = 1e4  # hardening cost (£) per unit length (km) of the line and per unit amount (m/s)
         # that the fragility curve is shifted
         ncon.data.cost_bch_hrdn = [
             ncon.data.cost_rate_hrdn * length if ncon.data.net.bch_type[i] == 1 else 0.0
@@ -762,8 +763,8 @@ def make_network(name: str) -> NetworkClass:
         # Note: only distribution line hardening is considered
 
         # 6.2) line repair cost
-        rep_rate_tn = 1e2  # repair cost (£) per unit length (km) of line at transmission level
-        rep_rate_dn = 1e2  # repair cost (£) per unit length (km) of line at distribution level
+        rep_rate_tn = 1e3  # repair cost (£) per unit length (km) of line at transmission level
+        rep_rate_dn = 1e3  # repair cost (£) per unit length (km) of line at distribution level
         ncon.data.cost_bch_rep = [
             rep_rate_dn * length if ncon.data.net.branch_level[i + 1] == 'D' else rep_rate_tn * length
             for i, length in enumerate(ncon.data.net.bch_length_km)

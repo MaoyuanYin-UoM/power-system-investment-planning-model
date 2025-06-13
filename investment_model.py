@@ -33,8 +33,8 @@ class InvestmentClass():
             setattr(self, pars, getattr(obj, pars))
 
     def build_investment_model(self,
-                               network_name: str = "29_bus_GB_transmission_network_with_kearsley_GSP_group",
-                               windstorm_name: str = "windstorm_UK_transmission_network",
+                               network_name: str = "29_bus_GB_transmission_network_with_Kearsley_GSP_group",
+                               windstorm_name: str = "windstorm_GB_transmission_network",
                                path_all_ws_scenarios: str = "Scenario_Results/Extracted_Scenarios/5_ws_scenarios_GB29-Kearsley_network_seed_102.json",
                                resilience_level_threshold: float = None):
         """
@@ -737,7 +737,7 @@ class InvestmentClass():
             time_limit: int = 60,
             write_lp: bool = False,
             write_result: bool = False,
-            result_path: str = 'Optimization_Results/Investment_Model/results_selected_variables.csv',
+            result_path: str = None,
             **solver_options
     ):
         """
@@ -748,7 +748,7 @@ class InvestmentClass():
         mip_gap       : Absolute/relative MIP gap (default 0.5 %)
         time_limit    : Wall-clock limit in seconds
         write_lp      : Dump the model to LP file *only when* write_lp is True **or** the solver fails
-        csv_path      : If given, write a tidy CSV of selected variables
+        result_path   : If not specified, a unique file name will be assigned
         solver_options: Extra options forwarded to the solver
         """
 
@@ -788,15 +788,37 @@ class InvestmentClass():
         if write_result:
             # If 'result_path' is not specified, create a unique file name with timestamp
             if result_path is None:
-                # Example: results_20240613_151822_UK-Kearsley_seed101.csv
+                # Example: results_20240613_151822_GB-Kearsley_seed101.csv
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 network = getattr(self, "network_name", "network")
-                ws = getattr(self, "windstorm_name", "ws")
                 seed = getattr(self.meta, "ws_seed", None)
-                short_network = network.replace("transmission_network_with_", "").replace("UK_", "UK-")
-                fname = f"results_{timestamp}_{short_network}_{ws}"
+                # Shorten the original network name (e.g., "29_bus_GB_transmission_network_with_Kearsley_GSP_group")
+                # and add it to the file name
+                short_network_name = (network.replace("transmission_network_with_", "")
+                                 .replace("GB_", "GB-")
+                                 .replace("_GSP_group", ""))
+                fname = f"results_{timestamp}_{short_network_name}"
+
+                # Add the windstorm information
+                fname += f"_{self.meta.n_ws_scenarios}_ws"
+
+                # Add the windstorm seed value
                 if seed is not None:
-                    fname += f"_seed{seed}"
+                    fname += f"_seed_{seed}"
+
+                # Add the resilience level threshold value
+                rthres = float(getattr(model, "resilience_level_threshold", float('inf')))
+                if rthres != float('inf'):
+                    # Use scientific notation with 2 decimals (e.g., 2.5e8)
+                    sci_str = f"{rthres:.2e}"
+                    # Replace '+' with empty string for filesystem compatibility (e.g., 2.50e+08 → 2.50e08)
+                    sci_str = sci_str.replace("+0", "").replace("+", "")
+                    # Add to the file name
+                    fname += f"_resilience_threshold_{sci_str}"
+                else:
+                    fname += f"_resilience_threshold_inf"
+
+                # File name finishes
                 fname += ".csv"
                 result_path = os.path.join("Optimization_Results", "Investment_Model", fname)
 

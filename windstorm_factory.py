@@ -6,7 +6,7 @@ def make_windstorm(name: str) -> WindClass:
 
     wcon = WindConfig()
 
-    if name == 'windstorm_UK_transmission_network':
+    if name == 'windstorm_GB_transmission_network':
         # starting-point contour:
         wcon.data.WS.contour.start_lon = [-2.0, -3.3, -3.3, -4.8, -4.8, -3.2, -2.2,
                                           -5.4, -3.2, -5.4, -5.4, 0.4]

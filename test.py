@@ -58,39 +58,39 @@ from network_factory import make_network
 # visualize_all_windstorm_events(file_path='Scenario_Results/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json')
 
 
-# net = make_network('UK_transmission_network')
+# net = make_network('GB_transmission_network')
 # model = net.build_dc_opf_model()
 # results = net.solve_dc_opf(model, write_xlsx=True)
 
-# net = make_network('UK_transmission_network')
+# net = make_network('GB_transmission_network')
 # print("BRANCH LIST (bch):", net.data.net.bch)
 # print("NUMBER OF BUSES   :", net.data.net.bus)
 # islanded = net.find_islanded_buses()
 # print(islanded)
-# visualize_bch_and_ws_contour(network_name='UK_transmission_network', windstorm_name='windstorm_UK_transmission_network')
+# visualize_bch_and_ws_contour(network_name='GB_transmission_network', windstorm_name='windstorm_GB_transmission_network')
 
 
-# net = make_network('Manchester_distribution_network_kearsley')
+# net = make_network('Manchester_distribution_network_Kearsley')
 # model = net.build_linearized_ac_opf_model()
 # results = net.solve_linearized_ac_opf(model, write_xlsx=True)
 
 
-# net = make_network('UK_transmission_network_with_kearsley_GSP_group')
+# net = make_network('GB_transmission_network_with_Kearsley_GSP_group')
 # model = net.build_combined_dc_linearized_ac_opf_model()
 # results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
 
 
-# net = make_network('29_bus_GB_transmission_network_with_kearsley_GSP_group')
+# net = make_network('29_bus_GB_transmission_network_with_Kearsley_GSP_group')
 # model = net.build_combined_dc_linearized_ac_opf_model()
 # results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
 
 
-# visualize_bch_and_ws_contour(network_name='UK_transmission_network',
-#                              windstorm_name='windstorm_UK_transmission_network')
-# visualize_bch_and_ws_contour(network_name='Manchester_distribution_network_kearsley',
-#                              windstorm_name='windstorm_UK_transmission_network')
-# visualize_bch_and_ws_contour(network_name='UK_transmission_network_with_kearsley_GSP_group',
-#                              windstorm_name='windstorm_UK_transmission_network')
+# visualize_bch_and_ws_contour(network_name='GB_transmission_network',
+#                              windstorm_name='windstorm_GB_transmission_network')
+# visualize_bch_and_ws_contour(network_name='Manchester_distribution_network_Kearsley',
+#                              windstorm_name='windstorm_GB_transmission_network')
+# visualize_bch_and_ws_contour(network_name='GB_transmission_network_with_Kearsley_GSP_group',
+#                              windstorm_name='windstorm_GB_transmission_network')
 
 
 
@@ -98,10 +98,10 @@ num_ws_prd = [1]
 seed = 104
 generate_ws_scenarios(num_ws_prd=num_ws_prd,
                       seed=seed,
-                      network_preset='29_bus_GB_transmission_network_with_kearsley_GSP_group',
-                      windstorm_preset='windstorm_UK_transmission_network')
+                      network_preset='29_bus_GB_transmission_network_with_Kearsley_GSP_group',
+                      windstorm_preset='windstorm_GB_transmission_network')
 
-extract_ws_scenarios(full_file=f'Scenario_Results/Full_Scenarios/{len(num_ws_prd)}_full_scenarios_29_bus_GB_transmission_network_with_kearsley_GSP_group_windstorm_UK_transmission_network_year_seed_{seed}.json',
+extract_ws_scenarios(full_file=f'Scenario_Results/Full_Scenarios/{len(num_ws_prd)}_full_scenarios_29_bus_GB_transmission_network_with_Kearsley_GSP_group_windstorm_GB_transmission_network_year_seed_{seed}.json',
                      out_file=f'Scenario_Results/Extracted_Scenarios/{len(num_ws_prd)}_ws_scenarios_GB29-Kearsley_network_seed_{seed}.json')
 
 for i in range(len(num_ws_prd)):
@@ -121,8 +121,8 @@ for i in range(len(num_ws_prd)):
 
 
 # visualize_network_bch(network_name="GB_Transmission_Network_29_Bus")
-# net = make_network('29_bus_GB_transmission_network_with_kearsley_GSP_group')
-# ax  = visualize_network_bch('29_bus_GB_transmission_network_with_kearsley_GSP_group')
+# net = make_network('29_bus_GB_transmission_network_with_Kearsley_GSP_group')
+# ax  = visualize_network_bch('29_bus_GB_transmission_network_with_Kearsley_GSP_group')
 
 # visualize_bch_hrdn_and_fail(results_xlsx="")
 
@@ -130,15 +130,15 @@ for i in range(len(num_ws_prd)):
 # model = net.build_dc_opf_model()
 # net.solve_dc_opf(model, write_xlsx=False)
 
-# net = make_network('Manchester_distribution_network_kearsley')
+# net = make_network('Manchester_distribution_network_Kearsley')
 # model = net.build_linearized_ac_opf_model()
 # results = net.solve_linearized_ac_opf(model, write_xlsx=False)
 
-# net = make_network('29_bus_GB_transmission_network_with_kearsley_GSP_group')
+# net = make_network('29_bus_GB_transmission_network_with_Kearsley_GSP_group')
 # model = net.build_combined_dc_linearized_ac_opf_model()
 # results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
 
 
 
-# visualize_bch_and_ws_contour(network_name='29_bus_GB_transmission_network_with_kearsley_GSP_group',
-#                              windstorm_name='windstorm_UK_transmission_network')
+# visualize_bch_and_ws_contour(network_name='29_bus_GB_transmission_network_with_Kearsley_GSP_group',
+#                              windstorm_name='windstorm_GB_transmission_network')
