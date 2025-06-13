@@ -666,34 +666,42 @@ class InvestmentClass():
         model.Constraint_Slack = pyo.Constraint([(sc, t) for sc in Set_scn
                                                  for t in Set_ts_scn[sc]],
                                                 rule=slack_rule)
-        
+
+
         # code 'expected total operational cost' (resilience level) as an expression
         def expected_total_op_cost_rule(model):
-            return sum(
-                model.scn_prob[sc] * (
-                    # 1) generation cost
-                        sum(model.gen_cost_coef[g, 0] + model.gen_cost_coef[g, 1] * model.Pg[sc, g, t]
-                            for g in model.Set_gen
-                            for t in model.Set_ts_scn[sc])
-                        # 2) import/export cost
-                        + sum(model.Pimp_cost * model.Pimp[sc, t]
-                              + model.Pexp_cost * model.Pexp[sc, t]
-                              for t in model.Set_ts_scn[sc])
-                        # 3) active load‐shedding cost
-                        + sum(model.Pc_cost[b] * model.Pc[sc, b, t]
-                              for b in model.Set_bus_tn | model.Set_bus_dn
-                              for t in model.Set_ts_scn[sc])
-                        # 4) reactive load‐shedding cost (only DN)
-                        + sum(model.Qc_cost[b] * model.Qc[sc, b, t]
-                              for b in model.Set_bus_dn
-                              for t in model.Set_ts_scn[sc])
-                        # 5) repair cost
-                        + sum(model.rep_cost[l] * model.repair_applies[sc, l, t]
-                              for l in model.Set_bch_tn | model.Set_bch_dn
-                              for t in model.Set_ts_scn[sc])
-                )
-                for sc in model.Set_scn
+            # 1) Generation cost
+            gen_cost = sum(
+                model.scn_prob[sc] * (model.gen_cost_coef[g, 0] + model.gen_cost_coef[g, 1] * model.Pg[sc, g, t])
+                for (sc, g, t) in model.Set_sgt
             )
+
+            # 2) Grid import / export
+            imp_exp_cost = sum(
+                model.scn_prob[sc] * (model.Pimp_cost * model.Pimp[sc, t] +
+                                  model.Pexp_cost * model.Pexp[sc, t])
+                for (sc, t) in model.Set_st
+            )
+
+            # 3) Active load-shedding
+            act_ls_cost = sum(
+                model.scn_prob[sc] * model.Pc_cost[b] * model.Pc[sc, b, t]
+                for (sc, b, t) in model.Set_sbt
+            )
+
+            # 4) Reactive load-shedding  (DN buses only)
+            reac_ls_cost = sum(
+                model.scn_prob[sc] * model.Qc_cost[b] * model.Qc[sc, b, t]
+                for (sc, b, t) in model.Set_sbt_dn
+            )
+
+            # 5) Line repair
+            rep_cost = sum(
+                model.scn_prob[sc] * model.rep_cost[l] * model.repair_applies[sc, l, t]
+                for (sc, l, t) in model.Set_slt_lines
+            )
+
+            return gen_cost + imp_exp_cost + act_ls_cost + reac_ls_cost + rep_cost
 
         model.exp_total_op_cost_expr = pyo.Expression(rule=expected_total_op_cost_rule)
 
@@ -708,7 +716,8 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         # Code total investment cost as an expression
         def total_inv_cost_rule(model):
-            return sum(model.inv_cost[i] * model.x[i] for i in model.Set_inv)
+            return sum(model.line_hrdn_cost[l] * model.line_hrdn[l]
+                       for l in model.Set_bch_hrdn_lines)
 
         model.total_inv_cost_expr = pyo.Expression(rule=total_inv_cost_rule)
         
@@ -728,7 +737,7 @@ class InvestmentClass():
             time_limit: int = 60,
             write_lp: bool = False,
             write_result: bool = False,
-            result_path: str = 'Optimization_Results/Investment_Model/results_selected_variable.csv',
+            result_path: str = 'Optimization_Results/Investment_Model/results_selected_variables.csv',
             **solver_options
     ):
         """
@@ -738,8 +747,7 @@ class InvestmentClass():
         ----------
         mip_gap       : Absolute/relative MIP gap (default 0.5 %)
         time_limit    : Wall-clock limit in seconds
-        write_lp      : Dump the model to LP file *only when*
-                        write_lp is True **or** the solver fails
+        write_lp      : Dump the model to LP file *only when* write_lp is True **or** the solver fails
         csv_path      : If given, write a tidy CSV of selected variables
         solver_options: Extra options forwarded to the solver
         """
@@ -778,6 +786,20 @@ class InvestmentClass():
                         io_options={"symbolic_solver_labels": True})
 
         if write_result:
+            # If 'result_path' is not specified, create a unique file name with timestamp
+            if result_path is None:
+                # Example: results_20240613_151822_UK-Kearsley_seed101.csv
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                network = getattr(self, "network_name", "network")
+                ws = getattr(self, "windstorm_name", "ws")
+                seed = getattr(self.meta, "ws_seed", None)
+                short_network = network.replace("transmission_network_with_", "").replace("UK_", "UK-")
+                fname = f"results_{timestamp}_{short_network}_{ws}"
+                if seed is not None:
+                    fname += f"_seed{seed}"
+                fname += ".csv"
+                result_path = os.path.join("Optimization_Results", "Investment_Model", fname)
+
             self._write_selected_variables_to_excel(model, result_path)
 
         return {
