@@ -33,7 +33,10 @@ class InvestmentClass():
             setattr(self, pars, getattr(obj, pars))
 
     def build_investment_model(self,
-                               path_all_ws_scenarios: str = "Scenario_Results/Extracted_Scenarios/5_ws_scenarios_GB29-Kearsley_network_seed_102.json"):
+                               network_name: str = "29_bus_GB_transmission_network_with_kearsley_GSP_group",
+                               windstorm_name: str = "windstorm_UK_transmission_network",
+                               path_all_ws_scenarios: str = "Scenario_Results/Extracted_Scenarios/5_ws_scenarios_GB29-Kearsley_network_seed_102.json",
+                               resilience_level_threshold: float = None):
         """
         Build a Pyomo MILP model for resilience enhancement investment planning (line hardening)
         against windstorms, using the form of stochastic programming over multiple scenarios.
@@ -47,25 +50,31 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         # 0. Preliminaries
         # ------------------------------------------------------------------
-        network_name = "29_bus_GB_transmission_network_with_kearsley_GSP_group"
-        windstorm_name = "windstorm_UK_transmission_network"
+        self.network_name = network_name
+        self.windstorm_name = windstorm_name
 
-        net = make_network(network_name)
-        ws = make_windstorm(windstorm_name)
+        net = make_network(self.network_name)
+        ws = make_windstorm(self.windstorm_name)
 
+        # read windstorm scenarios data from the .json file
         with open(path_all_ws_scenarios) as f:
             data = json.load(f)
 
-        # Accept both the “old” (list) and the “new” (dict-with-wrapper) format
-        if isinstance(data, dict):
-            if "ws_scenarios" in data:
-                ws_scenarios = data["ws_scenarios"]
-            elif "scenarios" in data:  # older extractor name
-                ws_scenarios = data["scenarios"]
-            else:
-                raise ValueError("JSON does not contain 'ws_scenarios' or 'scenarios'")
-        else:  # already a list
-            ws_scenarios = data
+        if "metadata" in data:
+            metadata = data["metadata"]
+        else:
+            raise ValueError("JSON does not contain 'metadata'")
+
+        if "ws_scenarios" in data:
+            ws_scenarios = data["ws_scenarios"]
+        else:
+            raise ValueError("JSON does not contain 'ws_scenarios'")
+
+        # store windstorm scenario metadata into the investment model
+        self.meta = Object()
+        self.meta.ws_seed = metadata["seed"]
+        self.meta.n_ws_scenarios = metadata["number_of_ws_simulations"]
+        self.meta.period_type = metadata["period_type"]
 
         Set_scn = [sim["simulation_id"] for sim in ws_scenarios]
         scn_prob = {sc: 1 / len(Set_scn) for sc in Set_scn}  # uniform
@@ -225,6 +234,14 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         # 4. Parameters
         # ------------------------------------------------------------------
+        # 4.0) Resilience level threshold
+        model.resilience_level_threshold = pyo.Param(
+            initialize=(resilience_level_threshold
+                        if resilience_level_threshold is not None
+                        else float('inf')),
+            mutable=False
+        )
+
         # 4.1)  Scenario probability
         model.scn_prob = pyo.Param(model.Set_scn, initialize=scn_prob)
 
@@ -649,38 +666,55 @@ class InvestmentClass():
         model.Constraint_Slack = pyo.Constraint([(sc, t) for sc in Set_scn
                                                  for t in Set_ts_scn[sc]],
                                                 rule=slack_rule)
+        
+        # code 'expected total operational cost' (resilience level) as an expression
+        def expected_total_op_cost_rule(model):
+            return sum(
+                model.scn_prob[sc] * (
+                    # 1) generation cost
+                        sum(model.gen_cost_coef[g, 0] + model.gen_cost_coef[g, 1] * model.Pg[sc, g, t]
+                            for g in model.Set_gen
+                            for t in model.Set_ts_scn[sc])
+                        # 2) import/export cost
+                        + sum(model.Pimp_cost * model.Pimp[sc, t]
+                              + model.Pexp_cost * model.Pexp[sc, t]
+                              for t in model.Set_ts_scn[sc])
+                        # 3) active load‐shedding cost
+                        + sum(model.Pc_cost[b] * model.Pc[sc, b, t]
+                              for b in model.Set_bus_tn | model.Set_bus_dn
+                              for t in model.Set_ts_scn[sc])
+                        # 4) reactive load‐shedding cost (only DN)
+                        + sum(model.Qc_cost[b] * model.Qc[sc, b, t]
+                              for b in model.Set_bus_dn
+                              for t in model.Set_ts_scn[sc])
+                        # 5) repair cost
+                        + sum(model.rep_cost[l] * model.repair_applies[sc, l, t]
+                              for l in model.Set_bch_tn | model.Set_bch_dn
+                              for t in model.Set_ts_scn[sc])
+                )
+                for sc in model.Set_scn
+            )
+
+        model.exp_total_op_cost_expr = pyo.Expression(rule=expected_total_op_cost_rule)
+
+        # 4.10) resilience-level constraint (expected total operational cost <= threshold)
+        if resilience_level_threshold is not None:
+            model.Constraint_ResilienceLevel = pyo.Constraint(
+                expr=model.exp_total_op_cost_expr <= model.resilience_level_threshold
+            )
 
         # ------------------------------------------------------------------
         # 5. Objective
         # ------------------------------------------------------------------
-        def objective_rule(model):
-            inv_cost = sum(
-                # line hardening cost
-                model.line_hrdn_cost[l] * model.line_hrdn[l]
-                for l in model.Set_bch_hrdn_lines
-            )
-            exp_op_cost = sum(
-                model.scn_prob[sc] * (
-                    # generation cost
-                        sum(model.gen_cost_coef[g, 0] + model.gen_cost_coef[g, 1] * model.Pg[sc, g, t]
-                            for g in model.Set_gen for t in Set_ts_scn[sc])
-                        # grid import/export cost
-                        + sum(model.Pimp_cost * model.Pimp[sc, t] + model.Pexp_cost * model.Pexp[sc, t]
-                              for t in Set_ts_scn[sc])
-                        # load shedding cost
-                        + sum(model.Pc_cost[b] * model.Pc[sc, b, t]
-                              for b in net.data.net.bus for t in Set_ts_scn[sc])
-                        + sum(model.Qc_cost[b] * model.Qc[sc, b, t]
-                              for b in Set_bus_dn for t in Set_ts_scn[sc])
-                        # repair cost
-                        + sum(model.rep_cost[l] * model.repair_applies[sc, l, t]
-                              for l in Set_bch_lines for t in Set_ts_scn[sc])
-                )
-                for sc in Set_scn
-            )
+        # Code total investment cost as an expression
+        def total_inv_cost_rule(model):
+            return sum(model.inv_cost[i] * model.x[i] for i in model.Set_inv)
 
-            return inv_cost + exp_op_cost
-            # return exp_op_cost
+        model.total_inv_cost_expr = pyo.Expression(rule=total_inv_cost_rule)
+        
+        def objective_rule(model):
+            # Objective function: total investment cost + expected total operational cost
+            return model.total_inv_cost_expr + model.exp_total_op_cost_expr
 
         model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
@@ -781,9 +815,14 @@ class InvestmentClass():
         if meta is None:
             meta = {
                 "written_at": datetime.now().isoformat(timespec="seconds"),
+                "network_name": self.network_name,
+                "windstorm_name": self.windstorm_name,
+                "windstorm_random_seed": self.meta.ws_seed,
+                "number_of_ws_scenarios": self.meta.n_ws_scenarios,
+                "resilience_level_threshold": float(pyo.value(model.resilience_level_threshold)),
                 "objective_value": float(pyo.value(model.Objective)),
-                "network_name": "UK_transmission_network_with_kearsley_GSP_group",
-                "windstorm_name": "windstorm_UK_transmission_network",
+                "total_investment_cost": float(pyo.value(model.total_inv_cost_expr)),
+                "expected_total_operational_cost": float(pyo.value(model.exp_total_op_cost_expr)),
             }
 
         from network_factory import make_network

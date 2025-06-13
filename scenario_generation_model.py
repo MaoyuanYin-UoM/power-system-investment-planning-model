@@ -108,7 +108,7 @@ def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_
             "seed":seed,
             "network_preset": network_preset,
             "windstorm_preset": windstorm_preset,
-            "number of periods": len(num_ws_prd),
+            "number_of_ws_simulations": len(num_ws_prd),
             "period_type": ws.data.MC.lng_prd
         },
 
