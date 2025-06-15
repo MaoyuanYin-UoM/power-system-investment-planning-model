@@ -302,16 +302,30 @@ def visualize_all_windstorm_events(
             )
 
 
-def visualize_bch_and_ws_contour(network_name: str = "default", windstorm_name: str = "default"):
+def visualize_bch_and_ws_contour(network_name: str = "default",
+                                 windstorm_name: str = "default",
+                                 label_buses: bool = True,
+                                 label_fontsize: int = 8,
+                                 label_offset_lon: float = 0.02,
+                                 label_color: str = "black"):
     """
     Visualize the branches along with the starting- and ending-points contour for windstorm path generation.
+    Now includes bus ID labels similar to visualize_network_bch.
 
     Parameters:
-    - WindConfig: Configuration object containing windstorm data.
-    - NetworkConfig: Configuration object containing network data.
+    - network_name: Name of the network preset registered in network_factory
+    - windstorm_name: Name of the windstorm preset registered in windstorm_factory
+    - label_buses: If True, write the bus ID next to each plotted node
+    - label_fontsize: Font size for the labels
+    - label_offset_lon: Horizontal offset (in degrees) applied to the label
+    - label_color: Text colour of the bus labels
     """
+    # Import statements (these might have been missing)
+    import matplotlib.pyplot as plt
     from network import NetworkClass
     from windstorm import WindClass
+    from network_factory import make_network
+    from windstorm_factory import make_windstorm
 
     # load network model
     if network_name == 'default':
@@ -338,6 +352,11 @@ def visualize_bch_and_ws_contour(network_name: str = "default", windstorm_name: 
     bch_gis_bgn = net._get_bch_gis_bgn()
     bch_gis_end = net._get_bch_gis_end()
 
+    # Bus data for labels
+    bus_lon = net._get_bus_lon()
+    bus_lat = net._get_bus_lat()
+    bus_ids = net.data.net.bus
+
     # Validate branch data
     if not bch_gis_bgn or not bch_gis_end:
         print("Error: Branch GIS data is missing or invalid.")
@@ -360,6 +379,19 @@ def visualize_bch_and_ws_contour(network_name: str = "default", windstorm_name: 
         ax.plot([bgn[0], end[0]], [bgn[1], end[1]], 'g-', alpha=0.8, zorder=1,
                 label='Branch' if bgn == bch_gis_bgn[0] else "")
 
+    # Draw bus markers & labels
+    if label_buses:
+        for lon, lat, bid in zip(bus_lon, bus_lat, bus_ids):
+            # a tiny marker
+            ax.scatter(lon, lat, s=10, c=label_color, zorder=3)
+            # text label, slightly offset in longitude
+            ax.text(lon + label_offset_lon, lat,
+                    str(bid),
+                    fontsize=label_fontsize,
+                    ha="left", va="center",
+                    color=label_color,
+                    zorder=4)
+
     # Set axis limits
     ax.relim()
     ax.autoscale()
@@ -367,7 +399,7 @@ def visualize_bch_and_ws_contour(network_name: str = "default", windstorm_name: 
     # Labels, title, and legend
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
-    ax.set_title("Branches and Windstorm Contours")
+    ax.set_title(f"Branches and Windstorm Contours - {network_name}")
     ax.legend()
     ax.grid(True)
 

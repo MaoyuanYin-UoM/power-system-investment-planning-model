@@ -165,8 +165,8 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.base_kV = base_kV
 
         # 4) Other parameters that need to be specified (not from the network data file)
-        ncon.data.net.Pc_cost = [100] * len(ncon.data.net.bus)  # cost of curtailed active power at bus per MW
-        ncon.data.net.Qc_cost = [100] * len(ncon.data.net.bus)  # cost of curtailed reactive power at bus per MW
+        ncon.data.net.Pc_cost = [1000] * len(ncon.data.net.bus)  # cost of curtailed active power at bus per MW
+        ncon.data.net.Qc_cost = [1000] * len(ncon.data.net.bus)  # cost of curtailed reactive power at bus per MW
 
         ncon.data.net.Pimp_cost = 50
         ncon.data.net.Pexp_cost = 0  # remuneration for exporting electricity to distribution network
@@ -302,8 +302,8 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         # 7.  Cost-related parameters ---------------------------
         # -----------------------------------------------------------
-        ncon.data.net.Pc_cost = [1e3] * len(ncon.data.net.bus)  # active load shedding cost
-        ncon.data.net.Qc_cost = [1e3] * len(ncon.data.net.bus)  # reactive load shedding cost
+        ncon.data.net.Pc_cost = [5000] * len(ncon.data.net.bus)  # active load shedding cost
+        ncon.data.net.Qc_cost = [5000] * len(ncon.data.net.bus)  # reactive load shedding cost
 
         ncon.data.net.Pimp_cost = 50  # active power importing cost
         ncon.data.net.Pexp_cost = 0  # active power exporting remuneration
@@ -455,14 +455,23 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.base_kV = gb.base_kV
 
         # 6. Specify additional data that are needed when building the investment model
-        # 6.1) line hardening cost
-        ncon.data.cost_rate_hrdn = 1e2  # hardening cost (£) per unit length (km) of the line and per unit amount (m/s)
-        # that the fragility curve is shifted
-        ncon.data.cost_bch_hrdn = [
-            ncon.data.cost_rate_hrdn * length if ncon.data.net.bch_type[i] == 1 else 0.0
-            for i, length in enumerate(ncon.data.net.bch_length_km)
-        ]  # cost per unit fragility curve shift
-        # Note: only distribution line hardening is considered
+        # 6.1) line hardening cost (£) per unit length (km) of the line and per unit amount (m/s) that the fragility
+        # curve is shifted
+        ncon.data.cost_rate_hrdn_tn = 5e2  # transmission lines
+        ncon.data.cost_rate_hrdn_dn = 3e2  # distribution lines
+
+        ncon.data.cost_bch_hrdn = []
+        for i, length in enumerate(ncon.data.net.bch_length_km):
+            level = ncon.data.net.branch_level[i + 1]  # 'T', 'D', or 'T-D'
+            is_line = ncon.data.net.bch_type[i] == 1  # 1=line, 0=transformer/coupling branch
+            if not is_line:  # not hardenable
+                ncon.data.cost_bch_hrdn.append(0.0)  # assign 0 value as a placeholder
+            elif level == 'T':
+                ncon.data.cost_bch_hrdn.append(ncon.data.cost_rate_hrdn_tn * length)
+            elif level == 'D':
+                ncon.data.cost_bch_hrdn.append(ncon.data.cost_rate_hrdn_dn * length)
+            else:  # the virtual TN–DN coupling branch
+                ncon.data.cost_bch_hrdn.append(0.0)
 
         # 6.2) line repair cost
         rep_rate_tn = 1e2  # repair cost (£) per unit length (km) of line at transmission level
@@ -592,7 +601,7 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         # 7.  Economic parameters
         # -----------------------------------------------------------
-        ncon.data.net.Pc_cost = [100] * len(ncon.data.net.bus)  # load-shedding penalty £/MW
+        ncon.data.net.Pc_cost = [1000] * len(ncon.data.net.bus)  # load-shedding penalty £/MW
         ncon.data.net.Pimp_cost = 50  # grid import £/MW
         ncon.data.net.Pexp_cost = 0  # export remuneration £/MW
 
@@ -753,25 +762,34 @@ def make_network(name: str) -> NetworkClass:
         # ------------------------------------------------------------------
         # 6. Specify additional data that are needed when building the investment model
         # ------------------------------------------------------------------
-        # 6.1) line hardening cost
-        ncon.data.cost_rate_hrdn = 1e4  # hardening cost (£) per unit length (km) of the line and per unit amount (m/s)
-        # that the fragility curve is shifted
-        ncon.data.cost_bch_hrdn = [
-            ncon.data.cost_rate_hrdn * length if ncon.data.net.bch_type[i] == 1 else 0.0
-            for i, length in enumerate(ncon.data.net.bch_length_km)
-        ]  # cost per unit fragility curve shift
-        # Note: only distribution line hardening is considered
+        # 6.1) line hardening cost (£) per unit length (km) of the line and per unit amount (m/s) that the fragility
+        # curve is shifted
+        ncon.data.cost_rate_hrdn_tn = 1e4  # transmission lines
+        ncon.data.cost_rate_hrdn_dn = 1e3  # distribution lines
+
+        ncon.data.cost_bch_hrdn = []
+        for i, length in enumerate(ncon.data.net.bch_length_km):
+            level = ncon.data.net.branch_level[i + 1]  # 'T', 'D', or 'T-D'
+            is_line = ncon.data.net.bch_type[i] == 1  # 1=line, 0=transformer/coupling branch
+            if not is_line:  # not hardenable
+                ncon.data.cost_bch_hrdn.append(0.0)  # assign 0 value as a placeholder
+            elif level == 'T':
+                ncon.data.cost_bch_hrdn.append(ncon.data.cost_rate_hrdn_tn * length)
+            elif level == 'D':
+                ncon.data.cost_bch_hrdn.append(ncon.data.cost_rate_hrdn_dn * length)
+            else:  # the virtual TN–DN coupling branch
+                ncon.data.cost_bch_hrdn.append(0.0)
 
         # 6.2) line repair cost
-        rep_rate_tn = 1e3  # repair cost (£) per unit length (km) of line at transmission level
-        rep_rate_dn = 1e3  # repair cost (£) per unit length (km) of line at distribution level
+        rep_rate_tn = 1e4  # repair cost (£) per unit length (km) of line at transmission level
+        rep_rate_dn = 5e3  # repair cost (£) per unit length (km) of line at distribution level
         ncon.data.cost_bch_rep = [
             rep_rate_dn * length if ncon.data.net.branch_level[i + 1] == 'D' else rep_rate_tn * length
             for i, length in enumerate(ncon.data.net.bch_length_km)
         ]  # Note: the line repair at both transmission and distribution level are considered
 
         # 6.3) line hardening limits and budget
-        ncon.data.bch_hrdn_limits = [0.0, 30.0]  # in m/s
+        ncon.data.bch_hrdn_limits = [0.0, 40.0]  # in m/s
         ncon.data.budget_bch_hrdn = 1e8  # in £
 
 
@@ -836,8 +854,8 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_gis_bgn = None
         ncon.data.net.bch_gis_end = None
 
-        ncon.data.net.Pc_cost = [100] * len(ncon.data.net.bus)  # cost of curtailed active power at bus per MW
-        ncon.data.net.Qc_cost = [100] * len(ncon.data.net.bus)  # cost of curtailed reactive power at bus per MW
+        ncon.data.net.Pc_cost = [1000] * len(ncon.data.net.bus)  # cost of curtailed active power at bus per MW
+        ncon.data.net.Qc_cost = [1000] * len(ncon.data.net.bus)  # cost of curtailed reactive power at bus per MW
 
         # 3) Branch data (p.u.)
         #    orig. Ohm→p.u. by dividing by Zbase=(11kV)^2/1MVA=121 Ω

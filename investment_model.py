@@ -43,8 +43,8 @@ class InvestmentClass():
 
 
         * 1st-stage:   line-hardening shift  Δv_l  ( identical for TN & DN )
-        * 2nd-stage:   scenario-wise DC OPF on TN  +  LinDistFlow on DN
-                       with wind-storm-driven stochastic failures / repairs.
+        * 2nd-stage:   scenario-wise DC OPF on TN  +  Linearized AC OPF on DN
+                       with windstorm-driven stochastic failures / repairs.
         """
 
         # ------------------------------------------------------------------
@@ -157,6 +157,12 @@ class InvestmentClass():
                    for g in Set_gen
                    for t in Set_ts_scn[sc]]
 
+        Set_sgt_dn = [
+            (sc, g, t)
+            for (sc, g, t) in Set_sgt
+            if net.data.net.bus_level[net.data.net.gen[g - 1]] == 'D'
+        ]
+
         # ------------------------------------------------------------------
         # 2. Initialize Pyomo sets
         # ------------------------------------------------------------------
@@ -186,6 +192,7 @@ class InvestmentClass():
         model.Set_slt_dn_lines = pyo.Set(initialize=Set_slt_dn_lines, dimen=3)
         model.Set_slt_lines = pyo.Set(initialize=Set_slt_lines, dimen=3)
         model.Set_sgt = pyo.Set(initialize=Set_sgt, dimen=3)
+        model.Set_sgt_dn = pyo.Set(initialize=Set_sgt_dn, dimen=3)
 
         # ------------------------------------------------------------------
         # 3. Variables
@@ -463,6 +470,69 @@ class InvestmentClass():
 
         model.Constraint_ImmediateFailure = pyo.Constraint(model.Set_slt_lines, rule=immediate_failure_rule)
 
+        # - If the branch status is operational (branch_status == 1), there must not be no failure applied during the
+        #   last 'ttr' hours (fail_applies[t'] == 0, for t' from (t - ttr) to t)
+        def failure_persistence_rule(model, sc, l, t):
+            window_start = max(1, t - model.branch_ttr[sc, l] + 1)
+            return (model.branch_status[sc, l, t]
+                    + sum(model.fail_applies[sc, l, τ] for τ in range(window_start, t + 1))
+                    ) <= 1
+
+        model.Constraint_FailurePersistence = pyo.Constraint(model.Set_slt_lines, rule=failure_persistence_rule)
+
+        # Repair must happen exactly ttr timesteps after failure
+        def repair_timing_rule(model, sc, l, t):
+            """
+            If a failure occurred exactly ttr timesteps ago, repair must happen now
+            (assuming we're still within the time horizon)
+            """
+            ttr = model.branch_ttr[sc, l]
+
+            # Check if we're far enough into the scenario to look back ttr steps
+            if t > ttr:
+                # If there was a failure exactly ttr steps ago, we must repair now
+                return model.repair_applies[sc, l, t] >= model.fail_applies[sc, l, t - ttr]
+            else:
+                return pyo.Constraint.Skip
+
+        model.Constraint_RepairTiming = pyo.Constraint(model.Set_slt_lines, rule=repair_timing_rule)
+
+        # Repair cannot happen before ttr timesteps have passed since failure
+        def no_early_repair_rule(model, sc, l, t):
+            """
+            Repair cannot happen if there was no failure exactly ttr timesteps ago
+            This prevents repairs from happening too early or without a failure
+            """
+            ttr = model.branch_ttr[sc, l]
+
+            if t > ttr:
+                # Sum of all failures in the window (t-ttr+1, t-1)
+                # If any failure happened in this window (except exactly ttr ago), no repair allowed
+                recent_failures = sum(
+                    model.fail_applies[sc, l, tau]
+                    for tau in range(max(1, t - ttr + 1), t)
+                )
+                return model.repair_applies[sc, l, t] <= 1 - recent_failures
+            else:
+                # Can't repair in the first ttr timesteps (no failure could have occurred ttr ago)
+                return model.repair_applies[sc, l, t] == 0
+
+        model.Constraint_NoEarlyRepair = pyo.Constraint(model.Set_slt_lines, rule=no_early_repair_rule)
+
+        # Repair cannot happen if the line is already operational
+        def no_repair_if_operational_rule(model, sc, l, t):
+            """
+            If a line is operational at t-1, it cannot be repaired at t
+            (you can only repair failed lines)
+            """
+            if t > 1:
+                return model.repair_applies[sc, l, t] <= 1 - model.branch_status[sc, l, t - 1]
+            else:
+                # No repairs at t=1 (all lines start operational)
+                return model.repair_applies[sc, l, t] == 0
+
+        model.Constraint_NoRepairIfOperational = pyo.Constraint(model.Set_slt_lines, rule=no_repair_if_operational_rule)
+
         # - A Branch has to keep its status at last timestep unless failure or repair happens
         def bch_status_transition_rule(model, sc, l, t):
             # The scenario starts with all lines operational
@@ -473,16 +543,6 @@ class InvestmentClass():
 
         model.Constraint_BranchStatusTransition = pyo.Constraint(
             model.Set_slt_lines, rule=bch_status_transition_rule)
-
-        # - If the branch status is operational (branch_status == 1), there must not be no failure applied during the
-        #   last 'ttr' hours (fail_applies[t'] == 0, for t' from (t - ttr) to t)
-        def failure_persistence_rule(model, sc, l, t):
-            window_start = max(1, t - model.branch_ttr[sc, l] + 1)
-            return (model.branch_status[sc, l, t]
-                    + sum(model.fail_applies[sc, l, τ] for τ in range(window_start, t + 1))
-                    ) <= 1
-
-        model.Constraint_FailurePersistence = pyo.Constraint(model.Set_slt_lines, rule=failure_persistence_rule)
 
         # - Branch failure and repair cannot happen simultaneously
         def bch_fail_rep_exclusivity(model, sc, l, t):
@@ -499,7 +559,7 @@ class InvestmentClass():
 
         model.Constraint_FlowDef_TN = pyo.Constraint(model.Set_slt_tn, rule=dc_flow_rule)
 
-        # 4.6) Maximum allowable angle difference at lines
+        # - Maximum allowable angle difference at lines
         ang_diff_max = net.data.net.theta_limits[1] - net.data.net.theta_limits[0]
 
         def line_angle_difference_upper_rule(model, sc, l, t):
@@ -667,8 +727,53 @@ class InvestmentClass():
                                                  for t in Set_ts_scn[sc]],
                                                 rule=slack_rule)
 
-
         # code 'expected total operational cost' (resilience level) as an expression
+        def expected_total_op_cost_dn_rule(model):
+            # 1) DN generation cost
+            gen_cost_dn = sum(
+                model.scn_prob[sc] *
+                (model.gen_cost_coef[g, 0] + model.gen_cost_coef[g, 1] * model.Pg[sc, g, t])
+                for (sc, g, t) in model.Set_sgt_dn
+            )
+
+            # 2) DN active load-shedding
+            active_ls_cost_dn = sum(
+                model.scn_prob[sc] * model.Pc_cost[b] * model.Pc[sc, b, t]
+                for (sc, b, t) in model.Set_sbt_dn
+            )
+
+            # 3) DN reactive load-shedding
+            reactive_ls_cost_dn = sum(
+                model.scn_prob[sc] * model.Qc_cost[b] * model.Qc[sc, b, t]
+                for (sc, b, t) in model.Set_sbt_dn
+            )
+
+            # 4) DN line repair
+            rep_cost_dn = sum(
+                model.scn_prob[sc] * model.rep_cost[l] * model.repair_applies[sc, l, t]
+                for (sc, l, t) in model.Set_slt_dn_lines
+            )
+
+            return gen_cost_dn + active_ls_cost_dn + reactive_ls_cost_dn + rep_cost_dn
+
+        model.exp_total_op_cost_dn_expr = pyo.Expression(rule=expected_total_op_cost_dn_rule)
+
+        # 4.10) resilience-level constraint (expected total operational cost at dn level <= pre-defined threshold)
+        if resilience_level_threshold is not None:
+            model.Constraint_ResilienceLevel = pyo.Constraint(
+                expr=model.exp_total_op_cost_dn_expr <= model.resilience_level_threshold
+            )
+
+        # ------------------------------------------------------------------
+        # 5. Objective
+        # ------------------------------------------------------------------
+        # Code total investment cost as an expression
+        def total_inv_cost_rule(model):
+            return sum(model.line_hrdn_cost[l] * model.line_hrdn[l]
+                       for l in model.Set_bch_hrdn_lines)
+
+        model.total_inv_cost_expr = pyo.Expression(rule=total_inv_cost_rule)
+
         def expected_total_op_cost_rule(model):
             # 1) Generation cost
             gen_cost = sum(
@@ -679,7 +784,7 @@ class InvestmentClass():
             # 2) Grid import / export
             imp_exp_cost = sum(
                 model.scn_prob[sc] * (model.Pimp_cost * model.Pimp[sc, t] +
-                                  model.Pexp_cost * model.Pexp[sc, t])
+                                      model.Pexp_cost * model.Pexp[sc, t])
                 for (sc, t) in model.Set_st
             )
 
@@ -705,22 +810,6 @@ class InvestmentClass():
 
         model.exp_total_op_cost_expr = pyo.Expression(rule=expected_total_op_cost_rule)
 
-        # 4.10) resilience-level constraint (expected total operational cost <= threshold)
-        if resilience_level_threshold is not None:
-            model.Constraint_ResilienceLevel = pyo.Constraint(
-                expr=model.exp_total_op_cost_expr <= model.resilience_level_threshold
-            )
-
-        # ------------------------------------------------------------------
-        # 5. Objective
-        # ------------------------------------------------------------------
-        # Code total investment cost as an expression
-        def total_inv_cost_rule(model):
-            return sum(model.line_hrdn_cost[l] * model.line_hrdn[l]
-                       for l in model.Set_bch_hrdn_lines)
-
-        model.total_inv_cost_expr = pyo.Expression(rule=total_inv_cost_rule)
-        
         def objective_rule(model):
             # Objective function: total investment cost + expected total operational cost
             return model.total_inv_cost_expr + model.exp_total_op_cost_expr
@@ -794,10 +883,14 @@ class InvestmentClass():
                 seed = getattr(self.meta, "ws_seed", None)
                 # Shorten the original network name (e.g., "29_bus_GB_transmission_network_with_Kearsley_GSP_group")
                 # and add it to the file name
-                short_network_name = (network.replace("transmission_network_with_", "")
-                                 .replace("GB_", "GB-")
-                                 .replace("_GSP_group", ""))
-                fname = f"results_{timestamp}_{short_network_name}"
+                short_network_name = (network
+                                      .replace("29_bus_", "29Bus")
+                                      .replace("transmission_network_with_", "")
+                                      .replace("GB_", "GB-")
+                                      .replace("_GSP_group", ""))
+
+                # Add the network information
+                fname = f"results_network_{short_network_name}"
 
                 # Add the windstorm information
                 fname += f"_{self.meta.n_ws_scenarios}_ws"
@@ -817,6 +910,9 @@ class InvestmentClass():
                     fname += f"_resilience_threshold_{sci_str}"
                 else:
                     fname += f"_resilience_threshold_inf"
+
+                # Add the timestamp
+                fname += f"_{timestamp}"
 
                 # File name finishes
                 fname += ".csv"

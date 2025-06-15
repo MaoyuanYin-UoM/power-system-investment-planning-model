@@ -9,16 +9,16 @@ def make_windstorm(name: str) -> WindClass:
     if name == 'windstorm_GB_transmission_network':
         # starting-point contour:
         wcon.data.WS.contour.start_lon = [-2.0, -3.3, -3.3, -4.8, -4.8, -3.2, -2.2,
-                                          -5.4, -3.2, -5.4, -5.4, 0.4]
-        wcon.data.WS.contour.start_lat = [55.8, 55.0, 53.5, 53.5, 52.8, 52.8, 52.1,
-                                          51.8, 51.3, 50.6, 49.9, 50.4]
+                                          -5.4, -3.4, -5.4, -5.4, -2]
+        wcon.data.WS.contour.start_lat = [55.6, 55.0, 54, 53.5, 52.8, 52.8, 52.1,
+                                          51.8, 51.2, 50.6, 49.9, 49.7]
         wcon.data.WS.contour.start_connectivity = \
             [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9],
              [9, 10], [10, 11], [11, 12]]
 
         # ending-point contour:
-        wcon.data.WS.contour.end_lon = [-1.5, 2.1]
-        wcon.data.WS.contour.end_lat_coef = [-17 / 18, 54.183333]
+        wcon.data.WS.contour.end_lon = [-1, 2.1]
+        wcon.data.WS.contour.end_lat_coef = [-1, 54.8]
 
         # windstorm parameters:
         wcon.data.MC.num_prds = 3  # number of periods (i.e., simulations)
