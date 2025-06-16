@@ -94,20 +94,21 @@ from network_factory import make_network
 
 
 
-# num_ws_prd = [1]
-# seed = 104
-# generate_ws_scenarios(num_ws_prd=num_ws_prd,
-#                       seed=seed,
-#                       network_preset='29_bus_GB_transmission_network_with_Kearsley_GSP_group',
-#                       windstorm_preset='windstorm_GB_transmission_network')
-#
-# extract_ws_scenarios(full_file=f'Scenario_Results/Full_Scenarios/{len(num_ws_prd)}_full_scenarios_29_bus_GB_transmission_network_with_Kearsley_GSP_group_windstorm_GB_transmission_network_year_seed_{seed}.json',
-#                      out_file=f'Scenario_Results/Extracted_Scenarios/{len(num_ws_prd)}_ws_scenarios_GB29-Kearsley_network_seed_{seed}.json')
-#
-# for i in range(len(num_ws_prd)):
-#     for j in range(num_ws_prd[i]):
-#         visualize_windstorm_event(file_path=f'Scenario_Results/Extracted_Scenarios/{len(num_ws_prd)}_ws_scenarios_GB29-Kearsley_network_seed_{seed}.json',
-#                                   scenario_number=i, event_number=j)
+num_ws_prd = [1]
+seed = 112
+generate_ws_scenarios(num_ws_prd=num_ws_prd,
+                      seed=seed,
+                      network_preset='29_bus_GB_transmission_network_with_Kearsley_GSP_group',
+                      windstorm_preset='windstorm_GB_transmission_network')
+
+extract_ws_scenarios(full_file=f'Scenario_Results/Full_Scenarios/{len(num_ws_prd)}_full_scenarios_29_bus_GB_transmission_network_with_Kearsley_GSP_group_windstorm_GB_transmission_network_year_seed_{seed}.json',
+                     out_file=f'Scenario_Results/Extracted_Scenarios/{len(num_ws_prd)}_ws_scenarios_GB29-Kearsley_network_seed_{seed}.json')
+
+for i in range(len(num_ws_prd)):
+    for j in range(num_ws_prd[i]):
+        visualize_windstorm_event(file_path=f'Scenario_Results/Extracted_Scenarios/{len(num_ws_prd)}_ws_scenarios_GB29-Kearsley_network_seed_{seed}.json',
+                                  scenario_number=i, event_number=j)
+
 
 
 
@@ -142,10 +143,10 @@ from network_factory import make_network
 
 # visualize_network_bch(network_name='29_bus_GB_transmission_network_with_Kearsley_GSP_group')
 
-visualize_bch_and_ws_contour(network_name='29_bus_GB_transmission_network_with_Kearsley_GSP_group',
-                             windstorm_name='windstorm_GB_transmission_network',
-                             label_buses=True
-                             )
+# visualize_bch_and_ws_contour(network_name='29_bus_GB_transmission_network_with_Kearsley_GSP_group',
+#                              windstorm_name='windstorm_GB_transmission_network',
+#                              label_buses=True
+#                              )
 
 # visualize_bch_and_ws_contour(network_name='GB_transmission_network',
 #                              windstorm_name='windstorm_GB_transmission_network',
