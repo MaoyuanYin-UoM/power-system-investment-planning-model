@@ -758,10 +758,22 @@ class InvestmentClass():
 
         model.exp_total_op_cost_dn_expr = pyo.Expression(rule=expected_total_op_cost_dn_rule)
 
-        # 4.10) resilience-level constraint (expected total operational cost at dn level <= pre-defined threshold)
+        def expected_total_eens_dn_rule(model):
+            # Expected Energy Not Supplied (EENS) at distribution level
+            # Since we have hourly resolution, EENS = sum of all active power load shedding
+            eens_dn = sum(
+                model.scn_prob[sc] * model.Pc[sc, b, t]
+                for (sc, b, t) in model.Set_sbt_dn
+            )
+            return eens_dn
+
+        model.exp_total_eens_dn_expr = pyo.Expression(rule=expected_total_eens_dn_rule)
+
+        # 4.10) resilience-level constraint (resilience metric <= pre-defined threshold)
         if resilience_level_threshold is not None:
             model.Constraint_ResilienceLevel = pyo.Constraint(
-                expr=model.exp_total_op_cost_dn_expr <= model.resilience_level_threshold
+                # expr=model.exp_total_op_cost_dn_expr <= model.resilience_level_threshold
+                expr=model.exp_total_eens_dn_expr <= model.resilience_level_threshold
             )
 
         # ------------------------------------------------------------------
