@@ -12,7 +12,7 @@ from network_factory import make_network
 from windstorm_factory import make_windstorm
 
 
-def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_Scenarios",
+def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_Windstorm_Scenarios",
                           network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
                           windstorm_preset="windstorm_GB_transmission_network"):
     """
@@ -111,6 +111,7 @@ def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_
     # assemble metadata + scenarios into one dict
     output = {
         "metadata": {
+            "scenario_type": "windstorm",
             "seed":seed,
             "network_preset": network_preset,
             "windstorm_preset": windstorm_preset,
@@ -145,65 +146,76 @@ def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_
 def combine_extracted_scenarios(scenario_files, out_file, scenario_probabilities=None):
     """
     Combine manually selected extracted windstorm scenarios into one multi-scenario file.
-
-    Args:
-        scenario_files: List of paths to extracted scenario JSON files
-        out_file: Output path for combined scenarios
-        scenario_probabilities: Optional dict {scenario_id: probability}.
-                              If None, uses uniform probabilities.
     """
-    combined_data = None
-    all_scenarios = []
-    seed_list = []  # List to store seeds in order
+    all_ws_scenarios = []
+    combined_metadata = {}
+    all_seeds = []  # Track all seeds
 
-    for i, file_path in enumerate(scenario_files):
-        with open(file_path, "r") as f:
+    for i, file in enumerate(scenario_files):
+        with open(file, "r") as f:
             data = json.load(f)
 
-        if combined_data is None:
-            # Initialize with metadata from first file
-            combined_data = {
-                "metadata": data["metadata"].copy(),
-                "ws_scenarios": []  # Note: using ws_scenarios for extracted format
-            }
-            combined_data["metadata"]["combined_from"] = scenario_files
+        # Extract metadata and scenarios
+        if "metadata" in data:
+            file_metadata = data["metadata"]
+            scenarios = data.get("ws_scenarios", data.get("scenarios", []))
 
-        # Extract and store the seed
-        original_seed = data["metadata"]["seed"]
-        seed_list.append(original_seed)
+            # Collect seed information
+            if "seed" in file_metadata:
+                seed = file_metadata["seed"]
+                # Handle both single seed and list of seeds
+                if isinstance(seed, list):
+                    all_seeds.extend(seed)
+                else:
+                    all_seeds.append(seed)
+        else:
+            file_metadata = {}
+            scenarios = data
 
-        # For extracted scenarios, the key is "ws_scenarios" not "scenarios"
-        ws_scenarios = data.get("ws_scenarios", data.get("scenarios", []))
+        # Update metadata (use first file's metadata as base)
+        if i == 0:
+            combined_metadata = file_metadata.copy()
+            # Remove seed from base metadata as we'll add combined seeds later
+            if "seed" in combined_metadata:
+                del combined_metadata["seed"]
 
-        # Add scenario (should be only one per file for single scenario files)
-        scenario = ws_scenarios[0].copy()
-        scenario["simulation_id"] = i + 1  # Renumber scenarios
-        all_scenarios.append(scenario)
+        # Update simulation IDs to ensure uniqueness
+        for j, scn in enumerate(scenarios):
+            scn["simulation_id"] = len(all_ws_scenarios) + j + 1
 
-    # Update metadata
-    combined_data["metadata"]["number_of_ws_simulations"] = len(all_scenarios)
-    combined_data["metadata"]["seed"] = seed_list  # Now a list of seeds
-    combined_data["ws_scenarios"] = all_scenarios  # Use ws_scenarios for extracted format
+        all_ws_scenarios.extend(scenarios)
 
-    # Add probability information if provided
+    # Update combined metadata
+    combined_metadata.update({
+        "type": "windstorm",
+        "seed": all_seeds if len(all_seeds) > 1 else (all_seeds[0] if all_seeds else None),
+        # List if multiple, single if one
+        "number_of_ws_simulations": len(all_ws_scenarios),
+        "combined_from_files": scenario_files
+    })
+
+    # Create output structure
+    output = {
+        "metadata": combined_metadata,
+        "ws_scenarios": all_ws_scenarios
+    }
+
+    # Add scenario probabilities if provided
     if scenario_probabilities:
-        for scenario in combined_data["ws_scenarios"]:
-            scenario["probability"] = scenario_probabilities.get(scenario["simulation_id"],
-                                                                 1 / len(all_scenarios))
+        output["scenario_probabilities"] = scenario_probabilities
 
-    # Save combined file
+    # Write to file
     os.makedirs(os.path.dirname(out_file), exist_ok=True)
     with open(out_file, "w") as f:
-        json.dump(combined_data, f, indent=4)
+        json.dump(output, f, indent=4)
 
-    print(f"Combined {len(all_scenarios)} extracted scenarios saved to {out_file}")
-    print(f"Seeds used: {seed_list}")
+    print(f"Combined {len(all_ws_scenarios)} windstorm scenarios saved to {out_file}")
     return out_file
 
 
 def extract_ws_scenarios(
-    full_file: str = "Scenario_Results/Full_Scenarios/all_full_scenarios_year.json",
-    out_file: str  = "Scenario_Results/Extracted_Scenarios/all_ws_scenarios_year.json"
+    full_file: str = "Scenario_Results/Full_Windstorm_Scenarios/all_full_scenarios_year.json",
+    out_file: str  = "Scenario_Results/Extracted_Windstorm_Scenarios/all_ws_scenarios_year.json"
 ):
     """
     Extract each windstorm window (storm duration + all additional repair hours)
@@ -257,14 +269,82 @@ def extract_ws_scenarios(
         }
         all_ws.append(sim_ws)
 
-    # 4) Write out (keeping the metadata field)
-    os.makedirs(os.path.dirname(out_file), exist_ok=True)
-    output = {
-        "metadata": meta,
-        "ws_scenarios": all_ws
+        # 4) Write out (keeping the metadata field)
+        os.makedirs(os.path.dirname(out_file), exist_ok=True)
+
+        # Update metadata to include type
+        if "type" not in meta:
+            meta["type"] = "windstorm"
+
+        output = {
+            "metadata": meta,
+            "ws_scenarios": all_ws
+        }
+
+        with open(out_file, "w") as f:
+            json.dump(output, f, indent=4)
+
+        print(f"Extracted windstorm scenarios saved to {out_file}")
+
+
+def generate_normal_operation_scenario(
+        duration_hours=8760,  # Full year by default
+        start_hour=1,
+        out_dir="Scenario_Results/Normal_Scenarios",
+        network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group"
+):
+    """
+    Generate a normal operation scenario (no windstorm events).
+
+    Args:
+        duration_hours: Duration of normal operation in hours (8760 for full year)
+        start_hour: Starting hour for the scenario
+        out_dir: Output directory for the scenario file
+        network_preset: Network configuration preset
+    """
+    # Initialize network to get branch count
+    net = make_network(network_preset)
+    num_bch = len(net.data.net.bch)
+
+    # Create scenario structure
+    normal_scenario = {
+        "simulation_id": "normal",
+        "events": [{
+            "event_id": 1,
+            "bgn_hr": start_hour,
+            "duration": duration_hours,
+            "epicentre": [],  # No windstorm epicentre
+            "radius": [],  # No windstorm radius
+            "gust_speed": [0] * duration_hours  # Zero gust speed
+        }],
+        "bch_rand_nums": [[1.0] * duration_hours for _ in range(num_bch)],  # All 1.0 (no random failures)
+        "flgs_impacted_bch": [[0] * duration_hours for _ in range(num_bch)],  # No branches impacted
+        "bch_ttr": [0] * num_bch  # No repair time needed
     }
 
-    with open(out_file, "w") as f:
+    # Create output structure
+    output = {
+        "metadata": {
+            "scenario_type": "normal_operation",
+            "network_preset": network_preset,
+            "number_of_scenarios": 1,
+            "period_type": "year",
+            "duration_hours": duration_hours
+        },
+        "scenarios": [normal_scenario]
+    }
+
+    # Write to file
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Shortened alias for network name
+    network_alias = "29BusGB-KearsleyGSPGroup" if network_preset == "29_bus_GB_transmission_network_with_Kearsley_GSP_group" else network_preset
+
+    file_name = f"normal_operation_scenario_network_{network_alias}_{duration_hours}hrs.json"
+    path = os.path.join(out_dir, file_name)
+
+    with open(path, "w") as f:
         json.dump(output, f, indent=4)
 
-    print(f"Extracted windstorm scenarios saved to {out_file}")
+    print(f"Normal operation scenario saved to {path}")
+    return path

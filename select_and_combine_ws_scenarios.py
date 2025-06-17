@@ -1,4 +1,5 @@
 from scenario_generation_model import *
+from visualization import *
 
 
 # ========================================
@@ -20,7 +21,7 @@ from scenario_generation_model import *
 #     generate_ws_scenarios(
 #         num_ws_prd=[1],  # Single scenario with single windstorm event
 #         seed=seed,
-#         out_dir="Scenario_Results/Full_Scenarios_Single",
+#         out_dir="Scenario_Results/Full_Windstorm_Scenarios_Single",
 #         network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
 #         windstorm_preset="windstorm_GB_transmission_network"
 #     )
@@ -33,7 +34,7 @@ from scenario_generation_model import *
 #     if windstorm_preset == "windstorm_GB_transmission_network":
 #         windstorm_alias = "GB"
 #
-#     file_path = f"Scenario_Results/Full_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
+#     file_path = f"Scenario_Results/Full_Windstorm_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
 #     generated_files.append(file_path)
 #
 #
@@ -53,9 +54,10 @@ from scenario_generation_model import *
 
 
 
-# ========================================
-# Combine selected single scenarios into a .json file with extracted windstorm windows using "combine_selected_scenarios"
-# ========================================
+# # ========================================
+# # Combine selected single scenarios into a .json file with extracted windstorm windows using "combine_selected_scenarios"
+# # ========================================
+
 # Step 1. Extract the windstorm window from specified full scenarios
 network_preset = "29_bus_GB_transmission_network_with_Kearsley_GSP_group"
 windstorm_preset = "windstorm_GB_transmission_network"
@@ -73,11 +75,11 @@ for seed in selected_seeds:
     if windstorm_preset == "windstorm_GB_transmission_network":
         windstorm_alias = "GB"
 
-    full_file_path = f"Scenario_Results/Full_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
+    full_file_path = f"Scenario_Results/Full_Windstorm_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
     full_files.append(full_file_path)
 
     # Create the file path for extracted scenario file
-    extracted_file_path = f"Scenario_Results/Extracted_Scenarios_Single/1_ws_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
+    extracted_file_path = f"Scenario_Results/Extracted_Windstorm_Scenarios_Single/1_ws_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
 
     # Extract the windstorm wind from the full scenario
     extract_ws_scenarios(full_file_path, extracted_file_path)
@@ -86,7 +88,7 @@ for seed in selected_seeds:
 
 # Step 2. Combine the extracted scenarios
 # Create the file path for the combined scenario file
-combined_extracted_file = f"Scenario_Results/Extracted_Scenarios/{len(selected_seeds)}_selected_ws_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year.json"
+combined_extracted_file = f"Scenario_Results/Extracted_Windstorm_Scenarios/{len(selected_seeds)}_selected_ws_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year.json"
 
 combined_file = combine_extracted_scenarios(
     scenario_files=extracted_files,

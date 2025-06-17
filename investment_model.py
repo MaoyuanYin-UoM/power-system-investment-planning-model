@@ -35,8 +35,10 @@ class InvestmentClass():
     def build_investment_model(self,
                                network_name: str = "29_bus_GB_transmission_network_with_Kearsley_GSP_group",
                                windstorm_name: str = "windstorm_GB_transmission_network",
-                               path_all_ws_scenarios: str = "Scenario_Results/Extracted_Scenarios/5_ws_scenarios_GB29-Kearsley_network_seed_102.json",
-                               resilience_level_threshold: float = None):
+                               path_all_ws_scenarios: str = "Scenario_Results/Extracted_Windstorm_Scenarios/6_selected_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year.json",
+                               path_normal_scenario: str = "Scenario_Results/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json",  # New parameter
+                               normal_scenario_prob: float = 0.99,  # New parameter
+                               resilience_metric_threshold: float = None):
         """
         Build a Pyomo MILP model for resilience enhancement investment planning (line hardening)
         against windstorms, using the form of stochastic programming over multiple scenarios.
@@ -56,31 +58,95 @@ class InvestmentClass():
         net = make_network(self.network_name)
         ws = make_windstorm(self.windstorm_name)
 
-        # read windstorm scenarios data from the .json file
+        # Read windstorm scenarios first to get metadata
         with open(path_all_ws_scenarios) as f:
-            data = json.load(f)
+            ws_data = json.load(f)
 
-        if "metadata" in data:
-            metadata = data["metadata"]
+        if "metadata" in ws_data:
+            ws_metadata = ws_data["metadata"]
         else:
-            raise ValueError("JSON does not contain 'metadata'")
+            raise ValueError("Windstorm JSON does not contain 'metadata'")
 
-        if "ws_scenarios" in data:
-            ws_scenarios = data["ws_scenarios"]
+        if "ws_scenarios" in ws_data:
+            ws_scenarios = ws_data["ws_scenarios"]
         else:
-            raise ValueError("JSON does not contain 'ws_scenarios'")
+            raise ValueError("Windstorm JSON does not contain 'ws_scenarios'")
 
-        # store windstorm scenario metadata into the investment model
+        # Store windstorm scenario metadata
         self.meta = Object()
-        self.meta.ws_seed = metadata["seed"]
-        self.meta.n_ws_scenarios = metadata["number_of_ws_simulations"]
-        self.meta.period_type = metadata["period_type"]
+        self.meta.ws_seed = ws_metadata.get("seed", None)  # This is what was missing!
+        self.meta.n_ws_scenarios = ws_metadata.get("number_of_ws_simulations", len(ws_scenarios))
+        self.meta.period_type = ws_metadata.get("period_type", "year")
 
-        Set_scn = [sim["simulation_id"] for sim in ws_scenarios]
-        scn_prob = {sc: 1 / len(Set_scn) for sc in Set_scn}  # uniform
+        # Initialize all scenarios list
+        all_scenarios = []
 
-        _abs_start = {sim["simulation_id"]: sim["events"][0]["bgn_hr"]
-                      for sim in ws_scenarios}
+        # Add windstorm scenarios with updated IDs
+        for scn in ws_scenarios:
+            scn["scenario_type"] = "windstorm"
+            scn["simulation_id"] = f"ws_{scn['simulation_id']}"
+
+        all_scenarios.extend(ws_scenarios)
+
+        # Read normal operation scenario if provided
+        if path_normal_scenario:
+            with open(path_normal_scenario) as f:
+                normal_data = json.load(f)
+
+            if "metadata" in normal_data:
+                normal_metadata = normal_data["metadata"]
+            else:
+                normal_metadata = {}
+
+            if "scenarios" in normal_data:
+                normal_scenarios = normal_data["scenarios"]
+            else:
+                normal_scenarios = normal_data  # Backward compatibility
+
+            # Assign unique IDs to normal scenarios
+            for i, scn in enumerate(normal_scenarios):
+                scn["simulation_id"] = f"normal_{i + 1}"
+                scn["scenario_type"] = "normal"
+
+            all_scenarios.extend(normal_scenarios)
+
+            # Update metadata to include normal scenario info
+            self.meta.n_normal_scenarios = len(normal_scenarios)
+            self.meta.normal_scenario_prob = normal_scenario_prob
+        else:
+            self.meta.n_normal_scenarios = 0
+            self.meta.normal_scenario_prob = 0
+
+        # Build scenario sets
+        Set_scn = [sim["simulation_id"] for sim in all_scenarios]
+
+        # Calculate scenario probabilities
+        scn_prob = {}
+        n_normal = self.meta.n_normal_scenarios
+        n_ws = self.meta.n_ws_scenarios
+
+        if n_normal > 0 and n_ws > 0:
+            ws_prob_each = (1 - normal_scenario_prob) / n_ws if n_ws > 0 else 0
+
+            for sim in all_scenarios:
+                if sim.get("scenario_type") == "normal":
+                    scn_prob[sim["simulation_id"]] = normal_scenario_prob / n_normal
+                else:
+                    scn_prob[sim["simulation_id"]] = ws_prob_each
+        else:
+            scn_prob = {sc: 1 / len(Set_scn) for sc in Set_scn}
+
+        # Build _abs_start_ts dictionary for ALL scenarios
+        _abs_start_ts = {
+            sim["simulation_id"]: sim["events"][0]["bgn_hr"]
+            for sim in all_scenarios
+        }
+        
+        # Store scenario metadata
+        self.meta = Object()
+        self.meta.n_ws_scenarios = n_ws
+        self.meta.n_normal_scenarios = n_normal
+        self.meta.normal_scenario_prob = normal_scenario_prob if n_normal > 0 else 0
 
         # ------------------------------------------------------------------
         # 1. Index sets -- tn for transmission level network, dn for distribution level network
@@ -117,7 +183,7 @@ class InvestmentClass():
         # scenario-specific timestep sets ----------------------------------
         Set_ts_scn = {
             sim["simulation_id"]: list(range(1, len(sim["bch_rand_nums"][0]) + 1))
-            for sim in ws_scenarios
+            for sim in all_scenarios
         }
 
         # Tuple sets:
@@ -242,9 +308,9 @@ class InvestmentClass():
         # 4. Parameters
         # ------------------------------------------------------------------
         # 4.0) Resilience level threshold
-        model.resilience_level_threshold = pyo.Param(
-            initialize=(resilience_level_threshold
-                        if resilience_level_threshold is not None
+        model.resilience_metric_threshold = pyo.Param(
+            initialize=(resilience_metric_threshold
+                        if resilience_metric_threshold is not None
                         else float('inf')),
             mutable=False
         )
@@ -316,9 +382,9 @@ class InvestmentClass():
         # - demand profiles (Pd, Qd) by absolute hour
         Pd_param = {}
         Qd_param = {}
-        for sim in ws_scenarios:
+        for sim in all_scenarios:
             sc = sim["simulation_id"]
-            bgn = _abs_start[sc]
+            bgn = _abs_start_ts[sc]
             for t in Set_ts_scn[sc]:
                 abs_hr = bgn + t - 1
                 for b in net.data.net.bus:
@@ -334,7 +400,8 @@ class InvestmentClass():
         rand_dict = {}
         impact_dict = {}
         ttr_dict = {}
-        for sim in ws_scenarios:
+
+        for sim in all_scenarios:
             sc = sim["simulation_id"]
             gust_series = sim["events"][0]["gust_speed"]
             for t in Set_ts_scn[sc]:
@@ -770,10 +837,10 @@ class InvestmentClass():
         model.exp_total_eens_dn_expr = pyo.Expression(rule=expected_total_eens_dn_rule)
 
         # 4.10) resilience-level constraint (resilience metric <= pre-defined threshold)
-        if resilience_level_threshold is not None:
+        if resilience_metric_threshold is not None:
             model.Constraint_ResilienceLevel = pyo.Constraint(
-                # expr=model.exp_total_op_cost_dn_expr <= model.resilience_level_threshold
-                expr=model.exp_total_eens_dn_expr <= model.resilience_level_threshold
+                # expr=model.exp_total_op_cost_dn_expr <= model.resilience_metric_threshold
+                expr=model.exp_total_eens_dn_expr <= model.resilience_metric_threshold
             )
 
         # ------------------------------------------------------------------
@@ -912,7 +979,7 @@ class InvestmentClass():
                     fname += f"_seed_{seed}"
 
                 # Add the resilience level threshold value
-                rthres = float(getattr(model, "resilience_level_threshold", float('inf')))
+                rthres = float(getattr(model, "resilience_metric_threshold", float('inf')))
                 if rthres != float('inf'):
                     # Use scientific notation with 2 decimals (e.g., 2.5e8)
                     sci_str = f"{rthres:.2e}"
@@ -969,14 +1036,16 @@ class InvestmentClass():
                 "written_at": datetime.now().isoformat(timespec="seconds"),
                 "network_name": self.network_name,
                 "windstorm_name": self.windstorm_name,
-                "windstorm_random_seed": self.meta.ws_seed,
-                "number_of_ws_scenarios": self.meta.n_ws_scenarios,
-                "resilience_level_threshold": float(pyo.value(model.resilience_level_threshold)),
+                "windstorm_random_seed": getattr(self.meta, 'ws_seed', None),  # Safe access
+                "number_of_ws_scenarios": getattr(self.meta, 'n_ws_scenarios', 0),
+                "number_of_normal_scenarios": getattr(self.meta, 'n_normal_scenarios', 0),
+                "normal_scenario_probability": getattr(self.meta, 'normal_scenario_prob', 0),
+                "resilience_metric_threshold": float(pyo.value(model.resilience_metric_threshold)),
                 "objective_value": float(pyo.value(model.Objective)),
                 "total_investment_cost": float(pyo.value(model.total_inv_cost_expr)),
                 "expected_total_operational_cost": float(pyo.value(model.exp_total_op_cost_expr)),
                 "expected_total_operational_cost_dn": float(pyo.value(model.exp_total_op_cost_dn_expr)),
-                "exp_total_eens_dn_expr": float(pyo.value(model.exp_total_eens_dn_expr)),
+                "exp_total_eens_dn": float(pyo.value(model.exp_total_eens_dn_expr)),
             }
 
         from network_factory import make_network
@@ -1028,6 +1097,7 @@ class InvestmentClass():
                 df = pd.DataFrame(rows)
                 sheet = name[:29]
                 df.to_excel(xl, sheet_name=sheet, index=False)
+
 
     def piecewise_linearize_fragility(self, net, line_idx, num_pieces):
 
