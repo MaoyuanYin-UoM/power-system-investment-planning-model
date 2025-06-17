@@ -66,7 +66,6 @@ resilience_metric_thresholds = [
 for resilience_metric_threshold in resilience_metric_thresholds:
     inv = InvestmentClass()
     model = inv.build_investment_model(path_all_ws_scenarios=path_ws_scenarios,
-                                       path_normal_scenario=path_normal_scenario,
                                        normal_scenario_prob = 0.99,
                                        resilience_metric_threshold=resilience_metric_threshold
                                        )

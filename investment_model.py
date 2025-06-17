@@ -36,9 +36,12 @@ class InvestmentClass():
                                network_name: str = "29_bus_GB_transmission_network_with_Kearsley_GSP_group",
                                windstorm_name: str = "windstorm_GB_transmission_network",
                                path_all_ws_scenarios: str = "Scenario_Results/Extracted_Windstorm_Scenarios/6_selected_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year.json",
-                               path_normal_scenario: str = "Scenario_Results/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json",  # New parameter
-                               normal_scenario_prob: float = 0.99,  # New parameter
-                               resilience_metric_threshold: float = None):
+                               include_normal_scenario: bool = True,
+                               normal_scenario_prob: float = 0.99,
+                               use_representative_days: bool = True,  # New default
+                               representative_days: list = None,  # New parameter
+                               resilience_metric_threshold: float = None,
+                               solver_for_normal_opf: str = 'gurobi'):
         """
         Build a Pyomo MILP model for resilience enhancement investment planning (line hardening)
         against windstorms, using the form of stochastic programming over multiple scenarios.
@@ -58,95 +61,82 @@ class InvestmentClass():
         net = make_network(self.network_name)
         ws = make_windstorm(self.windstorm_name)
 
-        # Read windstorm scenarios first to get metadata
+        # 0.1 Compute Normal Operation Costs (if requested)
+        normal_operation_cost = None
+
+        if include_normal_scenario:
+            print("\n" + "=" * 60)
+            print("Computing Normal Operation Costs...")
+            if use_representative_days:
+                days = representative_days or [15, 105, 195, 285]
+                print(f"Using representative days: {days}")
+            else:
+                print("Using full year (8760 hours)")
+            print("=" * 60)
+
+            # Build normal scenario OPF model
+            normal_model, scale_factor = self.build_normal_scenario_opf_model(
+                network_name=network_name,
+                use_representative_days=use_representative_days,
+                representative_days=representative_days
+            )
+
+            # Solve it
+            normal_operation_cost = self.solve_normal_scenario_opf_model(
+                normal_model,
+                solver=solver_for_normal_opf,
+                print_summary=True
+            )
+
+            # Clean up the normal model to free memory
+            del normal_model
+
+            print("Normal operation cost computation completed.\n")
+
+        # 0.2 Read Windstorm Scenarios
         with open(path_all_ws_scenarios) as f:
-            ws_data = json.load(f)
+            data = json.load(f)
 
-        if "metadata" in ws_data:
-            ws_metadata = ws_data["metadata"]
+        if "metadata" in data:
+            metadata = data["metadata"]
         else:
-            raise ValueError("Windstorm JSON does not contain 'metadata'")
+            raise ValueError("JSON does not contain 'metadata'")
 
-        if "ws_scenarios" in ws_data:
-            ws_scenarios = ws_data["ws_scenarios"]
+        if "ws_scenarios" in data:
+            ws_scenarios = data["ws_scenarios"]
         else:
-            raise ValueError("Windstorm JSON does not contain 'ws_scenarios'")
+            raise ValueError("JSON does not contain 'ws_scenarios'")
 
-        # Store windstorm scenario metadata
+        # Store windstorm infor into metadata
         self.meta = Object()
-        self.meta.ws_seed = ws_metadata.get("seed", None)  # This is what was missing!
-        self.meta.n_ws_scenarios = ws_metadata.get("number_of_ws_simulations", len(ws_scenarios))
-        self.meta.period_type = ws_metadata.get("period_type", "year")
+        self.meta.ws_seed = metadata.get("seed", None)
+        self.meta.n_ws_scenarios = metadata.get("number_of_ws_simulations", len(ws_scenarios))
+        self.meta.period_type = metadata.get("period_type", "year")
 
-        # Initialize all scenarios list
-        all_scenarios = []
-
-        # Add windstorm scenarios with updated IDs
-        for scn in ws_scenarios:
-            scn["scenario_type"] = "windstorm"
-            scn["simulation_id"] = f"ws_{scn['simulation_id']}"
-
-        all_scenarios.extend(ws_scenarios)
-
-        # Read normal operation scenario if provided
-        if path_normal_scenario:
-            with open(path_normal_scenario) as f:
-                normal_data = json.load(f)
-
-            if "metadata" in normal_data:
-                normal_metadata = normal_data["metadata"]
-            else:
-                normal_metadata = {}
-
-            if "scenarios" in normal_data:
-                normal_scenarios = normal_data["scenarios"]
-            else:
-                normal_scenarios = normal_data  # Backward compatibility
-
-            # Assign unique IDs to normal scenarios
-            for i, scn in enumerate(normal_scenarios):
-                scn["simulation_id"] = f"normal_{i + 1}"
-                scn["scenario_type"] = "normal"
-
-            all_scenarios.extend(normal_scenarios)
-
-            # Update metadata to include normal scenario info
-            self.meta.n_normal_scenarios = len(normal_scenarios)
+        # Store normal scenario info into metadata
+        if include_normal_scenario:
+            self.meta.normal_scenario_included = True
             self.meta.normal_scenario_prob = normal_scenario_prob
+            self.meta.normal_operation_cost = normal_operation_cost
         else:
-            self.meta.n_normal_scenarios = 0
+            self.meta.normal_scenario_included = False
             self.meta.normal_scenario_prob = 0
+            self.meta.normal_operation_cost = None
 
-        # Build scenario sets
-        Set_scn = [sim["simulation_id"] for sim in all_scenarios]
+        # Only windstorm scenarios are in our scenario set
+        Set_scn = [sim["simulation_id"] for sim in ws_scenarios]
 
-        # Calculate scenario probabilities
-        scn_prob = {}
-        n_normal = self.meta.n_normal_scenarios
-        n_ws = self.meta.n_ws_scenarios
-
-        if n_normal > 0 and n_ws > 0:
-            ws_prob_each = (1 - normal_scenario_prob) / n_ws if n_ws > 0 else 0
-
-            for sim in all_scenarios:
-                if sim.get("scenario_type") == "normal":
-                    scn_prob[sim["simulation_id"]] = normal_scenario_prob / n_normal
-                else:
-                    scn_prob[sim["simulation_id"]] = ws_prob_each
+        # Probability calculation
+        if include_normal_scenario:
+            # Windstorm scenarios share (1 - normal_prob)
+            ws_total_prob = 1 - normal_scenario_prob
+            scn_prob = {sc: ws_total_prob / len(Set_scn) for sc in Set_scn}
         else:
+            # Only windstorm scenarios
             scn_prob = {sc: 1 / len(Set_scn) for sc in Set_scn}
 
-        # Build _abs_start_ts dictionary for ALL scenarios
-        _abs_start_ts = {
-            sim["simulation_id"]: sim["events"][0]["bgn_hr"]
-            for sim in all_scenarios
-        }
-        
-        # Store scenario metadata
-        self.meta = Object()
-        self.meta.n_ws_scenarios = n_ws
-        self.meta.n_normal_scenarios = n_normal
-        self.meta.normal_scenario_prob = normal_scenario_prob if n_normal > 0 else 0
+        _abs_start_ts = {sim["simulation_id"]: sim["events"][0]["bgn_hr"]
+                      for sim in ws_scenarios}
 
         # ------------------------------------------------------------------
         # 1. Index sets -- tn for transmission level network, dn for distribution level network
@@ -183,7 +173,7 @@ class InvestmentClass():
         # scenario-specific timestep sets ----------------------------------
         Set_ts_scn = {
             sim["simulation_id"]: list(range(1, len(sim["bch_rand_nums"][0]) + 1))
-            for sim in all_scenarios
+            for sim in ws_scenarios
         }
 
         # Tuple sets:
@@ -382,7 +372,7 @@ class InvestmentClass():
         # - demand profiles (Pd, Qd) by absolute hour
         Pd_param = {}
         Qd_param = {}
-        for sim in all_scenarios:
+        for sim in ws_scenarios:
             sc = sim["simulation_id"]
             bgn = _abs_start_ts[sc]
             for t in Set_ts_scn[sc]:
@@ -401,7 +391,7 @@ class InvestmentClass():
         impact_dict = {}
         ttr_dict = {}
 
-        for sim in all_scenarios:
+        for sim in ws_scenarios:
             sc = sim["simulation_id"]
             gust_series = sim["events"][0]["gust_speed"]
             for t in Set_ts_scn[sc]:
@@ -873,7 +863,7 @@ class InvestmentClass():
                 for (sc, b, t) in model.Set_sbt
             )
 
-            # 4) Reactive load-shedding  (DN buses only)
+            # 4) Reactive load-shedding (DN buses only)
             reac_ls_cost = sum(
                 model.scn_prob[sc] * model.Qc_cost[b] * model.Qc[sc, b, t]
                 for (sc, b, t) in model.Set_sbt_dn
@@ -885,17 +875,56 @@ class InvestmentClass():
                 for (sc, l, t) in model.Set_slt_lines
             )
 
-            return gen_cost + imp_exp_cost + act_ls_cost + reac_ls_cost + rep_cost
+            # Windstorm window costs
+            ws_window_cost = gen_cost + imp_exp_cost + act_ls_cost + reac_ls_cost + rep_cost
+
+            # Add normal annual operation cost to each windstorm scenario
+            # This accounts for the rest of the year outside the windstorm window
+            if include_normal_scenario and normal_operation_cost:
+                # Each windstorm scenario includes its window cost and a full year of normal operation
+                # (theoretically we should exclude the hours from the windstorm window in the normal operation hours,
+                # but for simplicity, we simply add the operational cost from a full year)
+                annual_normal_cost = sum(
+                    model.scn_prob[sc] * normal_operation_cost["total_cost"]
+                    for sc in model.Set_scn
+                )
+                return ws_window_cost + annual_normal_cost
+            else:
+                return ws_window_cost
 
         model.exp_total_op_cost_expr = pyo.Expression(rule=expected_total_op_cost_rule)
 
         def objective_rule(model):
-            # Objective function: total investment cost + expected total operational cost
-            return model.total_inv_cost_expr + model.exp_total_op_cost_expr
+            # First-stage: Investment cost
+            inv_cost = model.total_inv_cost_expr
+
+            # Second-stage: Expected operational cost
+            if include_normal_scenario and normal_operation_cost:
+                # Normal scenario (full year) + Windstorm scenarios (window + full year)
+                normal_contribution = normal_scenario_prob * normal_operation_cost["total_cost"]
+                ws_contribution = model.exp_total_op_cost_expr  # Already includes annual normal costs
+                return inv_cost + normal_contribution + ws_contribution
+            else:
+                # Only windstorm scenarios (without annual normalization)
+                return inv_cost + model.exp_total_op_cost_expr
 
         model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
+        # Add parameter to track normal cost contribution
+        if include_normal_scenario and normal_operation_cost:
+            model.normal_cost_contribution = pyo.Param(
+                initialize=normal_scenario_prob * normal_operation_cost["total_cost"],
+                mutable=False
+            )
+
+            # Also create expressions for tracking DN-level normal costs
+            model.normal_gen_cost_dn = pyo.Param(
+                initialize=normal_scenario_prob * normal_operation_cost["gen_cost_dn"],
+                mutable=False
+            )
+
         return model
+
 
     def solve_investment_model(
             self,
@@ -1012,12 +1041,6 @@ class InvestmentClass():
                                            meta: dict | None = None):
         """
         Export selected variables and key parameters to a multi-sheet .xlsx workbook.
-
-        Sheet order:
-          1) “Meta”        – network name, windstorm name, solver info, objective…
-          2) “branch_level” – list of branch‐level strings
-          3) “bch_type”     – list of branch‐type ints
-          4) one sheet per selected variable
         """
         important = (
             "line_hrdn",
@@ -1036,20 +1059,45 @@ class InvestmentClass():
                 "written_at": datetime.now().isoformat(timespec="seconds"),
                 "network_name": self.network_name,
                 "windstorm_name": self.windstorm_name,
-                "windstorm_random_seed": getattr(self.meta, 'ws_seed', None),  # Safe access
+                "windstorm_random_seed": getattr(self.meta, 'ws_seed', None),
                 "number_of_ws_scenarios": getattr(self.meta, 'n_ws_scenarios', 0),
-                "number_of_normal_scenarios": getattr(self.meta, 'n_normal_scenarios', 0),
-                "normal_scenario_probability": getattr(self.meta, 'normal_scenario_prob', 0),
                 "resilience_metric_threshold": float(pyo.value(model.resilience_metric_threshold)),
                 "objective_value": float(pyo.value(model.Objective)),
                 "total_investment_cost": float(pyo.value(model.total_inv_cost_expr)),
                 "expected_total_operational_cost": float(pyo.value(model.exp_total_op_cost_expr)),
                 "expected_total_operational_cost_dn": float(pyo.value(model.exp_total_op_cost_dn_expr)),
                 "exp_total_eens_dn": float(pyo.value(model.exp_total_eens_dn_expr)),
+                "normal_scenario_included": getattr(self.meta, 'normal_scenario_included', False),
+                "normal_scenario_probability": getattr(self.meta, 'normal_scenario_prob', 0),
             }
 
+            # Add normal scenario costs if included
+            if hasattr(model, 'normal_cost_contribution'):
+                meta["normal_operation_cost_contribution"] = float(pyo.value(model.normal_cost_contribution))
+
+                # Also add the DN generation cost from normal scenario if available
+                if hasattr(model, 'normal_gen_cost_dn'):
+                    meta["normal_operation_gen_cost_dn"] = float(pyo.value(model.normal_gen_cost_dn))
+
+                # Calculate total expected cost including normal
+                # The windstorm operational cost is already weighted by (1 - normal_prob) in the objective
+                # So the total is just the objective value
+                meta["total_expected_operational_cost_with_normal"] = (
+                        float(pyo.value(model.exp_total_op_cost_expr)) +
+                        float(pyo.value(model.normal_cost_contribution))
+                )
+
+            # Add detailed normal operation info if available
+            if hasattr(self.meta, 'normal_operation_cost') and self.meta.normal_operation_cost:
+                meta["normal_hours_computed"] = self.meta.normal_operation_cost.get("hours_computed", "N/A")
+                meta["normal_scale_factor"] = self.meta.normal_operation_cost.get("scale_factor", "N/A")
+                meta["normal_solver_status"] = self.meta.normal_operation_cost.get("solver_status", "N/A")
+                if hasattr(self.meta.normal_operation_cost, 'representative_days'):
+                    meta["normal_representative_days"] = str(
+                        self.meta.normal_operation_cost.get("representative_days", "N/A"))
+
         from network_factory import make_network
-        net = make_network(meta.get("network_name", "default"))
+        net = make_network(meta.get("network_name", self.network_name))
 
         with pd.ExcelWriter(path, engine="xlsxwriter") as xl:
             # 1) META sheet
@@ -1130,3 +1178,388 @@ class InvestmentClass():
             fail_probs[l] = fp
 
         return {"gust_speeds": gust_speeds, "fail_probs": fail_probs}
+
+
+    def build_normal_scenario_opf_model(self,
+                                        network_name: str,
+                                        use_representative_days: bool = True,
+                                        representative_days: list = None):
+        """
+        Build an OPF model for normal operation using representative days.
+
+        Args:
+            network_name: Network configuration name
+            use_representative_days: If True, use representative days instead of full year
+            representative_days: List of day numbers (1-365). If None, uses default seasonal days
+
+        Returns:
+            tuple: (model, scale_factor) where scale_factor is for annualizing costs
+        """
+        from network_factory import make_network
+
+        net = make_network(network_name)
+
+        # Determine hours to compute
+        if use_representative_days:
+            if representative_days is None:
+                # Default: one representative day per season
+                representative_days = [15, 105, 195, 285]  # Mid-Jan, Apr, Jul, Oct
+
+            hours_to_compute = []
+            for day in representative_days:
+                day_start = (day - 1) * 24 + 1
+                hours_to_compute.extend(range(day_start, day_start + 24))
+
+            # Scale factor to annualize costs
+            scale_factor = 365.0 / len(representative_days)
+        else:
+            # Full year (fallback option)
+            hours_to_compute = list(range(1, 8761))
+            scale_factor = 1.0
+
+        # Build model
+        model = pyo.ConcreteModel()
+
+        # Store metadata
+        model.hours_computed = len(hours_to_compute)
+        model.scale_factor = scale_factor
+        model.network_name = network_name
+        model.representative_days = representative_days if use_representative_days else None
+
+        # ------------------------------------------------------------------
+        # 1. Sets
+        # ------------------------------------------------------------------
+        Set_bus_tn = [b for b in net.data.net.bus if net.data.net.bus_level[b] == 'T']
+        Set_bus_dn = [b for b in net.data.net.bus if net.data.net.bus_level[b] == 'D']
+        Set_bch_tn = [l for l in range(1, len(net.data.net.bch) + 1)
+                      if net.data.net.branch_level[l] in ('T', 'T-D')]
+        Set_bch_dn = [l for l in range(1, len(net.data.net.bch) + 1)
+                      if net.data.net.branch_level[l] == 'D']
+        Set_gen = list(range(1, len(net.data.net.gen) + 1))
+        Set_ts = list(range(1, len(hours_to_compute) + 1))  # Indexed from 1
+
+        # Pyomo sets
+        model.Set_bus_tn = pyo.Set(initialize=Set_bus_tn)
+        model.Set_bus_dn = pyo.Set(initialize=Set_bus_dn)
+        model.Set_bch_tn = pyo.Set(initialize=Set_bch_tn)
+        model.Set_bch_dn = pyo.Set(initialize=Set_bch_dn)
+        model.Set_gen = pyo.Set(initialize=Set_gen)
+        model.Set_ts = pyo.Set(initialize=Set_ts)
+
+        # Get slack bus
+        slack_bus = net.data.net.slack_bus
+
+        # ------------------------------------------------------------------
+        # 2. Parameters (COMPLETE)
+        # ------------------------------------------------------------------
+        model.base_MVA = pyo.Param(initialize=net.data.net.base_MVA)
+
+        # Demand profiles for selected hours
+        Pd_dict = {}
+        Qd_dict = {}
+        for t_idx, abs_hr in enumerate(hours_to_compute, 1):
+            for b in net.data.net.bus:
+                Pd_dict[(b, t_idx)] = net.data.net.profile_Pd[b - 1][abs_hr - 1]
+                if b in Set_bus_dn:
+                    Qd_dict[(b, t_idx)] = net.data.net.profile_Qd[b - 1][abs_hr - 1]
+
+        model.Pd = pyo.Param(model.Set_bus_tn | model.Set_bus_dn, model.Set_ts,
+                             initialize=Pd_dict, mutable=False)
+        model.Qd = pyo.Param(model.Set_bus_dn, model.Set_ts,
+                             initialize=Qd_dict, mutable=False)
+
+        # Generator parameters (THIS WAS MISSING!)
+        model.Pg_max = pyo.Param(model.Set_gen,
+                                 initialize={g: net.data.net.Pg_max[g - 1] for g in Set_gen})
+        model.Pg_min = pyo.Param(model.Set_gen,
+                                 initialize={g: net.data.net.Pg_min[g - 1] for g in Set_gen})
+        model.Qg_max = pyo.Param(model.Set_gen,
+                                 initialize={g: net.data.net.Qg_max[g - 1] for g in Set_gen})
+        model.Qg_min = pyo.Param(model.Set_gen,
+                                 initialize={g: net.data.net.Qg_min[g - 1] for g in Set_gen})
+
+        # Generator cost coefficients (THIS WAS MISSING!)
+        coef_len = len(net.data.net.gen_cost_coef[0])
+        model.gen_cost_coef = pyo.Param(
+            model.Set_gen, range(coef_len),
+            initialize={(g, c): net.data.net.gen_cost_coef[g - 1][c]
+                        for g in model.Set_gen for c in range(coef_len)}
+        )
+
+        # Branch parameters TN
+        model.B_tn = pyo.Param(model.Set_bch_tn,
+                               initialize={l: 1.0 / net.data.net.bch_X[l - 1] for l in Set_bch_tn})
+        model.Pmax_tn = pyo.Param(model.Set_bch_tn,
+                                  initialize={l: net.data.net.bch_Pmax[l - 1] for l in Set_bch_tn})
+
+        # Branch parameters DN
+        model.R_dn = pyo.Param(model.Set_bch_dn,
+                               initialize={l: net.data.net.bch_R[l - 1] for l in Set_bch_dn})
+        model.X_dn = pyo.Param(model.Set_bch_dn,
+                               initialize={l: net.data.net.bch_X[l - 1] for l in Set_bch_dn})
+        model.Smax_dn = pyo.Param(model.Set_bch_dn,
+                                  initialize={l: net.data.net.bch_Smax[l - 1] for l in Set_bch_dn})
+
+        # Voltage limits
+        model.V2_min = pyo.Param(model.Set_bus_tn | model.Set_bus_dn,
+                                 initialize={bus: net.data.net.V_min[i] ** 2
+                                             for i, bus in enumerate(net.data.net.bus)})
+        model.V2_max = pyo.Param(model.Set_bus_tn | model.Set_bus_dn,
+                                 initialize={bus: net.data.net.V_max[i] ** 2
+                                             for i, bus in enumerate(net.data.net.bus)})
+
+        # Load shedding costs (THIS WAS MISSING!)
+        model.Pc_cost = pyo.Param(model.Set_bus_tn | model.Set_bus_dn,
+                                  initialize={b: net.data.net.Pc_cost[b - 1] for b in net.data.net.bus})
+        model.Qc_cost = pyo.Param(model.Set_bus_dn,
+                                  initialize={b: net.data.net.Qc_cost[net.data.net.bus.index(b)]
+                                              for b in Set_bus_dn})
+
+        # ------------------------------------------------------------------
+        # 3. Variables
+        # ------------------------------------------------------------------
+        # Generation
+        model.Pg = pyo.Var(model.Set_gen, model.Set_ts, within=pyo.NonNegativeReals)
+        model.Qg = pyo.Var(model.Set_gen, model.Set_ts, within=pyo.Reals)
+
+        # Voltage angles (TN) and squared magnitudes (DN)
+        model.theta = pyo.Var(model.Set_bus_tn, model.Set_ts, within=pyo.Reals)
+        model.V2_dn = pyo.Var(model.Set_bus_dn, model.Set_ts, within=pyo.NonNegativeReals)
+
+        # Power flows
+        model.Pf_tn = pyo.Var(model.Set_bch_tn, model.Set_ts, within=pyo.Reals)
+        model.Pf_dn = pyo.Var(model.Set_bch_dn, model.Set_ts, within=pyo.Reals)
+        model.Qf_dn = pyo.Var(model.Set_bch_dn, model.Set_ts, within=pyo.Reals)
+
+        # Load shedding (should be minimal/zero in normal operation)
+        model.Pc = pyo.Var(model.Set_bus_tn | model.Set_bus_dn, model.Set_ts,
+                           within=pyo.NonNegativeReals)
+        model.Qc = pyo.Var(model.Set_bus_dn, model.Set_ts,
+                           within=pyo.NonNegativeReals)
+
+        # ------------------------------------------------------------------
+        # 4. Constraints
+        # ------------------------------------------------------------------
+
+        # 4.1) DC Power Flow (TN) - Handle T-D branches properly
+        def dc_power_flow_rule(model, l, t):
+            fr_bus = net.data.net.bch[l - 1][0]
+            to_bus = net.data.net.bch[l - 1][1]
+
+            # Check if both buses are in transmission set
+            if fr_bus in Set_bus_tn and to_bus in Set_bus_tn:
+                return model.Pf_tn[l, t] == model.B_tn[l] * (model.theta[fr_bus, t] - model.theta[to_bus, t])
+            else:
+                # Skip if either end is a distribution bus (T-D branch)
+                return pyo.Constraint.Skip
+
+        model.Constraint_DCPowerFlow = pyo.Constraint(model.Set_bch_tn, model.Set_ts,
+                                                      rule=dc_power_flow_rule)
+
+        # 4.2) Power Balance TN
+        def power_balance_tn_rule(model, b, t):
+            Pg = sum(model.Pg[g, t] for g in model.Set_gen if net.data.net.gen[g - 1] == b)
+            Pf_in = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn if net.data.net.bch[l - 1][1] == b)
+            Pf_out = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn if net.data.net.bch[l - 1][0] == b)
+            return Pg + Pf_in - Pf_out == model.Pd[b, t] - model.Pc[b, t]
+
+        model.Constraint_PowerBalance_TN = pyo.Constraint(model.Set_bus_tn, model.Set_ts,
+                                                          rule=power_balance_tn_rule)
+
+        # 4.3) LinDistFlow DN
+        def lindistflow_P_rule(model, l, t):
+            fr_bus = net.data.net.bch[l - 1][0]
+            to_bus = net.data.net.bch[l - 1][1]
+            return (model.V2_dn[to_bus, t] == model.V2_dn[fr_bus, t]
+                    - 2 * (model.R_dn[l] * model.Pf_dn[l, t] + model.X_dn[l] * model.Qf_dn[l, t]))
+
+        model.Constraint_LinDistFlow = pyo.Constraint(model.Set_bch_dn, model.Set_ts,
+                                                      rule=lindistflow_P_rule)
+
+        # 4.4) Power Balance DN
+        def power_balance_dn_rule(model, b, t):
+            Pg = sum(model.Pg[g, t] for g in model.Set_gen if net.data.net.gen[g - 1] == b)
+            Pf_in_dn = sum(model.Pf_dn[l, t] for l in model.Set_bch_dn if net.data.net.bch[l - 1][1] == b)
+            Pf_out_dn = sum(model.Pf_dn[l, t] for l in model.Set_bch_dn if net.data.net.bch[l - 1][0] == b)
+
+            # Coupling from TN
+            Pf_cpl_in = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn
+                            if net.data.net.branch_level[l] == 'T-D' and net.data.net.bch[l - 1][1] == b)
+            Pf_cpl_out = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn
+                             if net.data.net.branch_level[l] == 'T-D' and net.data.net.bch[l - 1][0] == b)
+
+            return Pg + Pf_in_dn - Pf_out_dn + Pf_cpl_in - Pf_cpl_out == model.Pd[b, t] - model.Pc[b, t]
+
+        model.Constraint_PowerBalance_DN = pyo.Constraint(model.Set_bus_dn, model.Set_ts,
+                                                          rule=power_balance_dn_rule)
+
+        def reactive_balance_dn_rule(model, b, t):
+            Qg = sum(model.Qg[g, t] for g in model.Set_gen if net.data.net.gen[g - 1] == b)
+            Qf_in = sum(model.Qf_dn[l, t] for l in model.Set_bch_dn if net.data.net.bch[l - 1][1] == b)
+            Qf_out = sum(model.Qf_dn[l, t] for l in model.Set_bch_dn if net.data.net.bch[l - 1][0] == b)
+            return Qg + Qf_in - Qf_out == model.Qd[b, t] - model.Qc[b, t]
+
+        model.Constraint_ReactiveBalance_DN = pyo.Constraint(model.Set_bus_dn, model.Set_ts,
+                                                             rule=reactive_balance_dn_rule)
+
+        # 4.5) Branch Limits
+        def pf_tn_upper_rule(model, l, t):
+            return model.Pf_tn[l, t] <= model.Pmax_tn[l]
+
+        def pf_tn_lower_rule(model, l, t):
+            return model.Pf_tn[l, t] >= -model.Pmax_tn[l]
+
+        model.Constraint_Pf_tn_upper = pyo.Constraint(model.Set_bch_tn, model.Set_ts,
+                                                      rule=pf_tn_upper_rule)
+        model.Constraint_Pf_tn_lower = pyo.Constraint(model.Set_bch_tn, model.Set_ts,
+                                                      rule=pf_tn_lower_rule)
+
+        def apparent_power_dn_rule(model, l, t):
+            return model.Pf_dn[l, t] ** 2 + model.Qf_dn[l, t] ** 2 <= model.Smax_dn[l] ** 2
+
+        model.Constraint_Smax_dn = pyo.Constraint(model.Set_bch_dn, model.Set_ts,
+                                                  rule=apparent_power_dn_rule)
+
+        # 4.6) Voltage Limits
+        def v2_upper_rule(model, b, t):
+            return model.V2_dn[b, t] <= model.V2_max[b]
+
+        def v2_lower_rule(model, b, t):
+            return model.V2_dn[b, t] >= model.V2_min[b]
+
+        model.Constraint_V2_upper = pyo.Constraint(model.Set_bus_dn, model.Set_ts,
+                                                   rule=v2_upper_rule)
+        model.Constraint_V2_lower = pyo.Constraint(model.Set_bus_dn, model.Set_ts,
+                                                   rule=v2_lower_rule)
+
+        # 4.7) Generator Limits
+        def pg_upper_rule(model, g, t):
+            return model.Pg[g, t] <= model.Pg_max[g]
+
+        def pg_lower_rule(model, g, t):
+            return model.Pg[g, t] >= model.Pg_min[g]
+
+        def qg_upper_rule(model, g, t):
+            return model.Qg[g, t] <= model.Qg_max[g]
+
+        def qg_lower_rule(model, g, t):
+            return model.Qg[g, t] >= model.Qg_min[g]
+
+        model.Constraint_Pg_upper = pyo.Constraint(model.Set_gen, model.Set_ts, rule=pg_upper_rule)
+        model.Constraint_Pg_lower = pyo.Constraint(model.Set_gen, model.Set_ts, rule=pg_lower_rule)
+        model.Constraint_Qg_upper = pyo.Constraint(model.Set_gen, model.Set_ts, rule=qg_upper_rule)
+        model.Constraint_Qg_lower = pyo.Constraint(model.Set_gen, model.Set_ts, rule=qg_lower_rule)
+
+        # 4.8) Slack Bus
+        if slack_bus:
+            def slack_rule(model, t):
+                return model.theta[slack_bus, t] == 0
+
+            model.Constraint_Slack = pyo.Constraint(model.Set_ts, rule=slack_rule)
+
+        # ------------------------------------------------------------------
+        # 5. Objective (with scale factor)
+        # ------------------------------------------------------------------
+        def objective_rule(model):
+            # Generation cost
+            gen_cost = sum(
+                model.gen_cost_coef[g, 0] + model.gen_cost_coef[g, 1] * model.Pg[g, t]
+                for g in model.Set_gen for t in model.Set_ts
+            )
+
+            # Load shedding cost (should be minimal/zero)
+            ls_cost = sum(
+                model.Pc_cost[b] * model.Pc[b, t]
+                for b in model.Set_bus_tn | model.Set_bus_dn
+                for t in model.Set_ts
+            )
+
+            ls_cost += sum(
+                model.Qc_cost[b] * model.Qc[b, t]
+                for b in model.Set_bus_dn
+                for t in model.Set_ts
+            )
+
+            # Apply scale factor to get annual cost
+            return (gen_cost + ls_cost) * scale_factor
+
+        model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
+
+        return model, scale_factor
+
+
+    def solve_normal_scenario_opf_model(self, model, solver='gurobi', print_summary=True):
+        """
+        Solve the normal scenario OPF model and extract cost components.
+
+        Returns:
+            dict: Cost breakdown and key metrics
+        """
+        opt = SolverFactory(solver)
+        results = opt.solve(model, tee=False)
+
+        if results.solver.status != 'ok':
+            raise RuntimeError("Failed to solve normal operation OPF model")
+
+        # Extract total cost (already annualized)
+        total_cost = pyo.value(model.Objective)
+
+        # Extract component costs (before scaling)
+        gen_cost_total = 0
+        gen_cost_tn = 0
+        gen_cost_dn = 0
+
+        from network_factory import make_network
+        net = make_network(model.network_name)
+
+        for g in model.Set_gen:
+            for t in model.Set_ts:
+                cost = (model.gen_cost_coef[g, 0] +
+                        model.gen_cost_coef[g, 1] * pyo.value(model.Pg[g, t]))
+                gen_cost_total += cost
+
+                # Check if generator is at TN or DN level
+                gen_bus = net.data.net.gen[g - 1]
+                if net.data.net.bus_level[gen_bus] == 'T':
+                    gen_cost_tn += cost
+                else:
+                    gen_cost_dn += cost
+
+        # Apply scale factor to component costs
+        gen_cost_total *= model.scale_factor
+        gen_cost_tn *= model.scale_factor
+        gen_cost_dn *= model.scale_factor
+
+        # Check for load shedding
+        total_eens = sum(pyo.value(model.Pc[b, t])
+                              for b in model.Set_bus_tn | model.Set_bus_dn
+                              for t in model.Set_ts)
+
+        if print_summary:
+            print("\n" + "=" * 60)
+            print("Normal Operation Scenario Results")
+            print("=" * 60)
+            if model.representative_days:
+                print(f"Representative days: {model.representative_days}")
+                print(f"Hours computed: {model.hours_computed} ({len(model.representative_days)} days)")
+                print(f"Scale factor: {model.scale_factor:.2f}")
+            else:
+                print(f"Full year computation: {model.hours_computed} hours")
+            print(f"Total annual cost: ${total_cost:,.2f}")
+            print(f"  - Generation cost (total): ${gen_cost_total:,.2f}")
+            print(f"    - TN generation: ${gen_cost_tn:,.2f}")
+            print(f"    - DN generation: ${gen_cost_dn:,.2f}")
+            print(f"Total EENS: {total_eens:.4f} MWh")
+            print("=" * 60 + "\n")
+
+        return {
+            "total_cost": total_cost,
+            "gen_cost_total": gen_cost_total,
+            "gen_cost_tn": gen_cost_tn,
+            "gen_cost_dn": gen_cost_dn,
+            "load_shed_mw": total_eens,
+            "hours_computed": model.hours_computed,
+            "scale_factor": model.scale_factor,
+            "representative_days": model.representative_days,
+            "solver_status": str(results.solver.status)
+        }
