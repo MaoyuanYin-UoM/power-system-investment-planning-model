@@ -975,6 +975,8 @@ class InvestmentClass():
                 "objective_value": float(pyo.value(model.Objective)),
                 "total_investment_cost": float(pyo.value(model.total_inv_cost_expr)),
                 "expected_total_operational_cost": float(pyo.value(model.exp_total_op_cost_expr)),
+                "expected_total_operational_cost_dn": float(pyo.value(model.exp_total_op_cost_dn_expr)),
+                "exp_total_eens_dn_expr": float(pyo.value(model.exp_total_eens_dn_expr)),
             }
 
         from network_factory import make_network

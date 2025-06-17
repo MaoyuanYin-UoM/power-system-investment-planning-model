@@ -13,9 +13,15 @@ from windstorm_factory import make_windstorm
 
 
 def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_Scenarios",
-                          network_preset="default", windstorm_preset="default"):
+                          network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
+                          windstorm_preset="windstorm_GB_transmission_network"):
     """
     Generate and save full windstorm scenarios.
+
+    Note: 1) This function generates multiple scenarios at once into a .json file, without control to each single
+             scenario.
+          2) Please use 'generate_single_ws_scenario' and then 'combine_selected_scenarios' if you want manually select
+          each single scenario.
     """
     # Optional reproducibility
     if seed is not None:
@@ -118,9 +124,16 @@ def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_
 
     # write out
     os.makedirs(out_dir, exist_ok=True)
+    # to avoid the file name length exceeding Windows's limit, shortened aliases are used
+    if network_preset == "29_bus_GB_transmission_network_with_Kearsley_GSP_group":
+        network_alias = "29BusGB-KearsleyGSPGroup"
+
+    if windstorm_preset == "windstorm_GB_transmission_network":
+        windstorm_alias = "GB"
+
     file_name = (
         f"{len(num_ws_prd)}_full_scenarios_"
-        f"{network_preset}_{windstorm_preset}_{ws.data.MC.lng_prd}_seed_{seed}.json"
+        f"network_{network_alias}_windstorm_{windstorm_alias}_{ws.data.MC.lng_prd}_seed_{seed}.json"
     )
     path = os.path.join(out_dir, file_name)
     with open(path, "w") as f:
@@ -128,6 +141,64 @@ def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_
 
     print(f"Windstorm scenarios saved to {path}")
 
+
+def combine_extracted_scenarios(scenario_files, out_file, scenario_probabilities=None):
+    """
+    Combine manually selected extracted windstorm scenarios into one multi-scenario file.
+
+    Args:
+        scenario_files: List of paths to extracted scenario JSON files
+        out_file: Output path for combined scenarios
+        scenario_probabilities: Optional dict {scenario_id: probability}.
+                              If None, uses uniform probabilities.
+    """
+    combined_data = None
+    all_scenarios = []
+    seed_list = []  # List to store seeds in order
+
+    for i, file_path in enumerate(scenario_files):
+        with open(file_path, "r") as f:
+            data = json.load(f)
+
+        if combined_data is None:
+            # Initialize with metadata from first file
+            combined_data = {
+                "metadata": data["metadata"].copy(),
+                "ws_scenarios": []  # Note: using ws_scenarios for extracted format
+            }
+            combined_data["metadata"]["combined_from"] = scenario_files
+
+        # Extract and store the seed
+        original_seed = data["metadata"]["seed"]
+        seed_list.append(original_seed)
+
+        # For extracted scenarios, the key is "ws_scenarios" not "scenarios"
+        ws_scenarios = data.get("ws_scenarios", data.get("scenarios", []))
+
+        # Add scenario (should be only one per file for single scenario files)
+        scenario = ws_scenarios[0].copy()
+        scenario["simulation_id"] = i + 1  # Renumber scenarios
+        all_scenarios.append(scenario)
+
+    # Update metadata
+    combined_data["metadata"]["number_of_ws_simulations"] = len(all_scenarios)
+    combined_data["metadata"]["seed"] = seed_list  # Now a list of seeds
+    combined_data["ws_scenarios"] = all_scenarios  # Use ws_scenarios for extracted format
+
+    # Add probability information if provided
+    if scenario_probabilities:
+        for scenario in combined_data["ws_scenarios"]:
+            scenario["probability"] = scenario_probabilities.get(scenario["simulation_id"],
+                                                                 1 / len(all_scenarios))
+
+    # Save combined file
+    os.makedirs(os.path.dirname(out_file), exist_ok=True)
+    with open(out_file, "w") as f:
+        json.dump(combined_data, f, indent=4)
+
+    print(f"Combined {len(all_scenarios)} extracted scenarios saved to {out_file}")
+    print(f"Seeds used: {seed_list}")
+    return out_file
 
 
 def extract_ws_scenarios(
