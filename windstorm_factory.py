@@ -61,7 +61,7 @@ def make_windstorm(name: str) -> WindClass:
         wcon.data.WS.event.max_v = [40, 60]  # upper and lower bounds for initial gust speed
         wcon.data.WS.event.min_v = [25, 35]  # upper and lower bounds for final gust speed
         wcon.data.WS.event.max_r = [20, 25]  # upper and lower bounds for initial radius
-        wcon.data.WS.event.min_r = [15, 10]  # upper and lower bounds for final radius
+        wcon.data.WS.event.min_r = [10, 12]  # upper and lower bounds for final radius
         wcon.data.WS.event.max_prop_v = [22, 26]  # upper and lower bounds for initial windstorm propagation speed
         wcon.data.WS.event.min_prop_v = [8, 10]  # upper and lower bounds for final windstorm propagation speed
         wcon.data.WS.event.lng = [12, 48]  # lower and upper bounds for windstorm duration

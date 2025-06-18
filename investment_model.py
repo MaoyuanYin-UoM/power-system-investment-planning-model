@@ -834,35 +834,39 @@ class InvestmentClass():
                                                  for t in Set_ts_scn[sc]],
                                                 rule=slack_rule)
 
+        # Prepare parameters that will be used when defining the two expressions below
+        num_scenarios = len(model.Set_scn)
+        prob_factor = 1 / num_scenarios
+        model.num_scenarios = pyo.Param(initialize=num_scenarios)
+        model.prob_factor = pyo.Param(initialize=prob_factor)
+
         # Code 'expected total operational cost at dn level across all ws scenarios' (the resilience metric)
         # as an expression
         # (currently as we assume all windstorm scenarios have equal probabilities, we simply find the average value)
         def expected_total_op_cost_dn_ws_rule(model):
-            num_scenarios = len(model.Set_scn)
-
             # 1) DN generation cost
             gen_cost_dn = sum(
                 (model.gen_cost_coef[g, 0] + model.gen_cost_coef[g, 1] * model.Pg[sc, g, t])
                 for (sc, g, t) in model.Set_sgt_dn
-            ) / num_scenarios
+            ) * model.prob_factor
 
             # 2) DN active load-shedding
             active_ls_cost_dn = sum(
                 model.Pc_cost[b] * model.Pc[sc, b, t]
                 for (sc, b, t) in model.Set_sbt_dn
-            ) / num_scenarios
+            ) * model.prob_factor
 
             # 3) DN reactive load-shedding
             reactive_ls_cost_dn = sum(
                 model.Qc_cost[b] * model.Qc[sc, b, t]
                 for (sc, b, t) in model.Set_sbt_dn
-            ) / num_scenarios
+            ) * model.prob_factor
 
             # 4) DN line repair
             rep_cost_dn = sum(
                 model.rep_cost[l] * model.repair_applies[sc, l, t]
                 for (sc, l, t) in model.Set_slt_dn_lines
-            ) / num_scenarios
+            ) * model.prob_factor
 
             return gen_cost_dn + active_ls_cost_dn + reactive_ls_cost_dn + rep_cost_dn
 
@@ -871,12 +875,10 @@ class InvestmentClass():
         # Code "Expected Energy Not Supplied (EENS) at dn level across all ws scenarios" as an expression
         # Since we have hourly resolution, EENS = sum of all active power load shedding
         def expected_total_eens_dn_ws_rule(model):
-            num_scenarios = len(model.Set_scn)
-
             eens_dn = sum(
                 model.Pc[sc, b, t]
                 for (sc, b, t) in model.Set_sbt_dn
-            ) / num_scenarios
+            ) * model.prob_factor
 
             return eens_dn
 
@@ -886,7 +888,7 @@ class InvestmentClass():
         if resilience_metric_threshold is not None:
             model.Constraint_ResilienceLevel = pyo.Constraint(
                 # expr=model.exp_total_op_cost_dn_expr <= model.resilience_metric_threshold
-                expr=model.exp_total_eens_dn_expr <= model.resilience_metric_threshold
+                expr=model.exp_total_eens_dn_ws_expr <= model.resilience_metric_threshold
             )
 
         # ------------------------------------------------------------------

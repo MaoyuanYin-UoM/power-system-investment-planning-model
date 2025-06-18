@@ -63,7 +63,9 @@ network_preset = "29_bus_GB_transmission_network_with_Kearsley_GSP_group"
 windstorm_preset = "windstorm_GB_transmission_network"
 
 # Specify selected seeds
-selected_seeds = [112, 149, 152, 166, 177, 198]
+# selected_seeds = [112, 149, 152, 166, 177, 198]
+
+selected_seeds = [112, 152, 166, 198]
 
 full_files = []
 extracted_files = []
