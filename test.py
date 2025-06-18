@@ -184,39 +184,39 @@ from network_factory import make_network
 # Combine selected single scenarios into a .json file with extracted windstorm windows using "combine_selected_scenarios"
 # ========================================
 
-network_preset = "29_bus_GB_transmission_network_with_Kearsley_GSP_group"
-windstorm_preset = "windstorm_GB_transmission_network"
-
-# Your selected seeds
-selected_seeds = [112, 149, 152, 166, 177, 198]
-
-# Construct file paths for selected scenarios
-selected_files = []
-for seed in selected_seeds:
-    if network_preset == "29_bus_GB_transmission_network_with_Kearsley_GSP_group":
-        network_alias = "29BusGB-KearsleyGSPGroup"
-    if windstorm_preset == "windstorm_GB_transmission_network":
-        windstorm_alias = "GB"
-
-    file_path = f"Scenario_Results/Full_Windstorm_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
-    selected_files.append(file_path)
-
-# Combine the selected scenarios
-print("=== Combining selected scenarios ===")
-combined_file = combine_extracted_scenarios(
-    scenario_files=selected_files,
-    out_file=f"Scenario_Results/Full_Windstorm_Scenarios/{len(selected_seeds)}_selected_effective_scenarios.json"
-)
-
-# Extract windstorm windows for use in the investment model
-print("\n=== Extracting windstorm windows ===")
-extracted_file = "Scenario_Results/Extracted_Windstorm_Scenarios/6_ws_selected_effective_scenarios.json"
-extract_ws_scenarios(combined_file, extracted_file)
-
-print(f"\n=== Extract and combine scenarios completed! ===")
-print(f"Combined full scenarios: {combined_file}")
-print(f"Extracted windstorm scenarios: {extracted_file}")
-print(f"Seeds used: {selected_seeds}")
+# network_preset = "29_bus_GB_transmission_network_with_Kearsley_GSP_group"
+# windstorm_preset = "windstorm_GB_transmission_network"
+#
+# # Your selected seeds
+# selected_seeds = [112, 149, 152, 166, 177, 198]
+#
+# # Construct file paths for selected scenarios
+# selected_files = []
+# for seed in selected_seeds:
+#     if network_preset == "29_bus_GB_transmission_network_with_Kearsley_GSP_group":
+#         network_alias = "29BusGB-KearsleyGSPGroup"
+#     if windstorm_preset == "windstorm_GB_transmission_network":
+#         windstorm_alias = "GB"
+#
+#     file_path = f"Scenario_Results/Full_Windstorm_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
+#     selected_files.append(file_path)
+#
+# # Combine the selected scenarios
+# print("=== Combining selected scenarios ===")
+# combined_file = combine_extracted_scenarios(
+#     scenario_files=selected_files,
+#     out_file=f"Scenario_Results/Full_Windstorm_Scenarios/{len(selected_seeds)}_selected_effective_scenarios.json"
+# )
+#
+# # Extract windstorm windows for use in the investment model
+# print("\n=== Extracting windstorm windows ===")
+# extracted_file = "Scenario_Results/Extracted_Windstorm_Scenarios/6_ws_selected_effective_scenarios.json"
+# extract_ws_scenarios(combined_file, extracted_file)
+#
+# print(f"\n=== Extract and combine scenarios completed! ===")
+# print(f"Combined full scenarios: {combined_file}")
+# print(f"Extracted windstorm scenarios: {extracted_file}")
+# print(f"Seeds used: {selected_seeds}")
 
 
 
@@ -269,4 +269,22 @@ print(f"Seeds used: {selected_seeds}")
 
 
 
-
+# import pyomo.environ as pyo
+# from pyomo.opt import SolverFactory
+#
+# # Create a simple test model
+# model = pyo.ConcreteModel()
+# model.x = pyo.Var(within=pyo.Binary)
+# model.y = pyo.Var(within=pyo.Binary)
+# model.obj = pyo.Objective(expr=model.x + 2*model.y, sense=pyo.maximize)
+# model.con = pyo.Constraint(expr=model.x + model.y <= 1)
+#
+# # Test solver
+# solver_name = 'cbc'  # or 'glpk'
+# solver = SolverFactory(solver_name)
+# if solver.available():
+#     print(f"{solver_name} is available!")
+#     results = solver.solve(model)
+#     print(f"x = {pyo.value(model.x)}, y = {pyo.value(model.y)}")
+# else:
+#     print(f"{solver_name} is NOT available")

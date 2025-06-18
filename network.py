@@ -213,13 +213,28 @@ class NetworkClass:
 
         return model
 
+
     def solve_dc_opf(self, model, solver='gurobi', write_xlsx: bool = False, out_dir: str = "Optimization_Results/DC"):
         """
         Solve the DC OPF model
         Note: use 'solve_linearized_ac_opf' instead to solve the linearized ac model
         """
-        solver = SolverFactory(solver)
-        results = solver.solve(model)
+        solver_obj = SolverFactory(solver)
+
+        # Add solver-specific options
+        if solver.lower() == 'cbc':
+            solver_obj.options['threads'] = 0  # Use all available threads
+            solver_obj.options['presolve'] = 'on'
+            solver_obj.options['cuts'] = 'on'
+        elif solver.lower() == 'glpk':
+            # GLPK options for LP problems
+            solver_obj.options['tmlim'] = 3600  # Time limit in seconds (1 hour default)
+            solver_obj.options['msg_lev'] = 'GLP_MSG_ON'  # Enable output messages
+        elif solver.lower() == 'gurobi':
+            # Gurobi typically doesn't need special options for LP
+            pass
+
+        results = solver_obj.solve(model)
 
         # Extract results and print some of them
         if results.solver.status == 'ok' and results.solver.termination_condition == 'optimal':
@@ -248,6 +263,7 @@ class NetworkClass:
             print("Solver failed to find an optimal solution.")
 
         return results
+
 
     def build_linearized_ac_opf_model(self):
         """
@@ -471,8 +487,18 @@ class NetworkClass:
                                 write_xlsx: bool = False,
                                 out_dir: str = "Optimization_Results/Linearized_AC"):
         """Solve the linearized AC OPF model"""
-        solver = SolverFactory(solver)
-        results = solver.solve(model, tee=True)
+        solver_obj = SolverFactory(solver)
+
+        # Add solver-specific options
+        if solver.lower() == 'cbc':
+            solver_obj.options['threads'] = 0
+            solver_obj.options['presolve'] = 'on'
+            solver_obj.options['cuts'] = 'on'
+        elif solver.lower() == 'glpk':
+            solver_obj.options['tmlim'] = 3600
+            solver_obj.options['msg_lev'] = 'GLP_MSG_ON'
+
+        results = solver_obj.solve(model, tee=True)
 
         # Extract results and print some of them
         if results.solver.status == 'ok' and results.solver.termination_condition == 'optimal':
@@ -833,6 +859,16 @@ class NetworkClass:
         """
         # 1) Create solver and solve with output streamed to console
         opt = SolverFactory(solver)
+
+        # Add solver-specific options
+        if solver.lower() == 'cbc':
+            opt.options['threads'] = 0
+            opt.options['presolve'] = 'on'
+            opt.options['cuts'] = 'on'
+        elif solver.lower() == 'glpk':
+            opt.options['tmlim'] = 3600
+            opt.options['msg_lev'] = 'GLP_MSG_ON'
+
         results = opt.solve(model, tee=True)
 
         # 2) Check solver status and print results

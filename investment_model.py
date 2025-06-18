@@ -1011,8 +1011,26 @@ class InvestmentClass():
 
         opt = SolverFactory(solver_name)
 
-        # --- default options -------------------------------------------------
-        default_opts = {"MIPGap": mip_gap, "TimeLimit": time_limit}
+        # --- solver-specific options -------------------------------------------------
+        if solver_name.lower() == "gurobi":
+            default_opts = {"MIPGap": mip_gap, "TimeLimit": time_limit}
+        elif solver_name.lower() == "cbc":
+            default_opts = {
+                "ratioGap": mip_gap,
+                "seconds": time_limit,
+                "threads": 0,
+                "presolve": "on",
+                "cuts": "on",
+            }
+        elif solver_name.lower() == "glpk":
+            default_opts = {
+                "mipgap": mip_gap,
+                "tmlim": time_limit,  # Time limit in seconds
+            }
+        else:
+            default_opts = {}
+            print(f"Warning: Using solver '{solver_name}' with default options")
+
         default_opts.update(solver_options)
         for k, v in default_opts.items():
             opt.options[k] = v
@@ -1023,7 +1041,18 @@ class InvestmentClass():
         status = results.solver.status
         term_cond = results.solver.termination_condition
         best_obj = pyo.value(model.Objective, exception=False)
-        mip_gap_out = getattr(results.solver, "gap", None)
+
+        # Handle gap extraction for different solvers
+        mip_gap_out = None
+        if solver_name.lower() == "gurobi":
+            mip_gap_out = getattr(results.solver, "gap", None)
+        elif solver_name.lower() in ["cbc", "glpk"]:
+            # CBC and GLPK don't directly provide gap in results.solver
+            if hasattr(results.problem, 'upper_bound') and hasattr(results.problem, 'lower_bound'):
+                ub = results.problem.upper_bound
+                lb = results.problem.lower_bound
+                if lb != 0:
+                    mip_gap_out = abs(ub - lb) / abs(lb)
 
         # --- basic checking --------------------------------------------------
         ok = (status == pyo.SolverStatus.ok
