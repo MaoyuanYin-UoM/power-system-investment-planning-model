@@ -80,9 +80,9 @@ from network_factory import make_network
 # results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
 
 
-net = make_network('29_bus_GB_transmission_network_with_Kearsley_GSP_group')
-model = net.build_combined_dc_linearized_ac_opf_model()
-results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
+# net = make_network('29_bus_GB_transmission_network_with_Kearsley_GSP_group')
+# model = net.build_combined_dc_linearized_ac_opf_model()
+# results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
 
 
 # net = make_network('GB_Transmission_Network_29_Bus')
@@ -141,7 +141,7 @@ results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
 #
 # # candidate_seeds = [101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115]
 # # candidate_seeds = [115]
-# candidate_seeds = range(101, 161)
+# candidate_seeds = range(161, 201)
 #
 # generated_files = []
 #
@@ -167,57 +167,56 @@ results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
 #     generated_files.append(file_path)
 #
 #
-# visualize_bch_and_ws_contour(network_name = network_preset,
-#                                  windstorm_name = windstorm_preset,
-#                                  label_buses = True,
-#                                  label_fontsize = 8)
+# # visualize_bch_and_ws_contour(network_name = network_preset,
+# #                                  windstorm_name = windstorm_preset,
+# #                                  label_buses = True,
+# #                                  label_fontsize = 8)
 #
 # for file_path in generated_files:
 #     visualize_all_windstorm_events(file_path)
 
 
 # --> Manually selected effective scenarios:
-# [104, 112, 116, 149, 152, 157]
+# [112, 149, 152, 166, 177, 198]
 
 
 # ========================================
 # Combine selected single scenarios into a .json file with extracted windstorm windows using "combine_selected_scenarios"
 # ========================================
 
-# network_preset = "29_bus_GB_transmission_network_with_Kearsley_GSP_group"
-# windstorm_preset = "windstorm_GB_transmission_network"
-#
-# # Your selected seeds
-# selected_seeds = [104, 112, 116, 149, 152, 157]
-#
-# # Construct file paths for selected scenarios
-# selected_files = []
-# for seed in selected_seeds:
-#     if network_preset == "29_bus_GB_transmission_network_with_Kearsley_GSP_group":
-#         network_alias = "29BusGB-KearsleyGSPGroup"
-#     if windstorm_preset == "windstorm_GB_transmission_network":
-#         windstorm_alias = "GB"
-#
-#     file_path = f"Scenario_Results/Full_Windstorm_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
-#     selected_files.append(file_path)
-#
-# # Combine the selected scenarios
-# print("=== Combining selected scenarios ===")
-# combined_file = combine_extracted_scenarios(
-#     scenario_files=selected_files,
-#     out_file=f"Scenario_Results/Full_Windstorm_Scenarios/{len(selected_seeds)}_selected_effective_scenarios.json"
-# )
-#
-# # Extract windstorm windows for use in the investment model
-# print("\n=== Extracting windstorm windows ===")
-# extracted_file = "Scenario_Results/Extracted_Windstorm_Scenarios/6_ws_selected_effective_scenarios.json"
-# extract_ws_scenarios(combined_file, extracted_file)
-#
-# print(f"\n=== Complete! ===")
-# print(f"Combined full scenarios: {combined_file}")
-# print(f"Extracted windstorm scenarios: {extracted_file}")
-# print(f"Seeds used: {selected_seeds}")
-# print("\nThis extracted file can now be used in your investment model!")
+network_preset = "29_bus_GB_transmission_network_with_Kearsley_GSP_group"
+windstorm_preset = "windstorm_GB_transmission_network"
+
+# Your selected seeds
+selected_seeds = [112, 149, 152, 166, 177, 198]
+
+# Construct file paths for selected scenarios
+selected_files = []
+for seed in selected_seeds:
+    if network_preset == "29_bus_GB_transmission_network_with_Kearsley_GSP_group":
+        network_alias = "29BusGB-KearsleyGSPGroup"
+    if windstorm_preset == "windstorm_GB_transmission_network":
+        windstorm_alias = "GB"
+
+    file_path = f"Scenario_Results/Full_Windstorm_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
+    selected_files.append(file_path)
+
+# Combine the selected scenarios
+print("=== Combining selected scenarios ===")
+combined_file = combine_extracted_scenarios(
+    scenario_files=selected_files,
+    out_file=f"Scenario_Results/Full_Windstorm_Scenarios/{len(selected_seeds)}_selected_effective_scenarios.json"
+)
+
+# Extract windstorm windows for use in the investment model
+print("\n=== Extracting windstorm windows ===")
+extracted_file = "Scenario_Results/Extracted_Windstorm_Scenarios/6_ws_selected_effective_scenarios.json"
+extract_ws_scenarios(combined_file, extracted_file)
+
+print(f"\n=== Extract and combine scenarios completed! ===")
+print(f"Combined full scenarios: {combined_file}")
+print(f"Extracted windstorm scenarios: {extracted_file}")
+print(f"Seeds used: {selected_seeds}")
 
 
 

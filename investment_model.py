@@ -138,6 +138,7 @@ class InvestmentClass():
         _abs_start_ts = {sim["simulation_id"]: sim["events"][0]["bgn_hr"]
                       for sim in ws_scenarios}
 
+
         # ------------------------------------------------------------------
         # 1. Index sets -- tn for transmission level network, dn for distribution level network
         # ------------------------------------------------------------------
@@ -259,9 +260,27 @@ class InvestmentClass():
                                   within=pyo.NonNegativeReals)
 
         # 3.2) Second-stage recourse variables  (indexed by scenario)
+
+        # Before defining variables, first check if the model include reactive power demand
+        temp_qd_dict = {}  # You need to build Qd_dict early
+        for sim in ws_scenarios:
+            sc = sim["simulation_id"]
+            bgn = _abs_start_ts[sc]
+            for t in Set_ts_scn[sc]:
+                abs_hr = bgn + t - 1
+                for b in Set_bus_dn:
+                    temp_qd_dict[(sc, b, t)] = net.data.net.profile_Qd[b - 1][abs_hr - 1]
+
+        has_reactive_demand = any(v > 0 for v in temp_qd_dict.values())
+        print(f"Reactive demand detected: {has_reactive_demand}")
+
+
         # - generation
         model.Pg = pyo.Var(model.Set_sgt, within=pyo.NonNegativeReals)
-        model.Qg = pyo.Var(model.Set_sgt, within=pyo.Reals)
+        if has_reactive_demand:
+            model.Qg = pyo.Var(model.Set_sgt, within=pyo.Reals)
+        else:
+            model.Qg = pyo.Param(model.Set_sgt, default=0.0)
 
         # - bus state
         model.theta = pyo.Var(model.Set_sbt, within=pyo.Reals)
@@ -270,11 +289,17 @@ class InvestmentClass():
         # - flows
         model.Pf_tn = pyo.Var(model.Set_slt_tn, within=pyo.Reals)
         model.Pf_dn = pyo.Var(model.Set_slt_dn, within=pyo.Reals)
-        model.Qf_dn = pyo.Var(model.Set_slt_dn, within=pyo.Reals)
+        if has_reactive_demand:
+            model.Qf_dn = pyo.Var(model.Set_slt_dn, within=pyo.Reals)
+        else:
+            model.Qf_dn = pyo.Param(model.Set_slt_dn, default=0.0)
 
         # - load shedding (curtailed load)
         model.Pc = pyo.Var(model.Set_sbt, within=pyo.NonNegativeReals)
-        model.Qc = pyo.Var(model.Set_sbt_dn, within=pyo.NonNegativeReals)
+        if has_reactive_demand:
+            model.Qc = pyo.Var(model.Set_sbt_dn, within=pyo.NonNegativeReals)
+        else:
+            model.Qc = pyo.Param(model.Set_sbt_dn, default=0.0)
 
         # - grid import/export
         model.Pimp = pyo.Var(model.Set_st, within=pyo.NonNegativeReals)
@@ -385,9 +410,6 @@ class InvestmentClass():
         model.Pd = pyo.Param(model.Set_sbt, initialize=Pd_param)
         model.Qd = pyo.Param(model.Set_sbt_dn, initialize=Qd_param)
 
-        # Check if there's any reactive demand in the system
-        has_reactive_demand = any(v > 0 for v in Qd_param.values())
-
         # - windstorm stochastic data  (gust, rand, impact, ttr)
         gust_dict = {}
         rand_dict = {}
@@ -417,10 +439,11 @@ class InvestmentClass():
         model.branch_ttr = pyo.Param(model.Set_scn, model.Set_bch_tn | model.Set_bch_dn,
                                      initialize=ttr_dict)
 
+
         # ------------------------------------------------------------------
-        # 4. Constraints
+        # 5. Constraints
         # ------------------------------------------------------------------
-        # 4.1) Budget
+        # 5.1) Budget
         def investment_budget_rule(model):
             return sum(
                 model.line_hrdn_cost[l] * model.line_hrdn[l]
@@ -429,7 +452,7 @@ class InvestmentClass():
 
         model.Constraint_InvestmentBudget = pyo.Constraint(rule=investment_budget_rule)
 
-        # 4.2) Shifted gust speed (i.e. Line hardening) -- Note: only dn lines hardening are considered
+        # 5.2) Shifted gust speed (i.e. Line hardening) -- Note: only dn lines hardening are considered
         def shifted_gust_rule(model, sc, l, t):
             # line hardening amount can be non-zero for only lines
             hrdn = model.line_hrdn[l] if l in model.Set_bch_hrdn_lines else 0
@@ -437,7 +460,7 @@ class InvestmentClass():
 
         model.Constraint_ShiftedGust = pyo.Constraint(model.Set_slt_lines, rule=shifted_gust_rule)
 
-        # 4.3) Piece-wise fragility
+        # 5.3) Piece-wise fragility
         # compute linearized fragility data
         fragility_data = self.piecewise_linearize_fragility(net, line_idx=Set_bch_lines, num_pieces=6)
 
@@ -456,8 +479,8 @@ class InvestmentClass():
             pw_constr_type="EQ",
             pw_repn="DCC")
 
-        # 4.4) Failure logic constraints (unchanged from the original version)
-        BigM = 1e6
+        # 5.4) Failure logic constraints (unchanged from the original version)
+        BigM = 1e4
 
         # - If a branch is not failable, its status must be kept as 1
         def fix_nonline_status(model, sc, l, t):
@@ -611,7 +634,7 @@ class InvestmentClass():
         model.Constraint_FailureRepairExclusivity = pyo.Constraint(
             model.Set_slt_lines, rule=bch_fail_rep_exclusivity)
 
-        # 4.5) Power flow definitions
+        # 5.5) Power flow definitions
         def dc_flow_rule(model, sc, l, t):
             i, j = net.data.net.bch[l - 1]
             return model.Pf_tn[sc, l, t] == model.base_MVA * model.B_tn[l] * (model.theta[sc, i, t]
@@ -713,7 +736,7 @@ class InvestmentClass():
         model.Constraint_DN_S7 = pyo.Constraint(model.Set_slt_dn, rule=S7_dn_rule)
         model.Constraint_DN_S8 = pyo.Constraint(model.Set_slt_dn, rule=S8_dn_rule)
 
-        # 4.6) Power balance constraints (TN: active; DN: active & reactive)
+        # 5.6) Power balance constraints (TN: active; DN: active & reactive)
         slack_bus = net.data.net.slack_bus
 
         def P_balance_tn(model, sc, b, t):
@@ -767,7 +790,7 @@ class InvestmentClass():
 
         model.Constraint_QBalance_DN = pyo.Constraint(model.Set_sbt_dn, rule=Q_balance_dn)
 
-        # 4.7) Voltage limits DN
+        # 5.7) Voltage limits DN
         def V2_dn_upper_limit_rule(model, sc, b, t):
             return model.V2_dn[sc, b, t] <= model.V2_max[b]
 
@@ -777,7 +800,7 @@ class InvestmentClass():
         model.Constraint_V2max = pyo.Constraint(model.Set_sbt_dn, rule=V2_dn_upper_limit_rule)
         model.Constraint_V2min = pyo.Constraint(model.Set_sbt_dn, rule=V2_dn_lower_limit_rule)
 
-        # 4.8) Generator limits
+        # 5.8) Generator limits
         def Pg_upper_limit_rule(model, sc, g, t):
             return model.Pg[sc, g, t] <= model.Pg_max[g]
 
@@ -785,9 +808,17 @@ class InvestmentClass():
             return model.Pg[sc, g, t] >= model.Pg_min[g]
 
         def Qg_upper_limit_rule(model, sc, g, t):
+            # Skip this constraint if no reactive demand exists
+            if not has_reactive_demand:
+                return pyo.Constraint.Skip
+
             return model.Qg[sc, g, t] <= model.Qg_max[g]
 
         def Qg_lower_limit_rule(model, sc, g, t):
+            # Skip this constraint if no reactive demand exists
+            if not has_reactive_demand:
+                return pyo.Constraint.Skip
+
             return model.Qg[sc, g, t] >= model.Qg_min[g]
 
         model.Constraint_PgUpperLimit = pyo.Constraint(model.Set_sgt, rule=Pg_upper_limit_rule)
@@ -795,7 +826,7 @@ class InvestmentClass():
         model.Constraint_QgUpperLimit = pyo.Constraint(model.Set_sgt, rule=Qg_upper_limit_rule)
         model.Constraint_QgLowerLimit = pyo.Constraint(model.Set_sgt, rule=Qg_lower_limit_rule)
 
-        # 4.9) Slack-bus reference theta = 0
+        # 5.9) Slack-bus reference theta = 0
         def slack_rule(model, sc, t):
             return model.theta[sc, slack_bus, t] == 0
 
@@ -803,49 +834,55 @@ class InvestmentClass():
                                                  for t in Set_ts_scn[sc]],
                                                 rule=slack_rule)
 
-        # code 'expected total operational cost' (resilience level) as an expression
-        def expected_total_op_cost_dn_rule(model):
+        # Code 'expected total operational cost at dn level across all ws scenarios' (the resilience metric)
+        # as an expression
+        # (currently as we assume all windstorm scenarios have equal probabilities, we simply find the average value)
+        def expected_total_op_cost_dn_ws_rule(model):
+            num_scenarios = len(model.Set_scn)
+
             # 1) DN generation cost
             gen_cost_dn = sum(
-                model.scn_prob[sc] *
                 (model.gen_cost_coef[g, 0] + model.gen_cost_coef[g, 1] * model.Pg[sc, g, t])
                 for (sc, g, t) in model.Set_sgt_dn
-            )
+            ) / num_scenarios
 
             # 2) DN active load-shedding
             active_ls_cost_dn = sum(
-                model.scn_prob[sc] * model.Pc_cost[b] * model.Pc[sc, b, t]
+                model.Pc_cost[b] * model.Pc[sc, b, t]
                 for (sc, b, t) in model.Set_sbt_dn
-            )
+            ) / num_scenarios
 
             # 3) DN reactive load-shedding
             reactive_ls_cost_dn = sum(
-                model.scn_prob[sc] * model.Qc_cost[b] * model.Qc[sc, b, t]
+                model.Qc_cost[b] * model.Qc[sc, b, t]
                 for (sc, b, t) in model.Set_sbt_dn
-            )
+            ) / num_scenarios
 
             # 4) DN line repair
             rep_cost_dn = sum(
-                model.scn_prob[sc] * model.rep_cost[l] * model.repair_applies[sc, l, t]
+                model.rep_cost[l] * model.repair_applies[sc, l, t]
                 for (sc, l, t) in model.Set_slt_dn_lines
-            )
+            ) / num_scenarios
 
             return gen_cost_dn + active_ls_cost_dn + reactive_ls_cost_dn + rep_cost_dn
 
-        model.exp_total_op_cost_dn_expr = pyo.Expression(rule=expected_total_op_cost_dn_rule)
+        model.exp_total_op_cost_dn_ws_expr = pyo.Expression(rule=expected_total_op_cost_dn_ws_rule)
 
-        def expected_total_eens_dn_rule(model):
-            # Expected Energy Not Supplied (EENS) at distribution level
-            # Since we have hourly resolution, EENS = sum of all active power load shedding
+        # Code "Expected Energy Not Supplied (EENS) at dn level across all ws scenarios" as an expression
+        # Since we have hourly resolution, EENS = sum of all active power load shedding
+        def expected_total_eens_dn_ws_rule(model):
+            num_scenarios = len(model.Set_scn)
+
             eens_dn = sum(
-                model.scn_prob[sc] * model.Pc[sc, b, t]
+                model.Pc[sc, b, t]
                 for (sc, b, t) in model.Set_sbt_dn
-            )
+            ) / num_scenarios
+
             return eens_dn
 
-        model.exp_total_eens_dn_expr = pyo.Expression(rule=expected_total_eens_dn_rule)
+        model.exp_total_eens_dn_ws_expr = pyo.Expression(rule=expected_total_eens_dn_ws_rule)
 
-        # 4.10) resilience-level constraint (resilience metric <= pre-defined threshold)
+        # 5.10) resilience-level constraint (resilience metric <= pre-defined threshold)
         if resilience_metric_threshold is not None:
             model.Constraint_ResilienceLevel = pyo.Constraint(
                 # expr=model.exp_total_op_cost_dn_expr <= model.resilience_metric_threshold
@@ -853,7 +890,7 @@ class InvestmentClass():
             )
 
         # ------------------------------------------------------------------
-        # 5. Objective
+        # 6. Objective
         # ------------------------------------------------------------------
         # Code total investment cost as an expression
         def total_inv_cost_rule(model):
@@ -908,9 +945,6 @@ class InvestmentClass():
                     for sc in model.Set_scn
                 )
 
-                print("annual_normal_cost:")
-                print(annual_normal_cost)
-
                 return ws_window_cost + annual_normal_cost
             else:
                 return ws_window_cost
@@ -925,9 +959,6 @@ class InvestmentClass():
             if include_normal_scenario and normal_operation_opf_results:
                 # Normal scenario (full year) + Windstorm scenarios (window + full year)
                 normal_contribution = normal_scenario_prob * normal_operation_opf_results["total_cost"]
-
-                print("total normal-operation annual cost:")
-                print(normal_operation_opf_results["total_cost"])
 
                 ws_contribution = model.exp_total_op_cost_expr  # Already includes annual normal costs
                 return inv_cost + normal_contribution + ws_contribution
@@ -1093,9 +1124,9 @@ class InvestmentClass():
                 "resilience_metric_threshold": float(pyo.value(model.resilience_metric_threshold)),
                 "objective_value": float(pyo.value(model.Objective)),
                 "total_investment_cost": float(pyo.value(model.total_inv_cost_expr)),
-                "ws_expected_total_operational_cost": float(pyo.value(model.exp_total_op_cost_expr)),
-                "ws_expected_total_operational_cost_dn": float(pyo.value(model.exp_total_op_cost_dn_expr)),
-                "ws_exp_total_eens_dn": float(pyo.value(model.exp_total_eens_dn_expr)),
+                "expected_total_operational_cost": float(pyo.value(model.exp_total_op_cost_expr)),
+                "ws_expected_total_operational_cost_dn": float(pyo.value(model.exp_total_op_cost_dn_ws_expr)),
+                "ws_exp_total_eens_dn": float(pyo.value(model.exp_total_eens_dn_ws_expr)),
             }
 
             # Add normal scenario costs if included

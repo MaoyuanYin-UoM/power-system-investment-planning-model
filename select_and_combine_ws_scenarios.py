@@ -63,7 +63,7 @@ network_preset = "29_bus_GB_transmission_network_with_Kearsley_GSP_group"
 windstorm_preset = "windstorm_GB_transmission_network"
 
 # Specify selected seeds
-selected_seeds = [104, 112, 116, 149, 152, 157]
+selected_seeds = [112, 149, 152, 166, 177, 198]
 
 full_files = []
 extracted_files = []
@@ -88,7 +88,7 @@ for seed in selected_seeds:
 
 # Step 2. Combine the extracted scenarios
 # Create the file path for the combined scenario file
-combined_extracted_file = f"Scenario_Results/Extracted_Windstorm_Scenarios/{len(selected_seeds)}_selected_ws_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year.json"
+combined_extracted_file = f"Scenario_Results/Extracted_Windstorm_Scenarios/{len(selected_seeds)}_selected_ws_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seeds_{selected_seeds}.json"
 
 combined_file = combine_extracted_scenarios(
     scenario_files=extracted_files,

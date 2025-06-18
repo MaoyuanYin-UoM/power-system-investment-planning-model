@@ -40,7 +40,7 @@ from investment_model import *
 # Seeds with windstorms passing the Kearsley group:
 # --> for 1-ws scenarios, seed=112
 # --> for 5-ws scenarios, seed=104
-path_ws_scenarios = "Scenario_Results/Extracted_Windstorm_Scenarios/6_selected_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year.json"
+path_ws_scenarios = "Scenario_Results/Extracted_Windstorm_Scenarios/6_selected_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year_seeds_[112, 149, 152, 166, 177, 198].json"
 path_normal_scenario = "Scenario_Results/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json"
 
 # resilience_thresholds = [
@@ -69,7 +69,7 @@ resilience_metric_thresholds = [
 for resilience_metric_threshold in resilience_metric_thresholds:
     inv = InvestmentClass()
     model = inv.build_investment_model(path_all_ws_scenarios=path_ws_scenarios,
-                                       normal_scenario_prob = 0.999,
+                                       normal_scenario_prob = 0.99,
                                        resilience_metric_threshold=resilience_metric_threshold
                                        )
     results = inv.solve_investment_model(model, write_lp=False, write_result=True,
