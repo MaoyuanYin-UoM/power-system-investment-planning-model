@@ -80,9 +80,9 @@ from network_factory import make_network
 # results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
 
 
-# net = make_network('29_bus_GB_transmission_network_with_Kearsley_GSP_group')
-# model = net.build_combined_dc_linearized_ac_opf_model()
-# results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
+net = make_network('29_bus_GB_transmission_network_with_Kearsley_GSP_group')
+model = net.build_combined_dc_linearized_ac_opf_model()
+results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
 
 
 # visualize_bch_and_ws_contour(network_name='GB_transmission_network',
@@ -217,14 +217,6 @@ from network_factory import make_network
 
 
 
-
-
-# ========================================
-# Generate normal scenario
-# ========================================
-generate_normal_operation_scenario(out_dir="Scenario_Results/Normal_Scenarios",
-                                   network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group"
-                                   )
 
 
 

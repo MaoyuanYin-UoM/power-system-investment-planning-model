@@ -607,7 +607,7 @@ class NetworkClass:
         model.Qg = pyo.Var(model.Set_gen, model.Set_ts, within=pyo.Reals)
 
         # — bus quantities
-        model.theta = pyo.Var(model.Set_bus_tn | model.Set_bus_dn, model.Set_ts, within=pyo.Reals)
+        model.theta = pyo.Var(model.Set_bus_tn, model.Set_ts, within=pyo.Reals)
         model.V2_dn = pyo.Var(model.Set_bus_dn, model.Set_ts, within=pyo.NonNegativeReals)
 
         # — line flows
@@ -642,7 +642,13 @@ class NetworkClass:
         # 4.2 DC power flow on transmission branches
         def DC_line_flow_tn_rule(model, l, t):
             i, j = self.data.net.bch[l - 1]
-            return model.Pf_tn[l, t] == model.base_MVA * model.B_tn[l] * (model.theta[i, t] - model.theta[j, t])
+
+            # Check if both buses are in transmission set
+            if i in model.Set_bus_tn and j in model.Set_bus_tn:
+                return model.Pf_tn[l, t] == model.base_MVA * model.B_tn[l] * (model.theta[i, t] - model.theta[j, t])
+            else:
+                # Skip if either end is a distribution bus (T-D branch)
+                return pyo.Constraint.Skip
 
         model.Constraint_FlowDef_TN = pyo.Constraint(model.Set_bch_tn, model.Set_ts,
                                                      rule=DC_line_flow_tn_rule)

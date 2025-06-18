@@ -196,7 +196,7 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         # 1.  Read the workbook
         # -----------------------------------------------------------
-        wb_path = Path(r"Input_Data/Manchester_Distribution_Network/Kearsley_GSP_group_only.xlsx")
+        wb_path = Path(r"Input_Data/Manchester_Distribution_Network/Kearsley_GSP_group_only_modified.xlsx")
         wb = pd.ExcelFile(wb_path)
 
         df_base = wb.parse("base_values")
@@ -255,6 +255,12 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_X = df_bch["Reactance (pu)"].astype(float).tolist()
 
         # Apparent- and active-power limits
+
+        # ncon.data.net.bch_Smax = df_bch["S_max (MW)"].astype(float).tolist()
+        # ncon.data.net.bch_Pmax = df_bch["P_max (MW)"].astype(float).tolist()
+
+        # Currently due to possibly data mismatch between ENW network asset data and DFES demand and generation data,
+        # we use manually modified branch thermal limits values to avoid load shedding in normal operations
         ncon.data.net.bch_Smax = df_bch["S_max (MW)"].astype(float).tolist()
         ncon.data.net.bch_Pmax = df_bch["P_max (MW)"].astype(float).tolist()
 

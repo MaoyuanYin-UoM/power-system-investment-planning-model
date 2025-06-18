@@ -7,7 +7,7 @@ update_kearsley_from_dfes.py
       – Minimum Demand (MVA)  →  Sd_min   (load sheet)
       – Generation (MW)       →  Pg_max   (gen  sheet, summed over techs)
 • Matches rows via *exactly* the text in the new “DFES Name” column.
-• Writes the numbers into Kearsley_GSP_group_only.xlsx **in place**.
+• Writes the numbers into Kearsley_GSP_group_only_modified.xlsx **in place**.
 """
 
 from pathlib import Path
