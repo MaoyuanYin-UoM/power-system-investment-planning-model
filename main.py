@@ -59,14 +59,17 @@ path_normal_scenario = "Scenario_Results/Normal_Scenarios/normal_operation_scena
 
 resilience_metric_thresholds = [
     None,
-    # 2.5e4,
-    # 2.4e4,
+    # 50,
+    # 40,
+    # 30,
+    # 20,
+    # 10
 ]
 
 for resilience_metric_threshold in resilience_metric_thresholds:
     inv = InvestmentClass()
     model = inv.build_investment_model(path_all_ws_scenarios=path_ws_scenarios,
-                                       normal_scenario_prob = 0.99,
+                                       normal_scenario_prob = 0.999,
                                        resilience_metric_threshold=resilience_metric_threshold
                                        )
     results = inv.solve_investment_model(model, write_lp=False, write_result=True,

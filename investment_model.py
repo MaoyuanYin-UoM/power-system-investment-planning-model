@@ -62,7 +62,7 @@ class InvestmentClass():
         ws = make_windstorm(self.windstorm_name)
 
         # 0.1 Compute Normal Operation Costs (if requested)
-        normal_operation_cost = None
+        normal_operation_opf_results = None
 
         if include_normal_scenario:
             print("\n" + "=" * 60)
@@ -82,7 +82,7 @@ class InvestmentClass():
             )
 
             # Solve it
-            normal_operation_cost = self.solve_normal_scenario_opf_model(
+            normal_operation_opf_results = self.solve_normal_scenario_opf_model(
                 normal_model,
                 solver=solver_for_normal_opf,
                 print_summary=True
@@ -117,11 +117,11 @@ class InvestmentClass():
         if include_normal_scenario:
             self.meta.normal_scenario_included = True
             self.meta.normal_scenario_prob = normal_scenario_prob
-            self.meta.normal_operation_cost = normal_operation_cost
+            self.meta.normal_operation_opf_results = normal_operation_opf_results
         else:
             self.meta.normal_scenario_included = False
             self.meta.normal_scenario_prob = 0
-            self.meta.normal_operation_cost = None
+            self.meta.normal_operation_opf_results = None
 
         # Only windstorm scenarios are in our scenario set
         Set_scn = [sim["simulation_id"] for sim in ws_scenarios]
@@ -384,6 +384,9 @@ class InvestmentClass():
 
         model.Pd = pyo.Param(model.Set_sbt, initialize=Pd_param)
         model.Qd = pyo.Param(model.Set_sbt_dn, initialize=Qd_param)
+
+        # Check if there's any reactive demand in the system
+        has_reactive_demand = any(v > 0 for v in Qd_param.values())
 
         # - windstorm stochastic data  (gust, rand, impact, ttr)
         gust_dict = {}
@@ -668,24 +671,36 @@ class InvestmentClass():
             return model.Pf_dn[sc, l, t] >= -model.Smax_dn[l] * model.branch_status[sc, l, t]
 
         def S3_dn_rule(model, sc, l, t):
+            if not has_reactive_demand:
+                return pyo.Constraint.Skip
             return model.Qf_dn[sc, l, t] <= model.Smax_dn[l] * model.branch_status[sc, l, t]
 
         def S4_dn_rule(model, sc, l, t):
+            if not has_reactive_demand:
+                return pyo.Constraint.Skip
             return model.Qf_dn[sc, l, t] >= -model.Smax_dn[l] * model.branch_status[sc, l, t]
 
         def S5_dn_rule(model, sc, l, t):
+            if not has_reactive_demand:
+                return pyo.Constraint.Skip
             return model.Pf_dn[sc, l, t] + model.Qf_dn[sc, l, t] \
                 <= sqrt2 * model.Smax_dn[l] * model.branch_status[sc, l, t]
 
         def S6_dn_rule(model, sc, l, t):
+            if not has_reactive_demand:
+                return pyo.Constraint.Skip
             return model.Pf_dn[sc, l, t] + model.Qf_dn[sc, l, t] \
                 >= -sqrt2 * model.Smax_dn[l] * model.branch_status[sc, l, t]
 
         def S7_dn_rule(model, sc, l, t):
+            if not has_reactive_demand:
+                return pyo.Constraint.Skip
             return model.Pf_dn[sc, l, t] - model.Qf_dn[sc, l, t] \
                 <= sqrt2 * model.Smax_dn[l] * model.branch_status[sc, l, t]
 
         def S8_dn_rule(model, sc, l, t):
+            if not has_reactive_demand:
+                return pyo.Constraint.Skip
             return model.Pf_dn[sc, l, t] - model.Qf_dn[sc, l, t] \
                 >= -sqrt2 * model.Smax_dn[l] * model.branch_status[sc, l, t]
 
@@ -741,6 +756,10 @@ class InvestmentClass():
         model.Constraint_PBalance_DN = pyo.Constraint(model.Set_sbt_dn, rule=P_balance_dn)
 
         def Q_balance_dn(model, sc, b, t):
+            # Skip this constraint if no reactive demand exists
+            if not has_reactive_demand:
+                return pyo.Constraint.Skip
+
             Qg = sum(model.Qg[sc, g, t] for g in model.Set_gen if net.data.net.gen[g - 1] == b)
             Qf_in_dn = sum(model.Qf_dn[sc, l, t] for l in model.Set_bch_dn if net.data.net.bch[l - 1][1] == b)
             Qf_out_dn = sum(model.Qf_dn[sc, l, t] for l in model.Set_bch_dn if net.data.net.bch[l - 1][0] == b)
@@ -880,14 +899,18 @@ class InvestmentClass():
 
             # Add normal annual operation cost to each windstorm scenario
             # This accounts for the rest of the year outside the windstorm window
-            if include_normal_scenario and normal_operation_cost:
+            if include_normal_scenario and normal_operation_opf_results:
                 # Each windstorm scenario includes its window cost and a full year of normal operation
                 # (theoretically we should exclude the hours from the windstorm window in the normal operation hours,
                 # but for simplicity, we simply add the operational cost from a full year)
                 annual_normal_cost = sum(
-                    model.scn_prob[sc] * normal_operation_cost["total_cost"]
+                    model.scn_prob[sc] * normal_operation_opf_results["total_cost"]
                     for sc in model.Set_scn
                 )
+
+                print("annual_normal_cost:")
+                print(annual_normal_cost)
+
                 return ws_window_cost + annual_normal_cost
             else:
                 return ws_window_cost
@@ -899,9 +922,13 @@ class InvestmentClass():
             inv_cost = model.total_inv_cost_expr
 
             # Second-stage: Expected operational cost
-            if include_normal_scenario and normal_operation_cost:
+            if include_normal_scenario and normal_operation_opf_results:
                 # Normal scenario (full year) + Windstorm scenarios (window + full year)
-                normal_contribution = normal_scenario_prob * normal_operation_cost["total_cost"]
+                normal_contribution = normal_scenario_prob * normal_operation_opf_results["total_cost"]
+
+                print("total normal-operation annual cost:")
+                print(normal_operation_opf_results["total_cost"])
+
                 ws_contribution = model.exp_total_op_cost_expr  # Already includes annual normal costs
                 return inv_cost + normal_contribution + ws_contribution
             else:
@@ -911,15 +938,15 @@ class InvestmentClass():
         model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
         # Add parameter to track normal cost contribution
-        if include_normal_scenario and normal_operation_cost:
+        if include_normal_scenario and normal_operation_opf_results:
             model.normal_cost_contribution = pyo.Param(
-                initialize=normal_scenario_prob * normal_operation_cost["total_cost"],
+                initialize=normal_scenario_prob * normal_operation_opf_results["total_cost"],
                 mutable=False
             )
 
             # Also create expressions for tracking DN-level normal costs
             model.normal_gen_cost_dn = pyo.Param(
-                initialize=normal_scenario_prob * normal_operation_cost["gen_cost_dn"],
+                initialize=normal_scenario_prob * normal_operation_opf_results["gen_cost_dn"],
                 mutable=False
             )
 
@@ -1061,14 +1088,14 @@ class InvestmentClass():
                 "windstorm_name": self.windstorm_name,
                 "windstorm_random_seed": getattr(self.meta, 'ws_seed', None),
                 "number_of_ws_scenarios": getattr(self.meta, 'n_ws_scenarios', 0),
+                "normal_scenario_included": getattr(self.meta, 'normal_scenario_included', False),
+                "normal_scenario_probability": getattr(self.meta, 'normal_scenario_prob', 0),
                 "resilience_metric_threshold": float(pyo.value(model.resilience_metric_threshold)),
                 "objective_value": float(pyo.value(model.Objective)),
                 "total_investment_cost": float(pyo.value(model.total_inv_cost_expr)),
-                "expected_total_operational_cost": float(pyo.value(model.exp_total_op_cost_expr)),
-                "expected_total_operational_cost_dn": float(pyo.value(model.exp_total_op_cost_dn_expr)),
-                "exp_total_eens_dn": float(pyo.value(model.exp_total_eens_dn_expr)),
-                "normal_scenario_included": getattr(self.meta, 'normal_scenario_included', False),
-                "normal_scenario_probability": getattr(self.meta, 'normal_scenario_prob', 0),
+                "ws_expected_total_operational_cost": float(pyo.value(model.exp_total_op_cost_expr)),
+                "ws_expected_total_operational_cost_dn": float(pyo.value(model.exp_total_op_cost_dn_expr)),
+                "ws_exp_total_eens_dn": float(pyo.value(model.exp_total_eens_dn_expr)),
             }
 
             # Add normal scenario costs if included
@@ -1088,13 +1115,13 @@ class InvestmentClass():
                 )
 
             # Add detailed normal operation info if available
-            if hasattr(self.meta, 'normal_operation_cost') and self.meta.normal_operation_cost:
-                meta["normal_hours_computed"] = self.meta.normal_operation_cost.get("hours_computed", "N/A")
-                meta["normal_scale_factor"] = self.meta.normal_operation_cost.get("scale_factor", "N/A")
-                meta["normal_solver_status"] = self.meta.normal_operation_cost.get("solver_status", "N/A")
-                if hasattr(self.meta.normal_operation_cost, 'representative_days'):
+            if hasattr(self.meta, 'normal_operation_opf_results') and self.meta.normal_operation_opf_results:
+                meta["normal_hours_computed"] = self.meta.normal_operation_opf_results.get("hours_computed", "N/A")
+                meta["normal_scale_factor"] = self.meta.normal_operation_opf_results.get("scale_factor", "N/A")
+                meta["normal_solver_status"] = self.meta.normal_operation_opf_results.get("solver_status", "N/A")
+                if hasattr(self.meta.normal_operation_opf_results, 'representative_days'):
                     meta["normal_representative_days"] = str(
-                        self.meta.normal_operation_cost.get("representative_days", "N/A"))
+                        self.meta.normal_operation_opf_results.get("representative_days", "N/A"))
 
         from network_factory import make_network
         net = make_network(meta.get("network_name", self.network_name))
@@ -1268,6 +1295,9 @@ class InvestmentClass():
         model.Qd = pyo.Param(model.Set_bus_dn, model.Set_ts,
                              initialize=Qd_dict, mutable=False)
 
+        # After loading Qd_dict, check if all reactive demands are zero:
+        has_reactive_demand = any(v > 0 for v in Qd_dict.values())
+
         # Generator parameters (THIS WAS MISSING!)
         model.Pg_max = pyo.Param(model.Set_gen,
                                  initialize={g: net.data.net.Pg_max[g - 1] for g in Set_gen})
@@ -1308,12 +1338,16 @@ class InvestmentClass():
                                  initialize={bus: net.data.net.V_max[i] ** 2
                                              for i, bus in enumerate(net.data.net.bus)})
 
-        # Load shedding costs (THIS WAS MISSING!)
+        # Load shedding costs
         model.Pc_cost = pyo.Param(model.Set_bus_tn | model.Set_bus_dn,
                                   initialize={b: net.data.net.Pc_cost[b - 1] for b in net.data.net.bus})
         model.Qc_cost = pyo.Param(model.Set_bus_dn,
                                   initialize={b: net.data.net.Qc_cost[net.data.net.bus.index(b)]
                                               for b in Set_bus_dn})
+
+        # Electricity import/export costs
+        model.Pimp_cost = pyo.Param(initialize=net.data.net.Pimp_cost)
+        model.Pexp_cost = pyo.Param(initialize=net.data.net.Pexp_cost)
 
         # ------------------------------------------------------------------
         # 3. Variables
@@ -1336,6 +1370,10 @@ class InvestmentClass():
                            within=pyo.NonNegativeReals)
         model.Qc = pyo.Var(model.Set_bus_dn, model.Set_ts,
                            within=pyo.NonNegativeReals)
+
+        # Electricity import/export at the slack bus
+        model.Pimp = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)
+        model.Pexp = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)
 
         # ------------------------------------------------------------------
         # 4. Constraints
@@ -1361,7 +1399,10 @@ class InvestmentClass():
             Pg = sum(model.Pg[g, t] for g in model.Set_gen if net.data.net.gen[g - 1] == b)
             Pf_in = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn if net.data.net.bch[l - 1][1] == b)
             Pf_out = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn if net.data.net.bch[l - 1][0] == b)
-            return Pg + Pf_in - Pf_out == model.Pd[b, t] - model.Pc[b, t]
+
+            Pgrid = (model.Pimp[t] - model.Pexp[t]) if b == slack_bus else 0
+
+            return Pg + Pgrid + Pf_in - Pf_out == model.Pd[b, t] - model.Pc[b, t]
 
         model.Constraint_PowerBalance_TN = pyo.Constraint(model.Set_bus_tn, model.Set_ts,
                                                           rule=power_balance_tn_rule)
@@ -1394,6 +1435,10 @@ class InvestmentClass():
                                                           rule=power_balance_dn_rule)
 
         def reactive_balance_dn_rule(model, b, t):
+            # If no reactive demand in the system, make this constraint trivial
+            if not has_reactive_demand:
+                return pyo.Constraint.Skip  # Skip this constraint
+
             Qg = sum(model.Qg[g, t] for g in model.Set_gen if net.data.net.gen[g - 1] == b)
             Qf_in = sum(model.Qf_dn[l, t] for l in model.Set_bch_dn if net.data.net.bch[l - 1][1] == b)
             Qf_out = sum(model.Qf_dn[l, t] for l in model.Set_bch_dn if net.data.net.bch[l - 1][0] == b)
@@ -1415,7 +1460,11 @@ class InvestmentClass():
                                                       rule=pf_tn_lower_rule)
 
         def apparent_power_dn_rule(model, l, t):
-            return model.Pf_dn[l, t] ** 2 + model.Qf_dn[l, t] ** 2 <= model.Smax_dn[l] ** 2
+            # If no reactive power, just use active power limit
+            if not has_reactive_demand:
+                return model.Pf_dn[l, t] ** 2 <= model.Smax_dn[l] ** 2
+            else:
+                return model.Pf_dn[l, t] ** 2 + model.Qf_dn[l, t] ** 2 <= model.Smax_dn[l] ** 2
 
         model.Constraint_Smax_dn = pyo.Constraint(model.Set_bch_dn, model.Set_ts,
                                                   rule=apparent_power_dn_rule)
@@ -1467,6 +1516,12 @@ class InvestmentClass():
                 for g in model.Set_gen for t in model.Set_ts
             )
 
+            # Grid import/export cost
+            grid_cost = sum(
+                model.Pimp_cost * model.Pimp[t] + model.Pexp_cost * model.Pexp[t]
+                for t in model.Set_ts
+            )
+
             # Load shedding cost (should be minimal/zero)
             ls_cost = sum(
                 model.Pc_cost[b] * model.Pc[b, t]
@@ -1481,7 +1536,7 @@ class InvestmentClass():
             )
 
             # Apply scale factor to get annual cost
-            return (gen_cost + ls_cost) * scale_factor
+            return (gen_cost + grid_cost + ls_cost) * scale_factor
 
         model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
@@ -1509,6 +1564,35 @@ class InvestmentClass():
         gen_cost_tn = 0
         gen_cost_dn = 0
 
+        # Extract grid import/export costs
+        grid_cost = 0
+        for t in model.Set_ts:
+            grid_cost += (model.Pimp_cost * pyo.value(model.Pimp[t]) +
+                          model.Pexp_cost * pyo.value(model.Pexp[t]))
+        grid_cost *= model.scale_factor
+
+        # Extract load shedding costs (not just quantities)
+        ls_cost_active = 0
+        ls_cost_reactive = 0
+        total_pc = 0
+        total_qc = 0
+
+        for b in model.Set_bus_tn | model.Set_bus_dn:
+            for t in model.Set_ts:
+                pc_val = pyo.value(model.Pc[b, t])
+                total_pc += pc_val
+                ls_cost_active += model.Pc_cost[b] * pc_val
+
+        for b in model.Set_bus_dn:
+            for t in model.Set_ts:
+                qc_val = pyo.value(model.Qc[b, t])
+                total_qc += qc_val
+                ls_cost_reactive += model.Qc_cost[b] * qc_val
+
+        ls_cost_total = (ls_cost_active + ls_cost_reactive) * model.scale_factor
+        total_pc *= model.scale_factor
+        total_qc *= model.scale_factor
+
         from network_factory import make_network
         net = make_network(model.network_name)
 
@@ -1530,6 +1614,9 @@ class InvestmentClass():
         gen_cost_tn *= model.scale_factor
         gen_cost_dn *= model.scale_factor
 
+        # Verify total cost breakdown
+        calculated_total = gen_cost_total + grid_cost + ls_cost_total
+
         # Check for load shedding
         total_eens = sum(pyo.value(model.Pc[b, t])
                               for b in model.Set_bus_tn | model.Set_bus_dn
@@ -1539,17 +1626,18 @@ class InvestmentClass():
             print("\n" + "=" * 60)
             print("Normal Operation Scenario Results")
             print("=" * 60)
-            if model.representative_days:
-                print(f"Representative days: {model.representative_days}")
-                print(f"Hours computed: {model.hours_computed} ({len(model.representative_days)} days)")
-                print(f"Scale factor: {model.scale_factor:.2f}")
-            else:
-                print(f"Full year computation: {model.hours_computed} hours")
+            # ... existing print statements ...
             print(f"Total annual cost: ${total_cost:,.2f}")
-            print(f"  - Generation cost (total): ${gen_cost_total:,.2f}")
+            print(f"  - Generation cost: ${gen_cost_total:,.2f}")
             print(f"    - TN generation: ${gen_cost_tn:,.2f}")
             print(f"    - DN generation: ${gen_cost_dn:,.2f}")
+            print(f"  - Grid import/export cost: ${grid_cost:,.2f}")
+            print(f"  - Load shedding cost: ${ls_cost_total:,.2f}")
+            print(f"    - Active (Pc): ${ls_cost_active * model.scale_factor:,.2f}")
+            print(f"    - Reactive (Qc): ${ls_cost_reactive * model.scale_factor:,.2f}")
+            print(f"Total load shed: {total_pc:.4f} MW active, {total_qc:.4f} MVAr reactive")
             print(f"Total EENS: {total_eens:.4f} MWh")
+            print(f"Cost verification: ${calculated_total:,.2f} (should equal total)")
             print("=" * 60 + "\n")
 
         return {
@@ -1557,7 +1645,10 @@ class InvestmentClass():
             "gen_cost_total": gen_cost_total,
             "gen_cost_tn": gen_cost_tn,
             "gen_cost_dn": gen_cost_dn,
-            "load_shed_mw": total_eens,
+            "grid_cost": grid_cost,
+            "ls_cost_total": ls_cost_total,
+            "load_shed_mw": total_pc,
+            "load_shed_mvar": total_qc,
             "hours_computed": model.hours_computed,
             "scale_factor": model.scale_factor,
             "representative_days": model.representative_days,

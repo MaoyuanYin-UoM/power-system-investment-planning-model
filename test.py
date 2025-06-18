@@ -85,6 +85,10 @@ model = net.build_combined_dc_linearized_ac_opf_model()
 results = net.solve_combined_dc_linearized_ac_opf(model, write_xlsx=True)
 
 
+# net = make_network('GB_Transmission_Network_29_Bus')
+# model = net.build_dc_opf_model()
+# results = net.solve_dc_opf(model, write_xlsx=True)
+
 # visualize_bch_and_ws_contour(network_name='GB_transmission_network',
 #                              windstorm_name='windstorm_GB_transmission_network')
 # visualize_bch_and_ws_contour(network_name='Manchester_distribution_network_Kearsley',

@@ -770,8 +770,8 @@ def make_network(name: str) -> NetworkClass:
         # ------------------------------------------------------------------
         # 6.1) line hardening cost (£) per unit length (km) of the line and per unit amount (m/s) that the fragility
         # curve is shifted
-        ncon.data.cost_rate_hrdn_tn = 1e4  # transmission lines
-        ncon.data.cost_rate_hrdn_dn = 1e3  # distribution lines
+        ncon.data.cost_rate_hrdn_tn = 1e5  # transmission lines
+        ncon.data.cost_rate_hrdn_dn = 5e4  # distribution lines
 
         ncon.data.cost_bch_hrdn = []
         for i, length in enumerate(ncon.data.net.bch_length_km):
@@ -787,8 +787,8 @@ def make_network(name: str) -> NetworkClass:
                 ncon.data.cost_bch_hrdn.append(0.0)
 
         # 6.2) line repair cost
-        rep_rate_tn = 1e4  # repair cost (£) per unit length (km) of line at transmission level
-        rep_rate_dn = 5e3  # repair cost (£) per unit length (km) of line at distribution level
+        rep_rate_tn = 5e4  # repair cost (£) per unit length (km) of line at transmission level
+        rep_rate_dn = 2e4  # repair cost (£) per unit length (km) of line at distribution level
         ncon.data.cost_bch_rep = [
             rep_rate_dn * length if ncon.data.net.branch_level[i + 1] == 'D' else rep_rate_tn * length
             for i, length in enumerate(ncon.data.net.bch_length_km)
@@ -796,7 +796,7 @@ def make_network(name: str) -> NetworkClass:
 
         # 6.3) line hardening limits and budget
         ncon.data.bch_hrdn_limits = [0.0, 40.0]  # in m/s
-        ncon.data.budget_bch_hrdn = 1e8  # in £
+        ncon.data.budget_bch_hrdn = 1e10  # in £
 
 
         net = NetworkClass(ncon)
