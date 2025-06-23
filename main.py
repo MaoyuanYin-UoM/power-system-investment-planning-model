@@ -59,20 +59,28 @@ path_normal_scenario = "Scenario_Results/Normal_Scenarios/normal_operation_scena
 
 resilience_metric_thresholds = [
     # None,
+    # 1.4e4,
     # 1.3e4,
     # 1.2e4,
-    # 1.1e4,
-    # 1e4,
-    # 9e3,
-    # 8e3,
+    1.1e4,
+    1e4,
+    9e3,
+    8e3,
     7e3,
-    # 6e3,
-    # 5e3,
-    # 4e3,
-    # 3e3,
-    # 2e3,
-    # 1e3,
-    # 5e2,
+    6e3,
+    5e3,
+    4e3,
+    3e3,
+    2e3,
+    1e3,
+    8e2,
+    6e2,
+    4e2,
+    3e2,
+    2.8e2,
+    2.6e2,
+    # 2.5e2,
+    # 2e2,
     # 0
 ]
 
@@ -83,7 +91,8 @@ for resilience_metric_threshold in resilience_metric_thresholds:
                                        resilience_metric_threshold=resilience_metric_threshold
                                        )
     results = inv.solve_investment_model(model, write_lp=False, write_result=True,
+                                         solver_name='gurobi',
                                          # result_path='Optimization_Results/Investment_Model/results_selected_variable.csv',
-                                         mip_gap=5e-4,
-                                         time_limit=1800
+                                         mip_gap=2e-4,
+                                         time_limit=7200
                                          )

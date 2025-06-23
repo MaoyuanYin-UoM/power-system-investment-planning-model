@@ -1,6 +1,7 @@
 
 from config import WindConfig
-from windstorm import WindClass
+from windstorm import WindClass, Object
+
 
 def make_windstorm(name: str) -> WindClass:
 
@@ -33,12 +34,13 @@ def make_windstorm(name: str) -> WindClass:
         wcon.data.WS.event.lng = [12, 48]  # lower and upper bounds for windstorm duration
         wcon.data.WS.event.ttr = [24, 120]  # lower and upper bounds for line repair (time to restoration)
 
-        # # fragility modelling:  (deprecated) (fragility data moved to NetConfig)
-        # wcon.data.frg.mu = 3.8
-        # wcon.data.frg.sigma = 0.122
-        # wcon.data.frg.thrd_1 = 20
-        # wcon.data.frg.thrd_2 = 90
-        # wcon.data.frg.shift_f = 0
+        # fragility modelling:  (deprecated) (fragility data moved to NetConfig)
+        wcon.data.frg = Object()
+        wcon.data.frg.mu = 3.8
+        wcon.data.frg.sigma = 0.122
+        wcon.data.frg.thrd_1 = 20
+        wcon.data.frg.thrd_2 = 90
+        wcon.data.frg.shift_f = 0
 
 
     elif name == "windstorm_1_matpower_case22":

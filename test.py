@@ -1,5 +1,6 @@
 import json
 from config import *
+from normalize_demand_profile import file_path
 from utils import *
 from visualization import *
 from windstorm import *
@@ -288,3 +289,84 @@ from network_factory import make_network
 #     print(f"x = {pyo.value(model.x)}, y = {pyo.value(model.y)}")
 # else:
 #     print(f"{solver_name} is NOT available")
+
+
+# visualize_network_bch(network_name="29_bus_GB_transmission_network_with_Kearsley_GSP_group")
+
+visualize_bch_and_ws_contour(network_name="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
+                             windstorm_name="windstorm_GB_transmission_network",
+                             label_buses=False,
+                             zoomed_distribution=True,
+                             zoom_border=0.03,
+                             tn_linewidth=2,
+                             dn_linewidth=2.8,
+                             title="Network Model with Windstorm Generation Contours (Distribution Focus)",
+                             )
+
+
+# wcon = make_windstorm("windstorm_GB_transmission_network")
+# visualize_fragility_curve(wcon)
+
+
+# visualize_investment_vs_resilience(excel_file="Optimization_Results/Investment_Model/RM_expected_total_EENS_dn/4_ws_scenario_[112, 152, 166, 198]/data_for_plot.xlsx")
+
+# visualize_investment_pareto_front(
+#     excel_file="Optimization_Results/Investment_Model/RM_expected_total_EENS_dn/4_ws_scenario_[112, 152, 166, 198]_updated/data_for_plot.xlsx",
+#     show_extreme_points=False,
+#     show_stats=False,
+#     show_feasible_region=False,
+# )
+
+
+# =======================================================
+# Visualize line hardening at different resilience metric thresholds
+# =======================================================
+# file_paths = [
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_inf_20250622_100716.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.40e4_20250622_101304.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.30e4_20250622_103118.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.20e4_20250622_130334.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.10e4_20250622_155847.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.00e4_20250622_162245.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_9.00e3_20250622_171540.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_8.00e3_20250622_180500.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_7.00e3_20250622_192004.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_6.00e3_20250622_194545.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_5.00e3_20250622_201452.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_4.00e3_20250622_204159.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_3.00e3_20250622_212757.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_2.00e3_20250622_220800.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.00e3_20250622_223541.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_8.00e2_20250622_225049.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_6.00e2_20250622_230303.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_4.00e2_20250622_231710.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_3.00e2_20250622_232247.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_2.80e2_20250622_233002.xlsx",
+#
+# ]
+#
+# resilience_metric_values = [
+#     "inf",
+#     "1.20e4",
+#     "8.00e3",
+#     "4.00e3",
+#     "1.00e3",
+#     "6.00e2",
+#     "4.00e2",
+#     "2.80e2",
+# ]
+#
+# for i in range(len(file_paths)):
+#     visualize_bch_hrdn(results_xlsx=file_paths[i],
+#                        cmap_name='viridis',
+#                        colorbar_limits=(0, 25),
+#                        zoomed_distribution=True,
+#                        zoom_border=0.02,
+#                        title="Line Hardening Visualization - Resilience Metric = " + resilience_metric_values[i],
+#                        title_fontsize = 16,
+#                        label_fontsize = 14,
+#                        tick_fontsize = 12,
+#                        stats_fontsize = 12,
+#                        colorbar_label_fontsize = 14,
+#                        colorbar_tick_fontsize = 12,
+#                        )
