@@ -439,6 +439,19 @@ class InvestmentClass():
         model.branch_ttr = pyo.Param(model.Set_scn, model.Set_bch_tn | model.Set_bch_dn,
                                      initialize=ttr_dict)
 
+        # Asset lifetime (the number of years that operational cost will be computed based on)
+        model.asset_lifetime = pyo.Param(
+            initialize=25,  # Adjust as needed
+            mutable=False,
+            doc="Asset lifetime in years"
+        )
+
+        # Discount rate (currently it is assumed to be fixed across the asset lifetime)
+        model.discount_rate = pyo.Param(
+            initialize=0.05,  # 5% discount rate
+            mutable=False,
+            doc="Annual discount rate (constant)"
+        )
 
         # ------------------------------------------------------------------
         # 5. Constraints
@@ -953,20 +966,45 @@ class InvestmentClass():
 
         model.exp_total_op_cost_expr = pyo.Expression(rule=expected_total_op_cost_rule)
 
+        # def objective_rule(model):
+        #     # First-stage: Investment cost
+        #     inv_cost = model.total_inv_cost_expr
+        #
+        #     # Second-stage: Expected operational cost
+        #     if include_normal_scenario and normal_operation_opf_results:
+        #         # Normal scenario (full year) + Windstorm scenarios (window + full year)
+        #         normal_contribution = normal_scenario_prob * normal_operation_opf_results["total_cost"]
+        #
+        #         ws_contribution = model.exp_total_op_cost_expr  # Already includes annual normal costs
+        #         return inv_cost + normal_contribution + ws_contribution
+        #     else:
+        #         # Only windstorm scenarios (without annual normalization)
+        #         return inv_cost + model.exp_total_op_cost_expr
+
         def objective_rule(model):
             # First-stage: Investment cost
             inv_cost = model.total_inv_cost_expr
+
+            # Calculate present value factor for annuity
+            r = model.discount_rate
+            n = model.asset_lifetime
+            if r == 0:
+                pv_factor = n  # Handle zero discount rate case
+            else:
+                pv_factor = (1 - (1 + r) ** (-n)) / r
 
             # Second-stage: Expected operational cost
             if include_normal_scenario and normal_operation_opf_results:
                 # Normal scenario (full year) + Windstorm scenarios (window + full year)
                 normal_contribution = normal_scenario_prob * normal_operation_opf_results["total_cost"]
-
                 ws_contribution = model.exp_total_op_cost_expr  # Already includes annual normal costs
-                return inv_cost + normal_contribution + ws_contribution
+
+                # Apply PV factor to total annual operational cost
+                annual_op_cost = normal_contribution + ws_contribution
+                return inv_cost + pv_factor * annual_op_cost
             else:
                 # Only windstorm scenarios (without annual normalization)
-                return inv_cost + model.exp_total_op_cost_expr
+                return inv_cost + pv_factor * model.exp_total_op_cost_expr
 
         model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 

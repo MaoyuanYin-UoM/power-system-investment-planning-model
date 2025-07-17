@@ -293,25 +293,50 @@ from network_factory import make_network
 
 # visualize_network_bch(network_name="29_bus_GB_transmission_network_with_Kearsley_GSP_group")
 
-visualize_bch_and_ws_contour(network_name="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
-                             windstorm_name="windstorm_GB_transmission_network",
-                             label_buses=False,
-                             zoomed_distribution=True,
-                             zoom_border=0.03,
-                             tn_linewidth=2,
-                             dn_linewidth=2.8,
-                             title="Network Model with Windstorm Generation Contours (Distribution Focus)",
-                             )
+# visualize_bch_and_ws_contour(network_name="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
+#                              windstorm_name="windstorm_GB_transmission_network",
+#                              show_windstorm_contours=False,
+#                              label_buses=False,
+#                              zoomed_distribution=True,
+#                              zoom_border=0.03,
+#                              tn_linewidth=2,
+#                              dn_linewidth=2.8,
+#                              title="Topology for Kearsley GSP group",
+#                              )
 
 
-# wcon = make_windstorm("windstorm_GB_transmission_network")
+wcon = make_windstorm("windstorm_GB_transmission_network")
 # visualize_fragility_curve(wcon)
+
+visualize_fragility_curve_shift(
+    wcon,
+    hardening_levels=[20],
+    colors=['blue', 'green'],
+    show_arrow=True,
+    save_path="Images_and_Plots/fragility_curve_shift.png",
+    title="Fragility Curve Shift",
+)
+#
+# # 2. Show just one hardening level for clarity
+# visualize_fragility_curve_shift(
+#     wcon,
+#     hardening_levels=[20],  # Just show 20 m/s shift
+#     colors=['blue', 'red'],
+#     title="Line Hardening: 20 m/s Rightward Shift"
+# )
+
+# # 3. Side-by-side comparison
+# visualize_fragility_curve_comparison(
+#     wcon,
+#     hardening_amount=20,
+#     save_path="Images_and_Plots/fragility_comparison.png"
+# )
 
 
 # visualize_investment_vs_resilience(excel_file="Optimization_Results/Investment_Model/RM_expected_total_EENS_dn/4_ws_scenario_[112, 152, 166, 198]/data_for_plot.xlsx")
 
 # visualize_investment_pareto_front(
-#     excel_file="Optimization_Results/Investment_Model/RM_expected_total_EENS_dn/4_ws_scenario_[112, 152, 166, 198]_updated/data_for_plot.xlsx",
+#     excel_file="Optimization_Results/Investment_Model/RM_expected_total_EENS_dn/4_ws_scenario_[112, 152, 166, 198]_updated_(2)/data_for_plot.xlsx",
 #     show_extreme_points=False,
 #     show_stats=False,
 #     show_feasible_region=False,
@@ -322,38 +347,38 @@ visualize_bch_and_ws_contour(network_name="29_bus_GB_transmission_network_with_K
 # Visualize line hardening at different resilience metric thresholds
 # =======================================================
 # file_paths = [
-#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_inf_20250622_100716.xlsx",
-#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.40e4_20250622_101304.xlsx",
-#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.30e4_20250622_103118.xlsx",
-#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.20e4_20250622_130334.xlsx",
-#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.10e4_20250622_155847.xlsx",
-#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.00e4_20250622_162245.xlsx",
-#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_9.00e3_20250622_171540.xlsx",
-#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_8.00e3_20250622_180500.xlsx",
-#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_7.00e3_20250622_192004.xlsx",
-#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_6.00e3_20250622_194545.xlsx",
-#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_5.00e3_20250622_201452.xlsx",
-#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_4.00e3_20250622_204159.xlsx",
-#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_3.00e3_20250622_212757.xlsx",
-#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_2.00e3_20250622_220800.xlsx",
-#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.00e3_20250622_223541.xlsx",
-#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_8.00e2_20250622_225049.xlsx",
-#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_6.00e2_20250622_230303.xlsx",
-#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_4.00e2_20250622_231710.xlsx",
-#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_3.00e2_20250622_232247.xlsx",
-#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_2.80e2_20250622_233002.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_inf_20250624_115353.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.40e4_20250624_102808.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.30e4_20250624_181302.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.20e4_20250624_182312.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.10e4_20250624_000410.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.00e4_20250624_002429.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_9.00e3_20250624_004752.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_8.00e3_20250624_011149.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_7.00e3_20250624_024441.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_6.00e3_20250624_030723.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_5.00e3_20250624_040635.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_4.00e3_20250624_043700.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_3.00e3_20250624_135145.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_2.00e3_20250624_142239.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_1.00e3_20250624_150536.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_8.00e2_20250624_155225.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_6.00e2_20250624_162707.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_4.00e2_20250624_164202.xlsx",
+#     # "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_3.00e2_20250624_164855.xlsx",
+#     "Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_2.80e2_20250624_165422.xlsx",
 #
 # ]
 #
 # resilience_metric_values = [
 #     "inf",
-#     "1.20e4",
-#     "8.00e3",
-#     "4.00e3",
-#     "1.00e3",
-#     "6.00e2",
-#     "4.00e2",
-#     "2.80e2",
+#     "12.00 (GWh)",
+#     "8.00 (GWh)",
+#     "4.00 (GWh)",
+#     "1.00 (GWh)",
+#     "0.60 (GWh)",
+#     "0.40 (GWh)",
+#     "0.28 (GWh)",
 # ]
 #
 # for i in range(len(file_paths)):

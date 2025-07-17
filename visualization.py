@@ -187,6 +187,271 @@ def visualize_fragility_curve(WindConfig):
     plt.show()
 
 
+def visualize_fragility_curve_shift(WindConfig,
+                                    hardening_levels=[10, 20, 30],
+                                    colors=['blue', 'green', 'orange', 'red'],
+                                    show_arrow=True,
+                                    title="Fragility Curve Shift due to Line Hardening",
+                                    save_path=None):
+    """
+    Visualize how line hardening shifts the fragility curve to the right.
+
+    Parameters:
+    -----------
+    WindConfig : WindConfig object
+        The wind configuration containing fragility parameters
+    hardening_levels : list of float
+        List of hardening amounts (m/s) to show. Default: [10, 20, 30]
+    colors : list of str
+        Colors for each curve (original + hardened curves)
+    show_arrow : bool
+        If True, shows an arrow indicating the shift direction
+    title : str
+        Plot title
+    save_path : str or None
+        If provided, saves the figure
+
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axis objects
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from scipy.stats import lognorm
+    from matplotlib.patches import FancyArrowPatch
+
+    wcon = WindConfig
+
+    # Get parameters from config
+    mu = wcon.data.frg.mu
+    sigma = wcon.data.frg.sigma
+    thrd_1 = wcon.data.frg.thrd_1
+    thrd_2 = wcon.data.frg.thrd_2
+    shift_f = wcon.data.frg.shift_f
+
+    # Generate hazard intensities
+    hzd_int_range = np.linspace(0, 150, 500)  # Extended range to show shifted curves
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(10, 7))
+
+    # Plot original fragility curve
+    pof_values_original = []
+    for hzd_int in hzd_int_range:
+        f_hzd_int = hzd_int - shift_f
+        if f_hzd_int < thrd_1:
+            pof = 0
+        elif f_hzd_int > thrd_2:
+            pof = 1
+        else:
+            shape = sigma
+            scale = np.exp(mu)
+            pof = lognorm.cdf(f_hzd_int, s=shape, scale=scale)
+        pof_values_original.append(pof)
+
+    ax.plot(hzd_int_range, pof_values_original,
+            color=colors[0], linewidth=2.5, label='Original Fragility Curve')
+
+    # Plot shifted fragility curves for each hardening level
+    for i, hardening in enumerate(hardening_levels, 1):
+        pof_values_shifted = []
+        for hzd_int in hzd_int_range:
+            # Hardening shifts the curve to the right
+            f_hzd_int = hzd_int - shift_f - hardening
+            if f_hzd_int < thrd_1:
+                pof = 0
+            elif f_hzd_int > thrd_2:
+                pof = 1
+            else:
+                shape = sigma
+                scale = np.exp(mu)
+                pof = lognorm.cdf(f_hzd_int, s=shape, scale=scale)
+            pof_values_shifted.append(pof)
+
+        ax.plot(hzd_int_range, pof_values_shifted,
+                color=colors[i] if i < len(colors) else 'gray',
+                linewidth=2.5, linestyle='--',
+                label=f'Hardened (+{hardening} m/s)')
+
+    # Add threshold lines
+    ax.axvline(thrd_1 + shift_f, color='darkgreen', linestyle=':',
+               alpha=0.7, label=f'Threshold 1 ({thrd_1 + shift_f})')
+    ax.axvline(thrd_2 + shift_f, color='darkred', linestyle=':',
+               alpha=0.7, label=f'Threshold 2 ({thrd_2 + shift_f})')
+
+    # Add arrow to show shift direction
+    if show_arrow and hardening_levels:
+        # Find point at 50% failure probability for arrow placement
+        idx_50 = np.argmin(np.abs(np.array(pof_values_original) - 0.5))
+        x_original = hzd_int_range[idx_50]
+
+        # For the first hardening level
+        pof_first_hardened = []
+        for hzd_int in hzd_int_range:
+            f_hzd_int = hzd_int - shift_f - hardening_levels[0]
+            if f_hzd_int < thrd_1:
+                pof = 0
+            elif f_hzd_int > thrd_2:
+                pof = 1
+            else:
+                shape = sigma
+                scale = np.exp(mu)
+                pof = lognorm.cdf(f_hzd_int, s=shape, scale=scale)
+            pof_first_hardened.append(pof)
+
+        idx_50_hardened = np.argmin(np.abs(np.array(pof_first_hardened) - 0.5))
+        x_hardened = hzd_int_range[idx_50_hardened]
+
+        arrow = FancyArrowPatch((x_original, 0.5), (x_hardened - 2, 0.5),
+                                connectionstyle="arc3,rad=0",
+                                arrowstyle='->',
+                                mutation_scale=25,
+                                linewidth=2,
+                                color='black',
+                                alpha=0.7)
+        ax.add_patch(arrow)
+
+        # Add text annotation
+        ax.text((x_original + x_hardened) / 2, 0.55,
+                'Hardening\nShift',
+                ha='center', va='bottom',
+                fontsize=11, fontweight='bold')
+
+    # Labels and formatting
+    ax.set_xlabel('Wind Speed (m/s)', fontsize=12)
+    ax.set_ylabel('Failure Probability', fontsize=12)
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    ax.set_ylim(-0.05, 1.05)
+    ax.set_xlim(0, max(120, thrd_2 + shift_f + max(hardening_levels) + 10))
+
+    # Grid
+    ax.grid(True, alpha=0.3, linestyle='--')
+
+    # Legend
+    ax.legend(loc='center right', frameon=True, shadow=True, fontsize=10)
+
+    # Add annotation box explaining the concept
+    textstr = 'Line hardening shifts the fragility\ncurve rightward, requiring higher\nwind speeds to cause failure'
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+    ax.text(0.02, 0.7, textstr, transform=ax.transAxes, fontsize=10,
+            verticalalignment='top', bbox=props)
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
+    plt.show()
+
+    return fig, ax
+
+
+def visualize_fragility_curve_comparison(WindConfig,
+                                         hardening_amount=20,
+                                         figure_size=(12, 6),
+                                         save_path=None):
+    """
+    Side-by-side comparison of original and hardened fragility curves.
+
+    Parameters:
+    -----------
+    WindConfig : WindConfig object
+        The wind configuration containing fragility parameters
+    hardening_amount : float
+        Amount of hardening shift in m/s
+    figure_size : tuple
+        Figure size (width, height)
+    save_path : str or None
+        If provided, saves the figure
+
+    Returns:
+    --------
+    fig, (ax1, ax2) : matplotlib figure and axis objects
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from scipy.stats import lognorm
+
+    wcon = WindConfig
+
+    # Get parameters from config
+    mu = wcon.data.frg.mu
+    sigma = wcon.data.frg.sigma
+    thrd_1 = wcon.data.frg.thrd_1
+    thrd_2 = wcon.data.frg.thrd_2
+    shift_f = wcon.data.frg.shift_f
+
+    # Generate hazard intensities
+    hzd_int_range = np.linspace(0, 120, 500)
+
+    # Create figure with subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figure_size, sharey=True)
+
+    # Calculate fragility for original curve
+    pof_original = []
+    for hzd_int in hzd_int_range:
+        f_hzd_int = hzd_int - shift_f
+        if f_hzd_int < thrd_1:
+            pof = 0
+        elif f_hzd_int > thrd_2:
+            pof = 1
+        else:
+            shape = sigma
+            scale = np.exp(mu)
+            pof = lognorm.cdf(f_hzd_int, s=shape, scale=scale)
+        pof_original.append(pof)
+
+    # Calculate fragility for hardened curve
+    pof_hardened = []
+    for hzd_int in hzd_int_range:
+        f_hzd_int = hzd_int - shift_f - hardening_amount
+        if f_hzd_int < thrd_1:
+            pof = 0
+        elif f_hzd_int > thrd_2:
+            pof = 1
+        else:
+            shape = sigma
+            scale = np.exp(mu)
+            pof = lognorm.cdf(f_hzd_int, s=shape, scale=scale)
+        pof_hardened.append(pof)
+
+    # Plot original curve
+    ax1.plot(hzd_int_range, pof_original, 'b-', linewidth=2.5, label='Fragility Curve')
+    ax1.axvline(thrd_1 + shift_f, color='green', linestyle='--',
+                label=f'Threshold 1 ({thrd_1 + shift_f})')
+    ax1.axvline(thrd_2 + shift_f, color='red', linestyle='--',
+                label=f'Threshold 2 ({thrd_2 + shift_f})')
+    ax1.set_xlabel('Wind Speed (m/s)', fontsize=12)
+    ax1.set_ylabel('Failure Probability', fontsize=12)
+    ax1.set_title('Original Line', fontsize=14, fontweight='bold')
+    ax1.grid(True, alpha=0.3)
+    ax1.legend(loc='upper left')
+    ax1.set_ylim(-0.05, 1.05)
+
+    # Plot hardened curve
+    ax2.plot(hzd_int_range, pof_hardened, 'r-', linewidth=2.5, label='Hardened Fragility Curve')
+    ax2.axvline(thrd_1 + shift_f + hardening_amount, color='green', linestyle='--',
+                label=f'Threshold 1 ({thrd_1 + shift_f + hardening_amount})')
+    ax2.axvline(thrd_2 + shift_f + hardening_amount, color='red', linestyle='--',
+                label=f'Threshold 2 ({thrd_2 + shift_f + hardening_amount})')
+    ax2.set_xlabel('Wind Speed (m/s)', fontsize=12)
+    ax2.set_title(f'Hardened Line (+{hardening_amount} m/s)', fontsize=14, fontweight='bold')
+    ax2.grid(True, alpha=0.3)
+    ax2.legend(loc='upper left')
+
+    # Add main title
+    fig.suptitle('Effect of Line Hardening on Fragility Curve', fontsize=16, fontweight='bold')
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
+    plt.show()
+
+    return fig, (ax1, ax2)
+
+
 def visualize_windstorm_event(file_path, scenario_number, event_number, custom_title=None):
     """
     Visualizes the path of a windstorm event from the stored ws_scenarios .json files.
@@ -352,7 +617,8 @@ def visualize_bch_and_ws_contour(network_name: str = "default",
                                  zoom_border: float = 0.1,
                                  tn_linewidth: float = 1.5,
                                  dn_linewidth: float = 1.5,
-                                 title: str = None):  # New parameter
+                                 title: str = None,
+                                 show_windstorm_contours: bool = True):  # New parameter
     """
     Visualize the branches along with the starting- and ending-points contour for windstorm path generation.
     Now includes bus ID labels similar to visualize_network_bch.
@@ -369,6 +635,7 @@ def visualize_bch_and_ws_contour(network_name: str = "default",
     - tn_linewidth: Line thickness for transmission branches
     - dn_linewidth: Line thickness for distribution branches
     - title: Custom title for the plot. If None, uses default title
+    - show_windstorm_contours: If True, shows windstorm contours. If False, shows only network branches
     """
     # Import statements
     import matplotlib.pyplot as plt
@@ -383,19 +650,20 @@ def visualize_bch_and_ws_contour(network_name: str = "default",
     else:
         net = make_network(network_name)
 
-    # load windstorm model
-    if windstorm_name == 'default':
-        ws = WindClass()
-    else:
-        ws = make_windstorm(windstorm_name)
+    # load windstorm model only if needed
+    if show_windstorm_contours:
+        if windstorm_name == 'default':
+            ws = WindClass()
+        else:
+            ws = make_windstorm(windstorm_name)
 
-    # Windstorm data
-    start_lon = ws.data.WS.contour.start_lon
-    start_lat = ws.data.WS.contour.start_lat
-    start_concty = ws.data.WS.contour.start_connectivity
-    end_lon = ws.data.WS.contour.end_lon
-    end_lat_coef = ws.data.WS.contour.end_lat_coef
-    end_lat = [end_lat_coef[0] * x + end_lat_coef[1] for x in end_lon]
+        # Windstorm data
+        start_lon = ws.data.WS.contour.start_lon
+        start_lat = ws.data.WS.contour.start_lat
+        start_concty = ws.data.WS.contour.start_connectivity
+        end_lon = ws.data.WS.contour.end_lon
+        end_lat_coef = ws.data.WS.contour.end_lat_coef
+        end_lat = [end_lat_coef[0] * x + end_lat_coef[1] for x in end_lon]
 
     # Branch data
     net.set_gis_data()
@@ -419,14 +687,15 @@ def visualize_bch_and_ws_contour(network_name: str = "default",
     # Create figure and axis
     fig, ax = plt.subplots(figsize=(10, 8))
 
-    # Plot windstorm contours
-    ax.scatter(start_lon, start_lat, color='blue', label='Starting-point Contour', zorder=2)
-    for connection in start_concty:
-        idx1, idx2 = connection[0] - 1, connection[1] - 1
-        ax.plot([start_lon[idx1], start_lon[idx2]], [start_lat[idx1], start_lat[idx2]], 'b-', alpha=0.7, zorder=1)
+    # Plot windstorm contours only if requested
+    if show_windstorm_contours:
+        ax.scatter(start_lon, start_lat, color='blue', label='Starting-point Contour', zorder=2)
+        for connection in start_concty:
+            idx1, idx2 = connection[0] - 1, connection[1] - 1
+            ax.plot([start_lon[idx1], start_lon[idx2]], [start_lat[idx1], start_lat[idx2]], 'b-', alpha=0.7, zorder=1)
 
-    ax.scatter(end_lon, end_lat, color='red', label='Ending-point Contour', zorder=2)
-    ax.plot(end_lon, end_lat, 'r-', alpha=0.7, zorder=1)
+        ax.scatter(end_lon, end_lat, color='red', label='Ending-point Contour', zorder=2)
+        ax.plot(end_lon, end_lat, 'r-', alpha=0.7, zorder=1)
 
     # Plot branches with different colors for transmission and distribution levels
     # Create flags for legend (to avoid duplicate entries)
@@ -509,22 +778,23 @@ def visualize_bch_and_ws_contour(network_name: str = "default",
 
     # Set title - use custom title if provided, otherwise use default
     if title:
-        ax.set_title(title,
-                     fontsize=14,
-                     # fontweight='bold'
-                     )
+        ax.set_title(title, fontsize=14, fontweight='bold')
     else:
-        # Default title based on view mode
-        if zoomed_distribution:
-            ax.set_title(f"Branches and Windstorm Contours - {network_name} (Distribution Focus)",
-                         fontsize=14,
-                         # fontweight='bold'
-                         )
+        # Default title based on view mode and content
+        if show_windstorm_contours:
+            if zoomed_distribution:
+                ax.set_title(f"Branches and Windstorm Contours - {network_name} (Distribution Focus)",
+                             fontsize=14, fontweight='bold')
+            else:
+                ax.set_title(f"Branches and Windstorm Contours - {network_name}",
+                             fontsize=14, fontweight='bold')
         else:
-            ax.set_title(f"Branches and Windstorm Contours - {network_name}",
-                         fontsize=14,
-                         # fontweight='bold'
-                         )
+            if zoomed_distribution:
+                ax.set_title(f"Network Branches - {network_name} (Distribution Focus)",
+                             fontsize=14, fontweight='bold')
+            else:
+                ax.set_title(f"Network Branches - {network_name}",
+                             fontsize=14, fontweight='bold')
 
     ax.legend()
     ax.grid(True)
@@ -1066,7 +1336,7 @@ def visualize_investment_vs_resilience(excel_file='data_for_plot.xlsx',
     return fig, ax
 
 
-def visualize_investment_pareto_front(excel_file='data_for_plot.xlsx',
+def visualize_investment_pareto_front(excel_file=None,
                                       figure_size=(10, 6),
                                       save_path=None,
                                       annotate_points=True,
@@ -1181,7 +1451,7 @@ def visualize_investment_pareto_front(excel_file='data_for_plot.xlsx',
     if annotate_points:
         for idx, row in df.iterrows():
             if pd.isna(row['resilience_metric_threshold']) or np.isinf(row['resilience_metric_threshold']):
-                label = 'No limit'
+                label = 'infinite'
             else:
                 # Convert from MWh to GWh for display
                 threshold_gwh = row['resilience_metric_threshold'] / 1000
@@ -1247,9 +1517,9 @@ def visualize_investment_pareto_front(excel_file='data_for_plot.xlsx',
         annotation_handle = Line2D([0], [0], marker='s', color='w',
                                    markerfacecolor='white', markeredgecolor='gray',
                                    markersize=8, markeredgewidth=1,
-                                   label=f'Labels show {annotation_label}')
+                                   label=f'{annotation_label}')
         handles.append(annotation_handle)
-        labels.append(f'Labels show {annotation_label}')
+        labels.append(f'{annotation_label}')
 
     # Add legend with all handles
     ax.legend(handles=handles, labels=labels, loc='upper right',
