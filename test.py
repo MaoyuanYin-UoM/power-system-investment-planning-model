@@ -315,6 +315,12 @@ visualize_fragility_curve_shift(
     show_arrow=True,
     save_path="Images_and_Plots/fragility_curve_shift.png",
     title="Fragility Curve Shift",
+    show_textbox=False,
+    title_fontsize=16,
+    axis_label_fontsize=14,
+    axis_tick_fontsize=12,
+    legend_fontsize=12,
+    arrow_text_fontsize=12,
 )
 #
 # # 2. Show just one hardening level for clarity

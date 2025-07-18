@@ -191,8 +191,18 @@ def visualize_fragility_curve_shift(WindConfig,
                                     hardening_levels=[10, 20, 30],
                                     colors=['blue', 'green', 'orange', 'red'],
                                     show_arrow=True,
+                                    show_textbox=True,
                                     title="Fragility Curve Shift due to Line Hardening",
-                                    save_path=None):
+                                    save_path=None,
+                                    figsize=(10, 7),
+                                    # Font size parameters
+                                    title_fontsize=14,
+                                    axis_label_fontsize=12,
+                                    axis_tick_fontsize=10,
+                                    legend_fontsize=10,
+                                    arrow_text_fontsize=11,
+                                    textbox_fontsize=10,
+                                    threshold_label_fontsize=9):
     """
     Visualize how line hardening shifts the fragility curve to the right.
 
@@ -206,10 +216,28 @@ def visualize_fragility_curve_shift(WindConfig,
         Colors for each curve (original + hardened curves)
     show_arrow : bool
         If True, shows an arrow indicating the shift direction
+    show_textbox : bool
+        If True, shows the explanatory text box. Default: True
     title : str
         Plot title
     save_path : str or None
         If provided, saves the figure
+    figsize : tuple
+        Figure size as (width, height). Default: (10, 7)
+    title_fontsize : int
+        Font size for the plot title. Default: 14
+    axis_label_fontsize : int
+        Font size for x and y axis labels. Default: 12
+    axis_tick_fontsize : int
+        Font size for axis tick labels. Default: 10
+    legend_fontsize : int
+        Font size for legend entries. Default: 10
+    arrow_text_fontsize : int
+        Font size for the arrow annotation text. Default: 11
+    textbox_fontsize : int
+        Font size for the explanatory text box. Default: 10
+    threshold_label_fontsize : int
+        Font size for threshold line labels in legend. Default: 9
 
     Returns:
     --------
@@ -233,7 +261,7 @@ def visualize_fragility_curve_shift(WindConfig,
     hzd_int_range = np.linspace(0, 150, 500)  # Extended range to show shifted curves
 
     # Create figure
-    fig, ax = plt.subplots(figsize=(10, 7))
+    fig, ax = plt.subplots(figsize=figsize)
 
     # Plot original fragility curve
     pof_values_original = []
@@ -268,41 +296,31 @@ def visualize_fragility_curve_shift(WindConfig,
                 pof = lognorm.cdf(f_hzd_int, s=shape, scale=scale)
             pof_values_shifted.append(pof)
 
+        # Use dashed line for hardened curves
         ax.plot(hzd_int_range, pof_values_shifted,
-                color=colors[i] if i < len(colors) else 'gray',
-                linewidth=2.5, linestyle='--',
+                color=colors[i % len(colors)], linewidth=2, linestyle='--',
                 label=f'Hardened (+{hardening} m/s)')
 
-    # Add threshold lines
-    ax.axvline(thrd_1 + shift_f, color='darkgreen', linestyle=':',
-               alpha=0.7, label=f'Threshold 1 ({thrd_1 + shift_f})')
-    ax.axvline(thrd_2 + shift_f, color='darkred', linestyle=':',
-               alpha=0.7, label=f'Threshold 2 ({thrd_2 + shift_f})')
+    # Add threshold vertical lines for original curve
+    ax.axvline(thrd_1 + shift_f, color='gray', linestyle=':', alpha=0.5,
+               label=f'Threshold 1 ({thrd_1 + shift_f})')
+    ax.axvline(thrd_2 + shift_f, color='gray', linestyle=':', alpha=0.5,
+               label=f'Threshold 2 ({thrd_2 + shift_f})')
 
-    # Add arrow to show shift direction
-    if show_arrow and hardening_levels:
-        # Find point at 50% failure probability for arrow placement
-        idx_50 = np.argmin(np.abs(np.array(pof_values_original) - 0.5))
-        x_original = hzd_int_range[idx_50]
+    # Add arrow to show shift if requested
+    if show_arrow and len(hardening_levels) > 0:
+        # Find the x-coordinate where the original curve reaches PoF ≈ 0.5
+        target_pof = 0.5
+        # Find the index closest to 0.5 probability
+        idx_05 = np.argmin(np.abs(np.array(pof_values_original) - target_pof))
+        x_original = hzd_int_range[idx_05]
+        x_hardened = x_original + hardening_levels[0]
 
-        # For the first hardening level
-        pof_first_hardened = []
-        for hzd_int in hzd_int_range:
-            f_hzd_int = hzd_int - shift_f - hardening_levels[0]
-            if f_hzd_int < thrd_1:
-                pof = 0
-            elif f_hzd_int > thrd_2:
-                pof = 1
-            else:
-                shape = sigma
-                scale = np.exp(mu)
-                pof = lognorm.cdf(f_hzd_int, s=shape, scale=scale)
-            pof_first_hardened.append(pof)
+        # Get the actual PoF value at this x-coordinate
+        actual_pof = pof_values_original[idx_05]
 
-        idx_50_hardened = np.argmin(np.abs(np.array(pof_first_hardened) - 0.5))
-        x_hardened = hzd_int_range[idx_50_hardened]
-
-        arrow = FancyArrowPatch((x_original, 0.5), (x_hardened - 2, 0.5),
+        # Create curved arrow
+        arrow = FancyArrowPatch((x_original, actual_pof), (x_hardened, actual_pof),
                                 connectionstyle="arc3,rad=0",
                                 arrowstyle='->',
                                 mutation_scale=25,
@@ -311,30 +329,34 @@ def visualize_fragility_curve_shift(WindConfig,
                                 alpha=0.7)
         ax.add_patch(arrow)
 
-        # Add text annotation
-        ax.text((x_original + x_hardened) / 2, 0.55,
+        # Add text annotation slightly above the arrow
+        ax.text((x_original + x_hardened) / 2, actual_pof + 0.05,
                 'Hardening\nShift',
                 ha='center', va='bottom',
-                fontsize=11, fontweight='bold')
+                fontsize=arrow_text_fontsize, fontweight='bold')
 
-    # Labels and formatting
-    ax.set_xlabel('Wind Speed (m/s)', fontsize=12)
-    ax.set_ylabel('Failure Probability', fontsize=12)
-    ax.set_title(title, fontsize=14, fontweight='bold')
+    # Labels and formatting with customizable font sizes
+    ax.set_xlabel('Wind Speed (m/s)', fontsize=axis_label_fontsize)
+    ax.set_ylabel('Failure Probability', fontsize=axis_label_fontsize)
+    ax.set_title(title, fontsize=title_fontsize, fontweight='bold')
     ax.set_ylim(-0.05, 1.05)
     ax.set_xlim(0, max(120, thrd_2 + shift_f + max(hardening_levels) + 10))
+
+    # Set tick label font sizes
+    ax.tick_params(axis='both', which='major', labelsize=axis_tick_fontsize)
 
     # Grid
     ax.grid(True, alpha=0.3, linestyle='--')
 
-    # Legend
-    ax.legend(loc='center right', frameon=True, shadow=True, fontsize=10)
+    # Legend with customizable font size
+    ax.legend(loc='center right', frameon=True, shadow=True, fontsize=legend_fontsize)
 
-    # Add annotation box explaining the concept
-    textstr = 'Line hardening shifts the fragility\ncurve rightward, requiring higher\nwind speeds to cause failure'
-    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-    ax.text(0.02, 0.7, textstr, transform=ax.transAxes, fontsize=10,
-            verticalalignment='top', bbox=props)
+    # Add annotation box explaining the concept (only if show_textbox is True)
+    if show_textbox:
+        textstr = 'Line hardening shifts the fragility\ncurve rightward, requiring higher\nwind speeds to cause failure'
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+        ax.text(0.02, 0.7, textstr, transform=ax.transAxes, fontsize=textbox_fontsize,
+                verticalalignment='top', bbox=props)
 
     plt.tight_layout()
 
