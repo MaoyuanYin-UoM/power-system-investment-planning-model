@@ -3,8 +3,8 @@ import json
 import pandas as pd
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory, SolverStatus, TerminationCondition
-from network import NetworkClass
-from config import NetConfig
+from core.network import NetworkClass
+from core.config import NetConfig
 
 
 def build_full_year_dc_opf_model(

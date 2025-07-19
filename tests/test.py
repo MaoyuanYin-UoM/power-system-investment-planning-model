@@ -1,14 +1,5 @@
-import json
-from config import *
-from normalize_demand_profile import file_path
-from utils import *
 from visualization import *
-from windstorm import *
-from network import *
-from investment_model import *
-from compute_baseline_yearly_cost import *
-from scenario_generation_model import *
-from network_factory import make_network
+from data_processing.scenario_generation_model import *
 
 # wcon = WindConfig()
 # ws = WindClass(wcon)
@@ -313,7 +304,7 @@ visualize_fragility_curve_shift(
     hardening_levels=[20],
     colors=['blue', 'green'],
     show_arrow=True,
-    save_path="Images_and_Plots/fragility_curve_shift.png",
+    save_path="../Images_and_Plots/fragility_curve_shift.png",
     title="Fragility Curve Shift",
     show_textbox=False,
     title_fontsize=16,

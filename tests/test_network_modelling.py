@@ -1,9 +1,7 @@
 # This script is to test power network features (e.g., network modelling and DC power flows)
 
-import numpy as np
-
-from config import NetConfig
-from network import NetworkClass
+from core.config import NetConfig
+from core.network import NetworkClass
 
 net_config = NetConfig()
 

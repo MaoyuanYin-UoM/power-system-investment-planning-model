@@ -17,8 +17,8 @@ from openpyxl import load_workbook
 # ----------------------------------------------------------------------
 # Paths – change these three lines if you renamed the files/dirs
 # ----------------------------------------------------------------------
-DFES_WB   = Path("Input_Data\DFES_Projections\dfes_2024_main_workbook.xlsm")
-TARGET_WB = Path("Input_Data\Manchester_Distribution_Network\Kearsley_GSP_group_only - Copy.xlsx")
+DFES_WB   = Path("../Input_Data/DFES_Projections/dfes_2024_main_workbook.xlsm")
+TARGET_WB = Path("../Input_Data/Manchester_Distribution_Network/Kearsley_GSP_group_only - Copy.xlsx")
 YEAR      = 2024          # which column to pull from the DFES tables
 # ----------------------------------------------------------------------
 

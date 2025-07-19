@@ -1,5 +1,5 @@
-from config import NetConfig
-from network import NetworkClass
+from core.config import NetConfig
+from core.network import NetworkClass
 
 
 def make_network(name: str) -> NetworkClass:
@@ -21,7 +21,7 @@ def make_network(name: str) -> NetworkClass:
         """
 
         # 1) Load all the relevant sheets once
-        net_data = pd.ExcelFile(r"Input_Data/GB_Network_full\GBNetwork_New.xlsx")
+        net_data = pd.ExcelFile(r"../Input_Data/GB_Network_full/GBNetwork_New.xlsx")
 
         # - bus data:
         bus_df = net_data.parse(
@@ -196,7 +196,7 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         # 1.  Read the workbook
         # -----------------------------------------------------------
-        wb_path = Path(r"Input_Data/Manchester_Distribution_Network/Kearsley_GSP_group_only_modified.xlsx")
+        wb_path = Path(r"../Input_Data/Manchester_Distribution_Network/Kearsley_GSP_group_only_modified.xlsx")
         wb = pd.ExcelFile(wb_path)
 
         df_base = wb.parse("base_values")
@@ -505,7 +505,7 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         # 1.  Read workbook
         # -----------------------------------------------------------
-        wb_path = Path(r"Input_Data/GB_Network_29bus/GB_Transmission_Network_29_Bus.xlsx")
+        wb_path = Path(r"../Input_Data/GB_Network_29bus/GB_Transmission_Network_29_Bus.xlsx")
         wb = pd.ExcelFile(wb_path)
 
         df_base = wb.parse("base_values")

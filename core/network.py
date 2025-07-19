@@ -33,7 +33,7 @@ class NetworkClass:
         ws = WindClass()
 
         # Set scaled demand profiles for all buses
-        DP_file_path = "Input_Data/Demand_Profile/normalized_hourly_demand_profile_year.xlsx"
+        DP_file_path = "../Input_Data/Demand_Profile/normalized_hourly_demand_profile_year.xlsx"
         df = pd.read_excel(DP_file_path, header=0)  # ignore any header row
         if ws.data.MC.lng_prd == 'year':
             normalized_profile = df.iloc[:, 0].tolist()  # Extract the whole column (1 year) and convert to list

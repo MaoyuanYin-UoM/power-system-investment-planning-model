@@ -1,19 +1,17 @@
 # This script contains function for visualization
 
-from network import NetworkClass
-from windstorm import WindClass
-from network_factory import make_network
-from windstorm_factory import make_windstorm
+from core.network import NetworkClass
+from core.windstorm import WindClass
+from factories.network_factory import make_network
 
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from scipy.stats import lognorm
 import json
 import math
 
-from windstorm_factory import make_windstorm
+from factories.windstorm_factory import make_windstorm
 
 
 
@@ -661,10 +659,10 @@ def visualize_bch_and_ws_contour(network_name: str = "default",
     """
     # Import statements
     import matplotlib.pyplot as plt
-    from network import NetworkClass
-    from windstorm import WindClass
-    from network_factory import make_network
-    from windstorm_factory import make_windstorm
+    from core.network import NetworkClass
+    from core.windstorm import WindClass
+    from factories.network_factory import make_network
+    from factories.windstorm_factory import make_windstorm
 
     # load network model
     if network_name == 'default':
@@ -1158,7 +1156,6 @@ def visualize_investment_vs_resilience(excel_file='Optimization_Results/Investme
     """
     import pandas as pd
     import matplotlib.pyplot as plt
-    import numpy as np
 
     # Read the data
     df = pd.read_excel(excel_file)

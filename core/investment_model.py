@@ -3,19 +3,16 @@ import pandas as pd
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 from scipy.stats import lognorm
-from network import NetworkClass
-from windstorm import WindClass
 from config import InvestmentConfig
-from network_factory import make_network
+from factories.network_factory import make_network
 
 from pathlib import Path
 from datetime import datetime
 import math
 import json
 import os
-import csv
 
-from windstorm_factory import make_windstorm
+from factories.windstorm_factory import make_windstorm
 
 
 class Object(object):
@@ -1151,7 +1148,7 @@ class InvestmentClass():
 
                 # File name finishes
                 fname += ".csv"
-                result_path = os.path.join("Optimization_Results", "Investment_Model", fname)
+                result_path = os.path.join("../Optimization_Results", "Investment_Model", fname)
 
             self._write_selected_variables_to_excel(model, result_path)
 
@@ -1223,7 +1220,7 @@ class InvestmentClass():
                     meta["normal_representative_days"] = str(
                         self.meta.normal_operation_opf_results.get("representative_days", "N/A"))
 
-        from network_factory import make_network
+        from factories.network_factory import make_network
         net = make_network(meta.get("network_name", self.network_name))
 
         with pd.ExcelWriter(path, engine="xlsxwriter") as xl:
@@ -1322,7 +1319,7 @@ class InvestmentClass():
         Returns:
             tuple: (model, scale_factor) where scale_factor is for annualizing costs
         """
-        from network_factory import make_network
+        from factories.network_factory import make_network
 
         net = make_network(network_name)
 
@@ -1693,7 +1690,7 @@ class InvestmentClass():
         total_pc *= model.scale_factor
         total_qc *= model.scale_factor
 
-        from network_factory import make_network
+        from factories.network_factory import make_network
         net = make_network(model.network_name)
 
         for g in model.Set_gen:

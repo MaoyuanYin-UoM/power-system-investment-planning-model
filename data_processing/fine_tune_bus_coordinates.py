@@ -106,7 +106,7 @@ def main():
     """Main function to read GraphML and transform coordinates"""
 
     # Read coordinates from GraphML file
-    filename = 'Input_Data/GB_Network_29bus/related_files/29_bus_GB_network_copy.graphml'
+    filename = '../Input_Data/GB_Network_29bus/related_files/29_bus_GB_network_copy.graphml'
     print(f"Reading coordinates from {filename}...")
 
     try:

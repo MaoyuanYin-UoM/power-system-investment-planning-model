@@ -1,15 +1,11 @@
 # This script contains functions to generate baseline scenarios and windstorm scenarios
-from importlib.metadata import metadata
 
 import numpy as np
 import json
 import os
-from config import WindConfig, NetConfig
 from utils import set_random_seed
-from windstorm import WindClass
-from network import NetworkClass
-from network_factory import make_network
-from windstorm_factory import make_windstorm
+from factories.network_factory import make_network
+from factories.windstorm_factory import make_windstorm
 
 
 def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_Windstorm_Scenarios",

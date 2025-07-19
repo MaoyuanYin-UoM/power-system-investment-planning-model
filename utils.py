@@ -2,7 +2,6 @@
 
 import random
 import numpy as np
-import config
 
 
 def set_random_seed(seed):

@@ -1,6 +1,6 @@
 
-from config import WindConfig
-from windstorm import WindClass, Object
+from core.config import WindConfig
+from core.windstorm import WindClass, Object
 
 
 def make_windstorm(name: str) -> WindClass:

@@ -7,10 +7,9 @@ import numpy as np
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 from scipy.stats import lognorm
-from network import NetworkClass
-from windstorm import WindClass
-from config import InvestmentConfig
-from network_factory import make_network
+from core.windstorm import WindClass
+from core.config import InvestmentConfig
+from factories.network_factory import make_network
 import json
 import os
 import csv
@@ -427,7 +426,7 @@ class InvestmentClass():
         model.write("LP_Models/infeasible_model.lp", io_options={"symbolic_solver_labels": True})
 
         # Ensure output directory exists
-        output_dir = "Optimization_Results"
+        output_dir = "../Optimization_Results"
         os.makedirs(output_dir, exist_ok=True)
 
         # Define output file path

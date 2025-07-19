@@ -1,9 +1,4 @@
-from config import *
-from utils import *
-from visualization import *
-from windstorm import *
-from network import *
-from investment_model import *
+from core.investment_model import *
 
 # path_ws_scenarios = "Scenario_Results/Extracted_Windstorm_Scenarios/1_ws_scenarios_GB29-Kearsley_network_seed_104.json"
 #
