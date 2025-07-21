@@ -2,6 +2,13 @@
 
 A Python framework for multi-stage stochastic MILP modeling of power system resilience-oriented strategic planning under multi-dimensional uncertainties.
 
+## Author
+
+Maoyuan Yin\
+PhD Student\
+University of Manchester\
+maoyuan.yin@postgrad.manchester.ac.uk
+
 ## Project Overview
 
 This project implements a multi-stage stochastic mixed-integer linear programming (MILP) model for power system resilience enhancement planning, considering:
@@ -20,21 +27,25 @@ power_system_resilience_planning_under_uncertainties/
 │   ├── config.py                  # Configuration classes
 │   ├── investment_model.py        # Investment optimization model
 │   ├── network.py                 # Network modeling and power flow
+│   ├── scenario_tree.py                 # Scenario tree construction
 │   └── windstorm.py               # Windstorm simulation
 │
 ├── data_processing/               # Data reading and processing, scenario generation, analysis
 │   ├── __init__.py
 │   ├── compute_baseline_yearly_cost.py
 │   ├── compute_line_length.py
+│   ├── dfes_data_processor.py
 │   ├── fine_tune_bus_coordinates.py
 │   ├── normalize_demand_profile.py
 │   ├── scenario_generation_model.py
+│   ├── scenario_tree_builder_dfes.py
 │   ├── select_and_combine_ws_scenarios.py
 │   └── set_dfes_data.py
 │
 ├── factories/                     # Factory pattern implementations
 │   ├── __init__.py
 │   ├── network_factory.py         # Network creation factory
+│   ├── scenario_tree_factory.py   # Scenario Tree creation factory
 │   └── windstorm_factory.py       # Windstorm creation factory
 │
 ├── tests/                        # Test scripts (for debugging purposes; ignore this if you are a user)
@@ -42,6 +53,7 @@ power_system_resilience_planning_under_uncertainties/
 │   ├── temp.py
 │   ├── test.py
 │   ├── test_network_modelling.py
+│   ├── test_scenario_tree.py
 │   └── verify_OPF.py
 │
 ├── utils.py                      # Utility functions
