@@ -9,70 +9,35 @@ import pandas as pd
 import json
 
 
-@dataclass
 class SystemState:
-    """
-    Represents the full system state at a particular node in the scenario tree.
-    This includes all uncertain parameters that evolve over time:
-    --> i.e., bus specific data at distribution level:
-    1) Demand
-    2) DG capacity
-    3) BESS capacity
-    4) EV uptake (i.e., number of EVs)
+    """Represents the full system state at a particular node in the scenario tree."""
 
-    """
-    # Demand levels at each bus (MW) - indexed by bus number
-    demand_factor: Dict[int, float]  # Multiplicative factor on base demand
-
-    # DG capacity at each bus (MW) - indexed by bus number
-    dg_capacity: Dict[int, float]
-
-    # BESS capacity at each bus (MWh) - indexed by bus number
-    bess_capacity: Dict[int, float]
-
-    # EV charging demand at each bus (MW) - indexed by bus number
-    ev_uptake: Dict[int, float]
-
-    # Additional parameters can be added here
-    renewable_penetration: float = 0.0  # System-wide renewable percentage
-
-    def to_dict(self):
-        """Convert to dictionary for serialization"""
-        return {
-            'demand_factor': self.demand_factor,
-            'dg_capacity': self.dg_capacity,
-            'bess_capacity': self.bess_capacity,
-            'ev_uptake': self.ev_uptake,
-            'renewable_penetration': self.renewable_penetration,
-        }
-
-    @classmethod
-    def from_dict(cls, data):
-        """Create from dictionary"""
-        return cls(**data)
+    def __init__(self, demand_factor=None, dg_capacity=None,
+                 bess_capacity=None, ev_uptake=None, renewable_penetration=0.0):
+        self.demand_factor = demand_factor or {}
+        self.dg_capacity = dg_capacity or {}
+        self.bess_capacity = bess_capacity or {}
+        self.ev_uptake = ev_uptake or {}
+        self.renewable_penetration = renewable_penetration
 
 
-@dataclass
 class ScenarioNode:
-    """
-    Represents a single node in the scenario tree.
-    """
-    node_id: int
-    stage: int  # Time stage (0 = root, 1 = stage 1, etc.)
-    parent_id: Optional[int] = None
-    children_ids: List[int] = field(default_factory=list)
+    """Represents a single node in the scenario tree."""
 
-    # Probability of reaching this node from its parent
-    transition_probability: float = 1.0
+    def __init__(self, node_id, stage, parent_id=None,
+                 transition_probability=1.0, state=None, year=0):
+        self.node_id = node_id
+        self.stage = stage
+        self.parent_id = parent_id
+        self.children_ids = []
+        self.transition_probability = transition_probability
+        self.cumulative_probability = 1.0
+        self.state = state
+        self.year = year
 
-    # Cumulative probability from root
-    cumulative_probability: float = 1.0
-
-    # System state at this node
-    state: SystemState = None
-
-    # Time information
-    year: int = 0  # Years from start of planning horizon
+        self.stage_type = 'operational'  # 'investment' or 'operational'
+        self.dfes_scenario = None  # Track DFES pathway (BV, CF, HE, etc.)
+        self.embedded_scenarios = []  # List of embedded scenarios at investment nodes
 
     def add_child(self, child_id: int):
         """Add a child node"""
@@ -86,23 +51,29 @@ class ScenarioNode:
         """Check if this is the root node"""
         return self.parent_id is None
 
+    def is_investment_node(self):
+        """Check if this is an investment decision node"""
+        return self.stage_type == 'investment'
 
 class ScenarioTree:
     """
     Multi-stage scenario tree structure for representing uncertainty evolution.
     """
 
-    def __init__(self, stages: List[int], buses: List[int]):
+    def __init__(self, stages: List[int], buses: List[int],
+                 investment_stages: Optional[List[int]] = None):  # NEW PARAMETER
         """
         Initialize scenario tree.
 
         Args:
-            stages: List of years where decisions are made [0, 5, 10, 15, 20]
+            stages: List of years where decisions are made [2025, 2030, 2035, 2040, 2045, 2050]
             buses: List of bus numbers in the network
+            investment_stages: List of years where investment decisions are made [2030, 2040]
         """
         self.stages = stages
         self.num_stages = len(stages)
         self.buses = buses
+        self.investment_stages = investment_stages or []  # NEW ATTRIBUTE
         self.nodes: Dict[int, ScenarioNode] = {}
         self.next_node_id = 0
 
@@ -130,12 +101,18 @@ class ScenarioTree:
         self.next_node_id = 1
 
     def add_node(self, parent_id: int, state: SystemState,
-                 transition_probability: float) -> int:
+                 transition_probability: float,
+                 stage_type: str = 'operational',  # NEW PARAMETER
+                 dfes_scenario: Optional[str] = None) -> int:  # NEW PARAMETER
         """
         Add a new node to the scenario tree.
 
-        Returns:
-            node_id of the newly created node
+        Args:
+            parent_id: Parent node ID
+            state: System state at this node
+            transition_probability: Probability of transition from parent
+            stage_type: 'investment' or 'operational'
+            dfes_scenario: DFES scenario name (BV, CF, etc.)
         """
         parent = self.nodes[parent_id]
         stage = parent.stage + 1
@@ -149,15 +126,29 @@ class ScenarioTree:
             parent_id=parent_id,
             state=state,
             transition_probability=transition_probability,
-            cumulative_probability=parent.cumulative_probability * transition_probability,
             year=self.stages[stage]
         )
 
+        # SET NEW ATTRIBUTES
+        node.stage_type = stage_type
+        node.dfes_scenario = dfes_scenario or (parent.dfes_scenario if parent else None)
+
+        # Determine stage type based on year if not specified
+        if stage_type == 'operational' and self.stages[stage] in self.investment_stages:
+            node.stage_type = 'investment'
+
+        # Set cumulative probability
+        node.cumulative_probability = parent.cumulative_probability * transition_probability
+
         self.nodes[self.next_node_id] = node
-        parent.add_child(self.next_node_id)
+        parent.children_ids.append(self.next_node_id)
 
         self.next_node_id += 1
         return node.node_id
+
+    def get_investment_nodes(self) -> List[ScenarioNode]:
+        """Get all investment decision nodes"""
+        return [node for node in self.nodes.values() if node.is_investment_node()]
 
     def get_stage_nodes(self, stage: int) -> List[ScenarioNode]:
         """Get all nodes at a particular stage"""
@@ -181,6 +172,10 @@ class ScenarioTree:
 
         return list(reversed(path))
 
+    def get_num_scenarios(self) -> int:
+        """Get the number of scenarios (leaf nodes) in the tree."""
+        return len(self.get_leaf_nodes())
+
     def get_scenarios(self) -> List[Tuple[List[ScenarioNode], float]]:
         """
         Get all root-to-leaf paths (scenarios) with their probabilities.
@@ -194,28 +189,205 @@ class ScenarioTree:
             scenarios.append((path, leaf.cumulative_probability))
         return scenarios
 
-    def save_to_json(self, filepath: str):
-        """Save scenario tree to JSON file"""
+    def to_json(self, filepath: str):
+        """
+        Export the entire scenario tree to a JSON file.
+
+        Args:
+            filepath: Path to save the JSON file
+        """
         data = {
             'stages': self.stages,
-            'buses': self.buses,
-            'nodes': {
-                str(node_id): {
-                    'node_id': node.node_id,
-                    'stage': node.stage,
-                    'parent_id': node.parent_id,
-                    'children_ids': node.children_ids,
-                    'transition_probability': node.transition_probability,
-                    'cumulative_probability': node.cumulative_probability,
-                    'year': node.year,
-                    'state': node.state.to_dict() if node.state else None
-                }
-                for node_id, node in self.nodes.items()
-            }
+            'investment_stages': self.investment_stages,
+            'num_stages': self.num_stages,
+            'buses': list(self.buses),
+            'nodes': {}
         }
 
+        # Serialize each node
+        for node_id, node in self.nodes.items():
+            node_data = {
+                'node_id': node.node_id,
+                'stage': node.stage,
+                'year': node.year,
+                'parent_id': node.parent_id,
+                'children_ids': node.children_ids,
+                'transition_probability': node.transition_probability,
+                'cumulative_probability': node.cumulative_probability,
+                'stage_type': node.stage_type,
+                'dfes_scenario': node.dfes_scenario,
+                'embedded_scenarios': node.embedded_scenarios,  # Will be empty for now
+                'state': None
+            }
+
+            # Serialize state if it exists
+            if node.state:
+                node_data['state'] = {
+                    'demand_factor': node.state.demand_factor,
+                    'dg_capacity': node.state.dg_capacity,
+                    'bess_capacity': node.state.bess_capacity,
+                    'ev_uptake': node.state.ev_uptake,
+                    'renewable_penetration': node.state.renewable_penetration
+                }
+
+            # Store scenario_name if it exists
+            if hasattr(node, 'scenario_name'):
+                node_data['scenario_name'] = node.scenario_name
+
+            data['nodes'][str(node_id)] = node_data
+
+        # Write to file
+        import json
         with open(filepath, 'w') as f:
             json.dump(data, f, indent=2)
+
+        print(f"✓ Scenario tree exported to JSON: {filepath}")
+
+    @classmethod
+    def from_json(cls, filepath: str):
+        """
+        Load scenario tree from a JSON file.
+
+        Args:
+            filepath: Path to the JSON file
+
+        Returns:
+            ScenarioTree object
+        """
+        import json
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+
+        # Create tree with basic info
+        tree = cls(
+            stages=data['stages'],
+            buses=data['buses'],
+            investment_stages=data.get('investment_stages', [])
+        )
+
+        # Clear the auto-created root and rebuild from JSON
+        tree.nodes = {}
+        tree.next_node_id = 0
+
+        # Recreate nodes
+        for node_id_str, node_data in data['nodes'].items():
+            node_id = int(node_id_str)
+
+            # Create node
+            node = ScenarioNode(
+                node_id=node_data['node_id'],
+                stage=node_data['stage'],
+                parent_id=node_data['parent_id'],
+                transition_probability=node_data['transition_probability'],
+                state=None,
+                year=node_data['year']
+            )
+
+            # Set additional attributes
+            node.children_ids = node_data['children_ids']
+            node.cumulative_probability = node_data['cumulative_probability']
+            node.stage_type = node_data.get('stage_type', 'operational')
+            node.dfes_scenario = node_data.get('dfes_scenario')
+            node.embedded_scenarios = node_data.get('embedded_scenarios', [])
+
+            # Recreate state if it exists
+            if node_data['state']:
+                state_data = node_data['state']
+                node.state = SystemState(
+                    demand_factor=state_data['demand_factor'],
+                    dg_capacity=state_data['dg_capacity'],
+                    bess_capacity=state_data['bess_capacity'],
+                    ev_uptake=state_data['ev_uptake'],
+                    renewable_penetration=state_data.get('renewable_penetration', 0.0)
+                )
+
+            # Restore scenario_name if it exists
+            if 'scenario_name' in node_data:
+                node.scenario_name = node_data['scenario_name']
+
+            tree.nodes[node_id] = node
+
+        # Update next_node_id
+        tree.next_node_id = max(tree.nodes.keys()) + 1 if tree.nodes else 0
+
+        return tree
+
+    def get_node_state_summary(self, node_id: int) -> Dict:
+        """
+        Get a summary of state data for a specific node.
+
+        Args:
+            node_id: Node ID
+
+        Returns:
+            Dictionary with state summary
+        """
+        node = self.nodes.get(node_id)
+        if not node or not node.state:
+            return None
+
+        return {
+            'node_id': node_id,
+            'year': node.year,
+            'stage_type': node.stage_type,
+            'dfes_scenario': node.dfes_scenario,
+            'total_demand_factor': sum(node.state.demand_factor.values()),
+            'total_dg_capacity': sum(node.state.dg_capacity.values()),
+            'total_bess_capacity': sum(node.state.bess_capacity.values()),
+            'total_ev_uptake': sum(node.state.ev_uptake.values()),
+            'num_buses_with_dg': sum(1 for v in node.state.dg_capacity.values() if v > 0),
+            'num_buses_with_bess': sum(1 for v in node.state.bess_capacity.values() if v > 0),
+            'num_buses_with_ev': sum(1 for v in node.state.ev_uptake.values() if v > 0)
+        }
+
+    def export_state_data_to_csv(self, node_id: int, output_dir: str):
+        """
+        Export state data for a specific node to CSV files.
+
+        Args:
+            node_id: Node ID
+            output_dir: Directory to save CSV files
+        """
+        import pandas as pd
+        import os
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        node = self.nodes.get(node_id)
+        if not node or not node.state:
+            print(f"No state data for node {node_id}")
+            return
+
+        # Create filename prefix
+        prefix = f"node_{node_id}_year_{node.year}"
+        if node.dfes_scenario:
+            prefix += f"_{node.dfes_scenario}"
+
+        # Export demand factors
+        df_demand = pd.DataFrame(list(node.state.demand_factor.items()),
+                                 columns=['Bus', 'Demand_Factor'])
+        df_demand.to_csv(os.path.join(output_dir, f"{prefix}_demand_factors.csv"),
+                         index=False)
+
+        # Export DG capacity
+        df_dg = pd.DataFrame(list(node.state.dg_capacity.items()),
+                             columns=['Bus', 'DG_Capacity_MW'])
+        df_dg.to_csv(os.path.join(output_dir, f"{prefix}_dg_capacity.csv"),
+                     index=False)
+
+        # Export BESS capacity
+        df_bess = pd.DataFrame(list(node.state.bess_capacity.items()),
+                               columns=['Bus', 'BESS_Capacity_MWh'])
+        df_bess.to_csv(os.path.join(output_dir, f"{prefix}_bess_capacity.csv"),
+                       index=False)
+
+        # Export EV uptake
+        df_ev = pd.DataFrame(list(node.state.ev_uptake.items()),
+                             columns=['Bus', 'EV_Uptake'])
+        df_ev.to_csv(os.path.join(output_dir, f"{prefix}_ev_uptake.csv"),
+                     index=False)
+
+        print(f"✓ Exported state data for node {node_id} to {output_dir}")
 
     def is_fan_tree(self) -> bool:
         """

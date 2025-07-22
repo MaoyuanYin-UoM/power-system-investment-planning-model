@@ -4,7 +4,7 @@ import math
 import random
 import numpy as np
 
-from config import WindConfig
+from core.config import WindConfig
 from utils import *
 
 class Object(object):

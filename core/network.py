@@ -11,8 +11,8 @@ from pyomo.opt import SolverFactory
 import os, pathlib
 from datetime import datetime
 
-from config import NetConfig
-from windstorm import WindClass
+from core.config import NetConfig
+from core.windstorm import WindClass
 
 
 class Object(object):

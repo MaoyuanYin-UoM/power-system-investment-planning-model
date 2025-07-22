@@ -4,7 +4,7 @@ This script processes DFES data for scenario tree construction
 
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -25,7 +25,6 @@ class DFESScenario:
 class DFESDataProcessor:
     """
     Process DFES 2024 Excel data for scenario tree construction.
-    Supports fan tree structure (direct use of 6 DFES scenarios)
     """
 
     # DFES 2024 scenario names mapping
@@ -38,7 +37,7 @@ class DFESDataProcessor:
         'AD': 'Accelerated Decarbonisation'
     }
 
-    # Sheet names in DFES workbook (the format aligns with the file 'dfes_main_workbook_kearsley_gsp_group.xlsm')
+    # Sheet names in DFES workbook
     SHEET_MAPPING = {
         'demand': 'Maximum_Demand',
         'dg': 'Distributed_Generation_Capacity',
@@ -46,229 +45,330 @@ class DFESDataProcessor:
         'ev': 'EV_Uptake'
     }
 
-    # Data structure parameters
+    # Updated data structure parameters for the Excel file with bus ID columns
     SCENARIO_DATA_STRUCTURE = {
-        'scenario_name_col': 2,  # Column C
-        'location_name_col': 1,  # Column B
-        'first_year_col': 3,  # Column D (2024)
-        'header_offset': 1,  # Headers are 1 row below scenario name
-        'data_offset': 3,  # Data starts 3 rows below scenario name
-        'locations_per_scenario': 24  # Based on Kearsley GSP group
+        'scenario_name_row': 0,  # Row 0 contains scenario names
+        'header_row': 1,  # Row 1 contains year headers and explanatory text
+        'first_data_row': 3,  # Row 3 is where actual data starts (row 2 is empty)
+        'location_name_col': 0,  # Column A contains location names
+        'bus_name_col': 1,  # Column B contains bus names
+        'bus_id_col': 2,  # Column C contains bus IDs
+        'columns_per_scenario': 29,  # Each scenario takes 29 columns (1 explanatory + 28 years)
+        'years_per_scenario': 28,  # 2024-2051 = 28 years
+        'scenario_positions': {  # Starting column for each scenario (shifted by 2 due to new columns)
+            'BV': 3,  # Best View (was 1, now 3)
+            'CF': 32,  # Counterfactual (was 30, now 32)
+            'HE': 61,  # Hydrogen Evolution (was 59, now 61)
+            'EE': 90,  # Electric Engagement (was 88, now 90)
+            'HT': 119,  # Holistic Transition (was 117, now 119)
+            'AD': 148  # Accelerated Decarbonisation (was 146, now 148)
+        }
     }
 
     def __init__(self, file_path: str):
-        """Initialize with DFES Excel file path"""
-        self.file_path = file_path
-        self.scenarios: Dict[str, DFESScenario] = {}
-        self._load_data()
+        """
+        Initialize DFES data processor.
 
-    def _load_data(self):
-        """Load all DFES data from Excel file"""
-        # Process each data type
+        Args:
+            file_path: Path to DFES Excel workbook
+        """
+        self.file_path = file_path
+        self.scenarios = {}
+
+        # Load all data on initialization
+        print(f"Loading DFES data from: {file_path}")
+        self._load_all_data()
+
+    def _load_all_data(self):
+        """Load all DFES data from the workbook."""
+        # Read data for each type
         demand_data = self._read_sheet_data('demand')
         dg_data = self._read_sheet_data('dg')
         storage_data = self._read_sheet_data('storage')
         ev_data = self._read_sheet_data('ev')
 
         # Create scenario objects
-        for scenario_code, scenario_name in self.SCENARIO_NAMES.items():
+        for scenario_code in self.SCENARIO_NAMES.keys():
             self.scenarios[scenario_code] = DFESScenario(
-                name=scenario_name,
-                description=f"DFES 2024 {scenario_name} scenario",
+                name=scenario_code,
+                description=self.SCENARIO_NAMES[scenario_code],
                 demand_data=demand_data.get(scenario_code, pd.DataFrame()),
                 dg_capacity_data=dg_data.get(scenario_code, pd.DataFrame()),
                 storage_capacity_data=storage_data.get(scenario_code, pd.DataFrame()),
                 ev_uptake_data=ev_data.get(scenario_code, pd.DataFrame())
             )
 
+        print(f"✓ Loaded {len(self.scenarios)} DFES scenarios")
+
     def _read_sheet_data(self, data_type: str) -> Dict[str, pd.DataFrame]:
-        """Read data from a specific sheet type"""
+        """
+        Read and parse data for all scenarios from a specific sheet.
+        Now includes bus ID information.
+
+        Args:
+            data_type: Type of data ('demand', 'dg', 'storage', 'ev')
+
+        Returns:
+            Dictionary mapping scenario codes to DataFrames with bus IDs as index
+        """
         sheet_name = self.SHEET_MAPPING.get(data_type)
+        if not sheet_name:
+            print(f"Unknown data type: {data_type}")
+            return {}
 
         try:
-            # Read entire sheet
+            # Read entire sheet without any header interpretation
             df = pd.read_excel(self.file_path, sheet_name=sheet_name, header=None)
+            print(f"  Reading {data_type} data from sheet '{sheet_name}'...")
 
             scenario_data = {}
+            structure = self.SCENARIO_DATA_STRUCTURE
 
-            # Find scenario sections
-            scenario_rows = {}
-            for idx, row in df.iterrows():
-                cell_value = str(row[self.SCENARIO_DATA_STRUCTURE['scenario_name_col']])
-                for code, name in self.SCENARIO_NAMES.items():
-                    if name in cell_value:
-                        scenario_rows[code] = idx
+            # Extract years from the header row (columns after bus ID column for first scenario)
+            header_row_idx = structure['header_row']
+            first_scenario_start = structure['scenario_positions']['BV']
+            years = []
+
+            for year_offset in range(structure['years_per_scenario']):
+                col_idx = first_scenario_start + 1 + year_offset  # +1 to skip explanatory text
+                if col_idx < df.shape[1]:
+                    year_value = df.iloc[header_row_idx, col_idx]
+                    try:
+                        year = int(float(year_value))
+                        if 2020 <= year <= 2060:  # Reasonable year range
+                            years.append(year)
+                    except (ValueError, TypeError):
+                        print(f"Warning: Could not parse year from column {col_idx}: {year_value}")
                         break
 
+            if not years:
+                print(f"Error: No valid years found in {sheet_name}")
+                return {}
+
+            # Extract location names, bus names, and bus IDs from the data rows
+            locations = []
+            bus_names = []
+            bus_ids = []
+            first_data_row = structure['first_data_row']
+
+            location_col = structure['location_name_col']
+            bus_name_col = structure['bus_name_col']
+            bus_id_col = structure['bus_id_col']
+
+            for row_idx in range(first_data_row, df.shape[0]):
+                # Location name
+                location = df.iloc[row_idx, location_col]
+                if pd.notna(location) and str(location).strip():
+                    locations.append(str(location).strip())
+                else:
+                    break  # Stop when we hit empty location names
+
+                # Bus name
+                bus_name = df.iloc[row_idx, bus_name_col]
+                bus_names.append(str(bus_name).strip() if pd.notna(bus_name) else "")
+
+                # Bus ID
+                bus_id = df.iloc[row_idx, bus_id_col]
+                try:
+                    bus_ids.append(int(bus_id) if pd.notna(bus_id) else None)
+                except (ValueError, TypeError):
+                    bus_ids.append(None)
+
+            if not locations:
+                print(f"Error: No locations found in {sheet_name}")
+                return {}
+
+            # Create multi-level index with location, bus_name, and bus_id
+            index_data = list(zip(locations, bus_names, bus_ids))
+
             # Extract data for each scenario
-            for code, start_row in scenario_rows.items():
-                # Extract header row (years)
-                header_row = start_row + self.SCENARIO_DATA_STRUCTURE['header_offset']
-                years = df.iloc[header_row, self.SCENARIO_DATA_STRUCTURE['first_year_col']:].dropna().astype(int).tolist()
+            for scenario_code, scenario_col in structure['scenario_positions'].items():
+                try:
+                    # Data starts at scenario_col + 1 (skip explanatory text)
+                    data_start_col = scenario_col + 1
 
-                # Extract data rows
-                data_start = start_row + self.SCENARIO_DATA_STRUCTURE['data_offset']
-                data_end = data_start + self.SCENARIO_DATA_STRUCTURE['locations_per_scenario']
+                    # Extract data for this scenario
+                    scenario_matrix = []
+                    for loc_idx in range(len(locations)):
+                        row_idx = first_data_row + loc_idx
+                        row_data = []
 
-                # Get location names
-                locations = df.iloc[data_start:data_end, self.SCENARIO_DATA_STRUCTURE['location_name_col']].tolist()
+                        for year_idx in range(len(years)):
+                            col_idx = data_start_col + year_idx
+                            if row_idx < df.shape[0] and col_idx < df.shape[1]:
+                                value = df.iloc[row_idx, col_idx]
+                                try:
+                                    numeric_value = float(value) if pd.notna(value) else np.nan
+                                    row_data.append(numeric_value)
+                                except (ValueError, TypeError):
+                                    row_data.append(np.nan)
+                            else:
+                                row_data.append(np.nan)
 
-                # Get data values
-                values = df.iloc[data_start:data_end, self.SCENARIO_DATA_STRUCTURE['first_year_col']:self.SCENARIO_DATA_STRUCTURE['first_year_col'] + len(years)]
+                        scenario_matrix.append(row_data)
 
-                # Create DataFrame with locations as index and years as columns
-                scenario_df = pd.DataFrame(values.values, index=locations, columns=years)
-                scenario_df = scenario_df.apply(pd.to_numeric, errors='coerce')
+                    # Create DataFrame with multi-level index
+                    if scenario_matrix:
+                        # Create DataFrame with bus IDs as primary index for easier mapping
+                        valid_indices = [(i, bus_id) for i, (loc, bus_name, bus_id) in enumerate(index_data)
+                                         if bus_id is not None]
 
-                scenario_data[code] = scenario_df
+                        if valid_indices:
+                            # Create a clean DataFrame indexed by bus_id
+                            clean_data = []
+                            clean_bus_ids = []
+
+                            for i, bus_id in valid_indices:
+                                clean_data.append(scenario_matrix[i])
+                                clean_bus_ids.append(bus_id)
+
+                            scenario_df = pd.DataFrame(
+                                data=clean_data,
+                                index=clean_bus_ids,
+                                columns=years
+                            )
+                            scenario_df.index.name = 'bus_id'
+                            scenario_data[scenario_code] = scenario_df
+
+                            # Validation
+                            non_nan_count = scenario_df.count().sum()
+                            total_values = scenario_df.size
+                            print(
+                                f"  ✓ {scenario_code}: {scenario_df.shape[0]} buses × {scenario_df.shape[1]} years ({non_nan_count}/{total_values} valid values)")
+
+                except Exception as e:
+                    print(f"Error processing scenario {scenario_code} in {sheet_name}: {e}")
+                    continue
+
+            print(f"  ✓ Completed {data_type} data processing for {len(scenario_data)} scenarios")
+            return scenario_data
 
         except Exception as e:
             print(f"Error reading {sheet_name}: {e}")
             return {}
 
-        return scenario_data
-
-    def create_fan_tree_branches(self, stages: List[int],
-                                 custom_probabilities: Optional[Dict[str, float]] = None) -> Dict:
-        """
-        Create fan tree structure using all 6 DFES scenarios directly.
-
-        Args:
-            stages: Years for decision stages [2025, 2035, 2050]
-            custom_probabilities: Optional custom probabilities for scenarios
-                                 If None, uses equal probabilities
-
-        Returns:
-            Dictionary with branching structure and probabilities
-        """
-        branch_names = list(self.SCENARIO_NAMES.keys())
-
-        # Set probabilities
-        if custom_probabilities:
-            # Validate and normalize custom probabilities
-            if set(custom_probabilities.keys()) != set(branch_names):
-                missing = set(branch_names) - set(custom_probabilities.keys())
-                raise ValueError(f"Missing probabilities for scenarios: {missing}")
-
-            total = sum(custom_probabilities.values())
-            base_probs = {k: v/total for k, v in custom_probabilities.items()}
-        else:
-            # Default equal probabilities
-            base_probs = {code: 1.0/6 for code in branch_names}
-
-        # For fan structure, only first transition matters
-        transition_probs = {
-            'stage_0_to_1': base_probs
-        }
-
-        # Add identity transitions for subsequent stages
-        for i in range(1, len(stages) - 1):
-            stage_key = f"stage_{i}_to_{i + 1}"
-            # Each scenario continues to itself with probability 1
-            transition_probs[stage_key] = {
-                code: {code: 1.0} for code in branch_names
-            }
-
-        branches = {
-            'stages': stages,
-            'branches_per_stage': 6,  # 6 scenarios
-            'branch_names': branch_names,
-            'dfes_mapping': {code: [code] for code in branch_names},  # Direct mapping
-            'transition_probabilities': transition_probs,
-            'structure_type': 'fan'
-        }
-
-        return branches
-
-    def get_initial_state_2025(self, bus_mapping: Dict[str, List[int]]) -> Dict:
-        """
-        Get initial system state for 2025 (base year).
-
-        Returns averaged values across all scenarios for 2025.
-        """
-        initial_data = {
-            'demand': {},
-            'dg_capacity': {},
-            'storage_capacity': {},
-            'ev_uptake': {}
-        }
-
-        # Average across all scenarios for 2025
-        for location in bus_mapping.keys():
-            demand_values = []
-            dg_values = []
-            storage_values = []
-            ev_values = []
-
-            for scenario in self.scenarios.values():
-                if location in scenario.demand_data.index and 2025 in scenario.demand_data.columns:
-                    demand_values.append(scenario.demand_data.loc[location, 2025])
-
-                if location in scenario.dg_capacity_data.index and 2025 in scenario.dg_capacity_data.columns:
-                    dg_values.append(scenario.dg_capacity_data.loc[location, 2025])
-
-                if location in scenario.storage_capacity_data.index and 2025 in scenario.storage_capacity_data.columns:
-                    storage_values.append(scenario.storage_capacity_data.loc[location, 2025])
-
-                if location in scenario.ev_uptake_data.index and 2025 in scenario.ev_uptake_data.columns:
-                    ev_values.append(scenario.ev_uptake_data.loc[location, 2025])
-
-            # Calculate averages
-            initial_data['demand'][location] = np.mean(demand_values) if demand_values else 0.0
-            initial_data['dg_capacity'][location] = np.mean(dg_values) if dg_values else 0.0
-            initial_data['storage_capacity'][location] = np.mean(storage_values) if storage_values else 0.0
-            initial_data['ev_uptake'][location] = np.mean(ev_values) if ev_values else 0.0
-
-        return initial_data
-
     def get_scenario_state_data(self, scenario_code: str, year: int,
-                                bus_mapping: Dict[str, List[int]]) -> Dict:
+                                bus_mapping: Dict[int, int]) -> Dict:
         """
         Get system state data for a specific DFES scenario and year.
+        Now uses direct bus ID mapping instead of location strings.
+
+        Args:
+            scenario_code: DFES scenario code ('BV', 'CF', etc.)
+            year: Year to extract data for
+            bus_mapping: Mapping from Kearsley bus IDs to integrated network bus IDs
+
+        Returns:
+            Dictionary with state data mapped to network bus IDs
         """
-        state_data = {
-            'demand_factor': {},
-            'dg_capacity': {},
-            'storage_capacity': {},
-            'ev_uptake': {}
-        }
+        if scenario_code not in self.scenarios:
+            raise ValueError(f"Unknown scenario: {scenario_code}")
 
-        scenario = self.scenarios.get(scenario_code)
-        if not scenario:
-            raise ValueError(f"Unknown scenario code: {scenario_code}")
+        scenario = self.scenarios[scenario_code]
+        state_data = {}
 
-        # Extract data for the specified year
-        for location, buses in bus_mapping.items():
-            if location in scenario.demand_data.index and year in scenario.demand_data.columns:
-                # Get 2025 baseline for demand factor calculation
-                demand_2025 = scenario.demand_data.loc[location, 2025]
-                demand_year = scenario.demand_data.loc[location, year]
+        # Get demand factor (relative to base year)
+        if not scenario.demand_data.empty and year in scenario.demand_data.columns:
+            base_year = min(scenario.demand_data.columns)
+            demand_factor_data = {}
 
-                for bus in buses:
-                    state_data['demand_factor'][bus] = demand_year / demand_2025 if demand_2025 > 0 else 1.0
+            for kearsley_bus_id in scenario.demand_data.index:
+                if kearsley_bus_id in bus_mapping:
+                    network_bus_id = bus_mapping[kearsley_bus_id]
+                    current_demand = scenario.demand_data.loc[kearsley_bus_id, year]
+                    base_demand = scenario.demand_data.loc[kearsley_bus_id, base_year]
 
-                    if location in scenario.dg_capacity_data.index:
-                        state_data['dg_capacity'][bus] = scenario.dg_capacity_data.loc[location, year]
+                    if pd.notna(current_demand) and pd.notna(base_demand) and base_demand > 0:
+                        demand_factor = current_demand / base_demand
+                    else:
+                        demand_factor = 1.0
 
-                    if location in scenario.storage_capacity_data.index:
-                        state_data['storage_capacity'][bus] = scenario.storage_capacity_data.loc[location, year]
+                    demand_factor_data[network_bus_id] = demand_factor
 
-                    if location in scenario.ev_uptake_data.index:
-                        state_data['ev_uptake'][bus] = scenario.ev_uptake_data.loc[location, year]
+            state_data['demand_factor'] = demand_factor_data
+
+        # Get DG capacity data
+        if not scenario.dg_capacity_data.empty and year in scenario.dg_capacity_data.columns:
+            dg_data = {}
+            for kearsley_bus_id in scenario.dg_capacity_data.index:
+                if kearsley_bus_id in bus_mapping:
+                    network_bus_id = bus_mapping[kearsley_bus_id]
+                    capacity = scenario.dg_capacity_data.loc[kearsley_bus_id, year]
+                    dg_data[network_bus_id] = float(capacity) if pd.notna(capacity) else 0.0
+            state_data['dg_capacity'] = dg_data
+
+        # Get storage capacity data
+        if not scenario.storage_capacity_data.empty and year in scenario.storage_capacity_data.columns:
+            storage_data = {}
+            for kearsley_bus_id in scenario.storage_capacity_data.index:
+                if kearsley_bus_id in bus_mapping:
+                    network_bus_id = bus_mapping[kearsley_bus_id]
+                    capacity = scenario.storage_capacity_data.loc[kearsley_bus_id, year]
+                    storage_data[network_bus_id] = float(capacity) if pd.notna(capacity) else 0.0
+            state_data['storage_capacity'] = storage_data
+
+        # Get EV uptake data
+        if not scenario.ev_uptake_data.empty and year in scenario.ev_uptake_data.columns:
+            ev_data = {}
+            for kearsley_bus_id in scenario.ev_uptake_data.index:
+                if kearsley_bus_id in bus_mapping:
+                    network_bus_id = bus_mapping[kearsley_bus_id]
+                    uptake = scenario.ev_uptake_data.loc[kearsley_bus_id, year]
+                    ev_data[network_bus_id] = float(uptake) if pd.notna(uptake) else 0.0
+            state_data['ev_uptake'] = ev_data
 
         return state_data
 
-    def save_scenarios_to_json(self, output_path: str):
-        """Save scenario data to JSON for inspection"""
-        output_data = {}
+    def get_initial_state_2025(self, bus_mapping: Dict[int, int]) -> Dict:
+        """
+        Get initial state data for 2025 (base year) across all scenarios.
+        Uses the first available scenario (BV) for baseline.
+        """
+        return self.get_scenario_state_data('BV', 2025, bus_mapping)
 
-        for code, scenario in self.scenarios.items():
-            output_data[code] = {
-                'name': scenario.name,
-                'description': scenario.description,
-                'years': list(scenario.demand_data.columns) if not scenario.demand_data.empty else [],
-                'locations': list(scenario.demand_data.index) if not scenario.demand_data.empty else []
+    def create_scenario_branches(self, stages: List[int], method: str = 'clustering') -> Dict:
+        """
+        Create scenario branches for the tree based on DFES data.
+
+        This is a placeholder that needs to be implemented based on the specific
+        branching strategy (clustering, selection, interpolation, fan).
+
+        For now, returns a simple fan structure with all 6 DFES scenarios.
+        """
+        if method == 'fan':
+            # Fan tree structure - all scenarios branch from root
+            return {
+                'structure_type': 'fan',
+                'branch_names': list(self.SCENARIO_NAMES.keys()),
+                'transition_probabilities': {
+                    'stage_0_to_1': {code: 1.0 / 6 for code in self.SCENARIO_NAMES.keys()}
+                }
             }
+        else:
+            # Placeholder for other methods
+            raise NotImplementedError(f"Branching method '{method}' not yet implemented")
 
-        with open(output_path, 'w') as f:
-            json.dump(output_data, f, indent=2)
+    def set_fan_tree_probabilities(self, custom_probabilities: Dict[str, float]) -> Dict[str, float]:
+        """
+        Set and normalize custom probabilities for fan tree structure.
+
+        Args:
+            custom_probabilities: Dictionary of scenario code to probability
+
+        Returns:
+            Normalized probabilities
+        """
+        # Ensure all scenarios have probabilities
+        probs = {}
+        for code in self.SCENARIO_NAMES.keys():
+            probs[code] = custom_probabilities.get(code, 0.0)
+
+        # Normalize
+        total = sum(probs.values())
+        if total > 0:
+            probs = {k: v / total for k, v in probs.items()}
+        else:
+            # Equal probabilities if none provided
+            probs = {k: 1.0 / len(self.SCENARIO_NAMES) for k in self.SCENARIO_NAMES.keys()}
+
+        return probs

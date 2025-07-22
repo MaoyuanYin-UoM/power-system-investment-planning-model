@@ -3,7 +3,7 @@ import pandas as pd
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 from scipy.stats import lognorm
-from config import InvestmentConfig
+from core.config import InvestmentConfig
 from factories.network_factory import make_network
 
 from pathlib import Path

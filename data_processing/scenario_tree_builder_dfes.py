@@ -1,3 +1,5 @@
+# scenario_tree_builder_dfes.py - Updated version with consistent bus ID mapping
+
 """
 scenario_tree_builder_dfes.py - Enhanced to support both general and fan tree structures
 """
@@ -30,85 +32,126 @@ class DFESScenarioTreeBuilder:
         self.buses = network.data.net.bus
         self.dfes = dfes_processor
 
-        # Map network buses to DFES locations (BSP/PS)
-        self.bus_to_location = self._create_bus_location_mapping()
+        # Create bus mapping from Kearsley IDs to integrated network IDs
+        self.bus_mapping = self._create_bus_location_mapping()
 
-    def _create_bus_location_mapping(self) -> Dict[int, str]:
-        """[Previous implementation remains the same]"""
-        mapping = {}
-        for bus in self.buses:
-            if bus in self.network.data.net.bus_dn:
-                mapping[bus] = "KEARSLEY 33/11KV"
-            else:
-                mapping[bus] = "KEARSLEY GSP"
-
-        return mapping
-
-    def build_tree_from_dfes(self,
-                             stages: List[int] = [2025, 2035, 2050],
-                             method: str = 'clustering',
-                             transition_model: str = 'markov',
-                             custom_probabilities: Optional[Dict[str, float]] = None) -> ScenarioTree:
+    def _create_bus_location_mapping(self) -> Dict[int, int]:
         """
-        Build scenario tree from DFES data.
-
-        Args:
-            stages: Decision years
-            method: Branching method ('clustering', 'selection', 'interpolation', 'fan')
-            transition_model: How to model transitions (for non-fan structures)
-                            - 'markov': Markovian (memoryless) transitions
-                            - 'persistent': Higher probability of staying in same pathway
-                            - 'converging': Scenarios converge over time
-            custom_probabilities: Optional custom probabilities (mainly for fan structure)
+        Create mapping from Kearsley bus IDs to integrated network bus IDs.
 
         Returns:
-            Populated ScenarioTree
+            Dictionary mapping {kearsley_bus_id: integrated_network_bus_id}
         """
+        # Get the offset used in network_factory.py
+        # This is max(transmission_bus_ids)
+        transmission_buses = [b for b in self.network.data.net.bus
+                              if self.network.data.net.bus_level.get(b, 'T') == 'T']
+        offset = max(transmission_buses)
 
-        # Create tree structure
-        tree = ScenarioTree(stages, self.buses)
+        # Create mapping: kearsley_id -> integrated_id
+        kearsley_to_integrated = {}
 
-        # Get branching configuration
-        branch_config = self.dfes.create_scenario_branches(stages, method)
+        # Get all distribution buses from integrated network
+        distribution_buses = [b for b in self.network.data.net.bus
+                              if self.network.data.net.bus_level.get(b, 'T') == 'D']
 
-        # Update root node with 2025 data
+        # Map each distribution bus back to its original Kearsley ID
+        for integrated_bus_id in distribution_buses:
+            original_kearsley_id = integrated_bus_id - offset
+            kearsley_to_integrated[original_kearsley_id] = integrated_bus_id
+
+        return kearsley_to_integrated
+
+    def build_tree_from_dfes(self,
+                             stages: List[int] = [2025, 2030, 2035, 2040, 2045, 2050],
+                             investment_stages: List[int] = [2030, 2040],  # NEW PARAMETER
+                             method: str = 'fan',
+                             transition_model: str = 'markov',
+                             custom_probabilities: Optional[Dict[str, float]] = None,
+                             windstorm_scenarios_per_investment: int = 4) -> ScenarioTree:  # NEW PARAMETER
+        """
+        Build scenario tree from DFES data with investment and operational nodes.
+
+        Args:
+            stages: All time stages in the tree
+            investment_stages: Stages where investment decisions are made
+            method: Tree construction method ('fan', 'clustering', etc.)
+            transition_model: Probability transition model
+            custom_probabilities: Custom branch probabilities
+            windstorm_scenarios_per_investment: Number of windstorm scenarios at each investment node
+        """
+        # Create tree with investment stages info
+        tree = ScenarioTree(stages, list(self.buses), investment_stages)
+
+        # Initialize root with DFES data
         self._update_root_node(tree, stages[0])
 
-        # Build tree based on structure type
-        if branch_config.get('structure_type') == 'fan':
-            # Fan tree structure
-            self._build_fan_tree(tree, branch_config, custom_probabilities)
+        # Build tree structure based on method
+        if method == 'fan':
+            self._build_fan_tree_with_stages(tree, custom_probabilities,
+                                             investment_stages,
+                                             windstorm_scenarios_per_investment)
         else:
-            # General tree structure
-            self._build_tree_recursive(tree, 0, branch_config, transition_model)
+            # Other methods...
+            pass
 
         return tree
 
-    def _update_root_node(self, tree: ScenarioTree, base_year: int):
-        """[Previous implementation remains the same]"""
+    def _update_root_node_weighted(self, tree: ScenarioTree, base_year: int,
+                                   scenario_probabilities: Dict[str, float]):
+        """
+        Update root node with weighted average of 2025 data across all DFES scenarios.
+
+        Args:
+            tree: ScenarioTree object
+            base_year: Base year (2025)
+            scenario_probabilities: Dictionary of scenario probabilities
+        """
         root = tree.nodes[0]
 
-        # Get 2025 baseline data (common across all scenarios)
-        initial_data = self.dfes.get_initial_state_2025(self.bus_to_location)
-
-        # Create system state with actual 2025 values
-        state = SystemState(
-            demand_factor={},
-            DG_capacity={},
-            BESS_capacity={},
-            EV_uptake={}
+        # Initialize weighted state
+        weighted_state = SystemState(
+            demand_factor={b: 0.0 for b in self.buses},
+            dg_capacity={b: 0.0 for b in self.buses},
+            bess_capacity={b: 0.0 for b in self.buses},
+            ev_uptake={b: 0.0 for b in self.buses}
         )
 
-        # Populate state based on DFES data
+        # Calculate weighted average across all scenarios
+        for scenario_code, probability in scenario_probabilities.items():
+            scenario_data = self.dfes.get_scenario_state_data(
+                scenario_code, base_year, self.bus_mapping
+            )
+
+            # Accumulate weighted values
+            if 'demand_factor' in scenario_data:
+                for bus_id, value in scenario_data['demand_factor'].items():
+                    weighted_state.demand_factor[bus_id] += value * probability
+
+            if 'dg_capacity' in scenario_data:
+                for bus_id, value in scenario_data['dg_capacity'].items():
+                    weighted_state.dg_capacity[bus_id] += value * probability
+
+            if 'storage_capacity' in scenario_data:  # Note: storage_capacity from DFES
+                for bus_id, value in scenario_data['storage_capacity'].items():
+                    weighted_state.bess_capacity[bus_id] += value * probability
+
+            if 'ev_uptake' in scenario_data:
+                for bus_id, value in scenario_data['ev_uptake'].items():
+                    weighted_state.ev_uptake[bus_id] += value * probability
+
+        # Set missing buses to default values
         for bus in self.buses:
-            location = self.bus_to_location.get(bus, "DEFAULT")
+            if bus not in weighted_state.demand_factor:
+                weighted_state.demand_factor[bus] = 1.0
+            if bus not in weighted_state.dg_capacity:
+                weighted_state.dg_capacity[bus] = 0.0
+            if bus not in weighted_state.bess_capacity:
+                weighted_state.bess_capacity[bus] = 0.0
+            if bus not in weighted_state.ev_uptake:
+                weighted_state.ev_uptake[bus] = 0.0
 
-            state.demand_factor[bus] = 1.0
-            state.DG_capacity[bus] = initial_data['dg_capacity'].get(location, 0.0)
-            state.BESS_capacity[bus] = initial_data['storage_capacity'].get(location, 0.0)
-            state.EV_uptake[bus] = initial_data['ev_uptake'].get(location, 0.0)
-
-        root.state = state
+        root.state = weighted_state
         root.year = base_year
 
     def _build_fan_tree(self, tree: ScenarioTree, branch_config: Dict,
@@ -135,37 +178,73 @@ class DFESScenarioTreeBuilder:
             probability = probs[scenario_code]
             self._create_scenario_path(tree, scenario_code, probability)
 
-    def _create_scenario_path(self, tree: ScenarioTree, scenario_code: str,
-                              initial_probability: float):
-        """
-        Create a single path for one DFES scenario in a fan tree.
-        """
+    def _build_fan_tree_with_stages(self, tree: ScenarioTree,
+                                    custom_probabilities: Optional[Dict[str, float]],
+                                    investment_stages: List[int],
+                                    windstorm_scenarios_per_investment: int):
+        """Build fan tree with investment and operational stages."""
+
+        # Get scenario codes and probabilities
+        scenario_codes = ['BV', 'CF', 'HE', 'EE', 'HT', 'AD']
+
+        if custom_probabilities:
+            probs = self.dfes.set_fan_tree_probabilities(custom_probabilities)
+        else:
+            probs = {code: 1 / 6 for code in scenario_codes}
+
+        # Create a branch for each DFES scenario
+        for scenario_code in scenario_codes:
+            probability = probs[scenario_code]
+            self._create_scenario_path_with_stages(tree, scenario_code, probability,
+                                                   investment_stages,
+                                                   windstorm_scenarios_per_investment)
+
+    def _create_scenario_path_with_stages(self, tree: ScenarioTree,
+                                          scenario_code: str,
+                                          initial_probability: float,
+                                          investment_stages: List[int],
+                                          windstorm_scenarios_per_investment: int):
+        """Create a single path with investment and operational nodes."""
         parent_id = 0  # Start from root
 
         # Create nodes for each stage after root
         for stage_idx in range(1, tree.num_stages):
             year = tree.stages[stage_idx]
 
-            # Get state data directly from DFES scenario
+            # Get state data from DFES
             state_data = self.dfes.get_scenario_state_data(
-                scenario_code, year, self.bus_to_location
+                scenario_code, year, self.bus_mapping
             )
 
             # Create system state
             state = SystemState(
-                demand_factor=state_data['demand_factor'],
-                DG_capacity=state_data['dg_capacity'],
-                BESS_capacity=state_data['storage_capacity'],
-                EV_uptake=state_data['ev_uptake']
+                demand_factor={b: 1.0 for b in self.buses},
+                dg_capacity={b: 0.0 for b in self.buses},
+                bess_capacity={b: 0.0 for b in self.buses},
+                ev_uptake={b: 0.0 for b in self.buses}
             )
 
+            # Update with DFES data
+            for attr in ['demand_factor', 'dg_capacity', 'bess_capacity', 'ev_uptake']:
+                if attr in state_data:
+                    getattr(state, attr).update(state_data[attr])
+
+            # Determine node type
+            stage_type = 'investment' if year in investment_stages else 'operational'
+
             # Transition probability
-            # - First transition: use scenario probability
-            # - Subsequent transitions: 1.0 (no branching)
             trans_prob = initial_probability if stage_idx == 1 else 1.0
 
             # Add node to tree
-            node_id = tree.add_node(parent_id, state, trans_prob)
+            node_id = tree.add_node(parent_id, state, trans_prob,
+                                    stage_type=stage_type,
+                                    dfes_scenario=scenario_code)
+
+            # If this is an investment node, prepare for embedded scenarios
+            if stage_type == 'investment':
+                node = tree.nodes[node_id]
+                # Embedded scenarios will be added in a separate step
+                node.embedded_scenarios = []  # Placeholder for now
 
             # Store scenario name in first-stage node for reference
             if stage_idx == 1:
@@ -178,7 +257,7 @@ class DFESScenarioTreeBuilder:
                               parent_id: int,
                               branch_config: Dict,
                               transition_model: str):
-        """[Previous implementation remains the same - for general trees]"""
+        """Build general tree structure recursively."""
         parent = tree.nodes[parent_id]
 
         if parent.stage >= tree.num_stages - 1:
@@ -223,13 +302,7 @@ class DFESScenarioTreeBuilder:
     def _create_branch_state(self, parent_state: SystemState,
                              from_year: int, to_year: int,
                              branch: str, branch_config: Dict) -> SystemState:
-        """[Previous implementation remains the same]"""
-        new_state = SystemState(
-            demand_factor={},
-            DG_capacity={},
-            BESS_capacity={},
-            EV_uptake={}
-        )
+        """Create system state for a branch using direct bus ID mapping."""
 
         # Get DFES scenarios associated with this branch
         if 'dfes_mapping' in branch_config:
@@ -240,120 +313,74 @@ class DFESScenarioTreeBuilder:
         else:
             dfes_scenarios = [branch]
 
-        # Process each bus
-        for bus in self.buses:
-            location = self.bus_to_location.get(bus, "DEFAULT")
+        # Initialize new state with default values for all buses
+        new_state = SystemState(
+            demand_factor={b: 1.0 for b in self.buses},
+            dg_capacity={b: 0.0 for b in self.buses},
+            bess_capacity={b: 0.0 for b in self.buses},
+            ev_uptake={b: 0.0 for b in self.buses}
+        )
 
-            # Calculate values based on DFES data
-            if len(dfes_scenarios) == 1:
-                # Single scenario
-                scenario = dfes_scenarios[0]
-                new_state.demand_factor[bus] = self._get_demand_factor(
-                    scenario, location, from_year, to_year
-                )
-                new_state.DG_capacity[bus] = self._get_dg_capacity(
-                    scenario, location, to_year
-                )
-                new_state.BESS_capacity[bus] = self._get_storage_capacity(
-                    scenario, location, to_year
-                )
-                new_state.EV_uptake[bus] = self._get_ev_uptake(
-                    scenario, location, to_year
-                )
+        # Calculate values based on DFES data
+        if len(dfes_scenarios) == 1:
+            # Single scenario - get data directly
+            scenario = dfes_scenarios[0]
+            scenario_data = self.dfes.get_scenario_state_data(
+                scenario, to_year, self.bus_mapping
+            )
+
+            # Update state with DFES data where available
+            for attr in ['demand_factor', 'dg_capacity', 'bess_capacity', 'ev_uptake']:
+                if attr in scenario_data:
+                    new_state.__dict__[attr].update(scenario_data[attr])
+        else:
+            # Multiple scenarios - interpolate or average
+            if 'interpolation_weights' in branch_config:
+                weights = branch_config['interpolation_weights'][branch]
             else:
-                # Multiple scenarios - interpolate or average
-                if 'interpolation_weights' in branch_config:
-                    weights = branch_config['interpolation_weights'][branch]
-                else:
-                    weights = {s: 1.0 / len(dfes_scenarios) for s in dfes_scenarios}
+                weights = {s: 1.0 / len(dfes_scenarios) for s in dfes_scenarios}
 
-                # Weighted average
-                new_state.demand_factor[bus] = sum(
-                    weights[s] * self._get_demand_factor(s, location, from_year, to_year)
-                    for s in dfes_scenarios
+            # Weighted average across scenarios
+            weighted_data = {
+                'demand_factor': {},
+                'dg_capacity': {},
+                'bess_capacity': {},
+                'ev_uptake': {}
+            }
+
+            for scenario in dfes_scenarios:
+                scenario_data = self.dfes.get_scenario_state_data(
+                    scenario, to_year, self.bus_mapping
                 )
-                new_state.DG_capacity[bus] = sum(
-                    weights[s] * self._get_dg_capacity(s, location, to_year)
-                    for s in dfes_scenarios
-                )
-                new_state.BESS_capacity[bus] = sum(
-                    weights[s] * self._get_storage_capacity(s, location, to_year)
-                    for s in dfes_scenarios
-                )
-                new_state.EV_uptake[bus] = sum(
-                    weights[s] * self._get_ev_uptake(s, location, to_year)
-                    for s in dfes_scenarios
-                )
+                weight = weights[scenario]
+
+                # Accumulate weighted values
+                for attr in weighted_data:
+                    if attr in scenario_data:
+                        for bus_id, value in scenario_data[attr].items():
+                            if bus_id not in weighted_data[attr]:
+                                weighted_data[attr][bus_id] = 0.0
+                            weighted_data[attr][bus_id] += weight * value
+
+            # Update state with weighted data
+            for attr in weighted_data:
+                new_state.__dict__[attr].update(weighted_data[attr])
+
+        # For transmission buses (no DFES data), inherit from parent or use growth factor
+        for bus in self.buses:
+            if bus not in new_state.demand_factor or new_state.demand_factor[bus] == 1.0:
+                # This is likely a transmission bus - apply simple growth
+                if parent_state and bus in parent_state.demand_factor:
+                    # Apply default growth rate
+                    years_elapsed = to_year - from_year
+                    growth_rate = 0.01  # 1% annual growth for transmission
+                    new_state.demand_factor[bus] = parent_state.demand_factor[bus] * (1 + growth_rate) ** years_elapsed
 
         return new_state
 
-    # All other methods implementation continues below
-    def _get_demand_factor(self, scenario: str, location: str,
-                           from_year: int, to_year: int) -> float:
-        """Get demand growth factor from DFES data."""
-        # Updated for DFES 2024 scenarios
-        growth_rates = {
-            'CF': 0.005,  # Counterfactual - 0.5% annual growth
-            'BV': 0.010,  # Best View - 1.0% annual growth
-            'HE': 0.012,  # Hydrogen Evolution - 1.2% annual growth
-            'HT': 0.015,  # Holistic Transition - 1.5% annual growth
-            'EE': 0.020,  # Electric Engagement - 2.0% annual growth
-            'AD': 0.025  # Accelerated Decarbonisation - 2.5% annual growth
-        }
-
-        annual_rate = growth_rates.get(scenario, 0.015)
-        years = to_year - from_year
-
-        return (1 + annual_rate) ** years
-
-    def _get_dg_capacity(self, scenario: str, location: str, year: int) -> float:
-        """Get DG capacity from DFES data for specific year."""
-        # Updated placeholder values for DFES 2024 scenarios (MW)
-        dg_projections = {
-            'CF': {2025: 5, 2035: 10, 2050: 20},  # Minimal growth
-            'BV': {2025: 5, 2035: 25, 2050: 60},  # Balanced growth
-            'HE': {2025: 5, 2035: 20, 2050: 50},  # Moderate growth (hydrogen focus)
-            'HT': {2025: 5, 2035: 30, 2050: 70},  # Holistic approach
-            'EE': {2025: 5, 2035: 35, 2050: 90},  # High electrification
-            'AD': {2025: 5, 2035: 40, 2050: 120}  # Accelerated deployment
-        }
-
-        return dg_projections.get(scenario, {}).get(year, 0.0)
-
-    def _get_storage_capacity(self, scenario: str, location: str, year: int) -> float:
-        """Get storage capacity from DFES data."""
-        # Updated placeholder values for DFES 2024 scenarios (MWh)
-        storage_projections = {
-            'CF': {2025: 2, 2035: 5, 2050: 10},  # Minimal storage
-            'BV': {2025: 2, 2035: 12, 2050: 30},  # Balanced deployment
-            'HE': {2025: 2, 2035: 10, 2050: 25},  # Moderate (hydrogen storage)
-            'HT': {2025: 2, 2035: 15, 2050: 40},  # Integrated approach
-            'EE': {2025: 2, 2035: 20, 2050: 55},  # High for electrification
-            'AD': {2025: 2, 2035: 25, 2050: 80}  # Rapid deployment
-        }
-
-        return storage_projections.get(scenario, {}).get(year, 0.0)
-
-    def _get_ev_uptake(self, scenario: str, location: str, year: int) -> float:
-        """Get EV charging demand from DFES data."""
-        # Updated for DFES 2024 scenarios
-        # Convert number of EVs to MW demand
-        # Assume 7kW average charging per EV, diversity factor of 0.2
-        ev_numbers = {
-            'CF': {2025: 100, 2035: 500, 2050: 2000},  # Slow uptake
-            'BV': {2025: 100, 2035: 1200, 2050: 6000},  # Balanced uptake
-            'HE': {2025: 100, 2035: 800, 2050: 4000},  # Moderate (hydrogen cars)
-            'HT': {2025: 100, 2035: 1500, 2050: 7000},  # Good uptake
-            'EE': {2025: 100, 2035: 2000, 2050: 10000},  # Very high uptake
-            'AD': {2025: 100, 2035: 2500, 2050: 12000}  # Aggressive uptake
-        }
-
-        num_evs = ev_numbers.get(scenario, {}).get(year, 0)
-        return num_evs * 7 * 0.2 / 1000  # Convert to MW
-
     def _get_persistent_transitions(self, parent: ScenarioNode,
                                     base_probs: Dict[str, float]) -> Dict[str, float]:
-        """[Previous implementation]"""
+        """Adjust transition probabilities for persistent model."""
         adjusted_probs = base_probs.copy()
 
         parent_branch = self._determine_node_branch(parent)
@@ -375,7 +402,7 @@ class DFESScenarioTreeBuilder:
 
     def _get_converging_transitions(self, parent: ScenarioNode,
                                     base_probs: Dict[str, float]) -> Dict[str, float]:
-        """[Previous implementation]"""
+        """Adjust transition probabilities for converging model."""
         adjusted_probs = base_probs.copy()
 
         convergence_factor = 1 + 0.3 * parent.stage
@@ -394,11 +421,12 @@ class DFESScenarioTreeBuilder:
         return adjusted_probs
 
     def _determine_node_branch(self, node: ScenarioNode) -> Optional[str]:
-        """[Previous implementation]"""
+        """Determine which branch a node belongs to based on its state."""
         if not node.state:
             return None
 
-        avg_dg = np.mean(list(node.state.DG_capacity.values()))
+        # Use average DG capacity across all buses as indicator
+        avg_dg = np.mean(list(node.state.dg_capacity.values()))
 
         if avg_dg < 30:
             return 'Low'

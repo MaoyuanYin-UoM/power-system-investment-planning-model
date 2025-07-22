@@ -1564,3 +1564,301 @@ def visualize_investment_pareto_front(excel_file=None,
     plt.show()
 
     return fig, ax
+
+
+def visualize_scenario_tree(tree,
+                            title=None,
+                            figure_size=(12, 8),
+                            save_path=None,
+                            show_probabilities=True,
+                            show_years=True,
+                            node_size=1000,
+                            font_size=10,
+                            edge_width=2,
+                            show_stats=True,
+                            layout='hierarchical'):
+    """
+    Visualize a scenario tree structure.
+
+    Parameters:
+    -----------
+    tree : ScenarioTree
+        The scenario tree object to visualize
+    title : str or None
+        Custom title for the plot. If None, uses default
+    figure_size : tuple
+        Size of the figure (width, height)
+    save_path : str or None
+        If provided, saves the figure to this path
+    show_probabilities : bool
+        If True, shows transition probabilities on edges
+    show_years : bool
+        If True, shows years in node labels
+    node_size : int
+        Size of the nodes in the visualization
+    font_size : int
+        Font size for labels
+    edge_width : float
+        Width of the edges
+    show_stats : bool
+        If True, shows statistics box
+    layout : str
+        Layout algorithm: 'hierarchical' or 'spring'
+
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axis objects
+    """
+    import matplotlib.pyplot as plt
+    import networkx as nx
+    import numpy as np
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=figure_size)
+
+    # Create networkx graph
+    G = nx.DiGraph()
+
+    # Add nodes with attributes
+    for node_id, node in tree.nodes.items():
+        G.add_node(node_id,
+                   stage=node.stage,
+                   year=node.year,
+                   prob=node.cumulative_probability)
+
+    # Add edges with transition probabilities
+    edge_probs = {}
+    for node_id, node in tree.nodes.items():
+        if node.parent_id is not None:
+            G.add_edge(node.parent_id, node_id)
+            edge_probs[(node.parent_id, node_id)] = node.transition_probability
+
+    # Create layout
+    if layout == 'hierarchical':
+        # Hierarchical layout for tree structure
+        pos = {}
+        stage_counts = {}
+        stage_current = {}
+
+        # Count nodes per stage
+        for node in tree.nodes.values():
+            stage_counts[node.stage] = stage_counts.get(node.stage, 0) + 1
+            stage_current[node.stage] = 0
+
+        # Position nodes
+        for node_id, node in tree.nodes.items():
+            stage = node.stage
+            x = stage * 3  # Horizontal spacing between stages
+
+            # Vertical positioning
+            total_in_stage = stage_counts[stage]
+            current_index = stage_current[stage]
+            y = (current_index - (total_in_stage - 1) / 2) * 1.5
+
+            pos[node_id] = (x, y)
+            stage_current[stage] += 1
+    else:
+        # Spring layout
+        pos = nx.spring_layout(G, k=3, iterations=50)
+
+    # Determine node colors
+    node_colors = []
+    for node_id in G.nodes():
+        node = tree.nodes[node_id]
+        if node.is_root():
+            node_colors.append('lightgreen')
+        elif node.is_leaf():
+            node_colors.append('lightcoral')
+        else:
+            node_colors.append('lightblue')
+
+    # Draw nodes
+    nx.draw_networkx_nodes(G, pos,
+                           node_color=node_colors,
+                           node_size=node_size,
+                           alpha=0.9,
+                           ax=ax)
+
+    # Draw edges
+    nx.draw_networkx_edges(G, pos,
+                           edge_color='gray',
+                           width=edge_width,
+                           alpha=0.6,
+                           arrows=True,
+                           arrowsize=20,
+                           ax=ax)
+
+    # Add node labels
+    labels = {}
+    for node_id, node in tree.nodes.items():
+        label_parts = []
+
+        if node.is_root():
+            label_parts.append("Root")
+        else:
+            label_parts.append(f"N{node_id}")
+
+        if show_years:
+            label_parts.append(f"{node.year}")
+
+        labels[node_id] = "\n".join(label_parts)
+
+    nx.draw_networkx_labels(G, pos, labels,
+                            font_size=font_size,
+                            ax=ax)
+
+    # Add edge labels (probabilities)
+    if show_probabilities and edge_probs:
+        edge_labels = {edge: f"{prob:.2f}" for edge, prob in edge_probs.items()}
+        nx.draw_networkx_edge_labels(G, pos, edge_labels,
+                                     font_size=font_size * 0.8,
+                                     ax=ax)
+
+    # Add statistics box
+    if show_stats:
+        stats_text = f"Scenario Tree Statistics\n"
+        stats_text += f"━━━━━━━━━━━━━━━━━━━━\n"
+        stats_text += f"Total nodes: {len(tree.nodes)}\n"
+        stats_text += f"Stages: {len(tree.stages)}\n"
+        stats_text += f"Years: {tree.stages}\n"
+        stats_text += f"Scenarios: {tree.get_num_scenarios()}\n"
+
+        # Check probability sum
+        leaf_prob_sum = sum(node.cumulative_probability
+                            for node in tree.nodes.values()
+                            if node.is_leaf())
+        stats_text += f"Prob. sum: {leaf_prob_sum:.4f}"
+
+        # Add warning if probabilities don't sum to 1
+        if abs(leaf_prob_sum - 1.0) > 0.001:
+            stats_text += " ⚠️"
+
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
+        ax.text(0.02, 0.98, stats_text,
+                transform=ax.transAxes,
+                fontsize=font_size * 0.9,
+                verticalalignment='top',
+                bbox=props)
+
+    # Set title
+    if title:
+        ax.set_title(title, fontsize=font_size * 1.4, fontweight='bold')
+    else:
+        ax.set_title("Scenario Tree Structure", fontsize=font_size * 1.4, fontweight='bold')
+
+    # Remove axes
+    ax.axis('off')
+
+    # Adjust layout
+    if layout == 'hierarchical':
+        # Set reasonable bounds for hierarchical layout
+        x_margin = 1
+        y_margin = 1
+        x_min = -x_margin
+        x_max = (len(tree.stages) - 1) * 3 + x_margin
+
+        all_y = [p[1] for p in pos.values()]
+        y_min = min(all_y) - y_margin
+        y_max = max(all_y) + y_margin
+
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max)
+
+    # Save if requested
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
+    plt.tight_layout()
+    return fig, ax
+
+
+def visualize_scenario_tree_compact(tree,
+                                    title=None,
+                                    figure_size=(10, 6),
+                                    save_path=None,
+                                    show_legend=True):
+    """
+    Compact visualization of scenario tree showing probability distribution.
+
+    Parameters:
+    -----------
+    tree : ScenarioTree
+        The scenario tree object to visualize
+    title : str or None
+        Custom title for the plot
+    figure_size : tuple
+        Size of the figure (width, height)
+    save_path : str or None
+        If provided, saves the figure to this path
+    show_legend : bool
+        If True, shows legend
+
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axis objects
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=figure_size)
+
+    # Get leaf nodes and their properties
+    scenarios = []
+    probabilities = []
+    paths = []
+
+    for node_id, node in tree.nodes.items():
+        if node.is_leaf():
+            # Get path from root to leaf
+            path = []
+            current = node
+            while current is not None:
+                path.append(current.node_id)
+                current = tree.nodes.get(current.parent_id)
+            path.reverse()
+
+            scenarios.append(f"Scenario {len(scenarios) + 1}")
+            probabilities.append(node.cumulative_probability)
+            paths.append(path)
+
+    # Create bar plot
+    x = np.arange(len(scenarios))
+    bars = ax.bar(x, probabilities, color='skyblue', edgecolor='navy', linewidth=1.5)
+
+    # Add value labels on bars
+    for i, (bar, prob) in enumerate(zip(bars, probabilities)):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2., height,
+                f'{prob:.3f}', ha='center', va='bottom', fontsize=10)
+
+    # Customize plot
+    ax.set_xlabel('Scenario', fontsize=12)
+    ax.set_ylabel('Probability', fontsize=12)
+    ax.set_xticks(x)
+    ax.set_xticklabels(scenarios, rotation=45 if len(scenarios) > 6 else 0, ha='right')
+
+    # Add grid
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    ax.set_ylim(0, max(probabilities) * 1.15)
+
+    # Add title
+    if title:
+        ax.set_title(title, fontsize=14, fontweight='bold')
+    else:
+        ax.set_title(f"Scenario Probability Distribution ({len(scenarios)} scenarios)",
+                     fontsize=14, fontweight='bold')
+
+    # Add total probability check
+    total_prob = sum(probabilities)
+    ax.text(0.98, 0.02, f'Total: {total_prob:.4f}',
+            transform=ax.transAxes, ha='right', va='bottom',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+    plt.tight_layout()
+
+    # Save if requested
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
+    return fig, ax
