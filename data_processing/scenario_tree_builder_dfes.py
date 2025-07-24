@@ -83,8 +83,13 @@ class DFESScenarioTreeBuilder:
         # Create tree with investment stages info
         tree = ScenarioTree(stages, list(self.buses), investment_stages)
 
-        # Initialize root with DFES data
-        self._update_root_node(tree, stages[0])
+        # Initialize root with weighted average of all scenarios
+        if custom_probabilities:
+            probs = self.dfes.set_fan_tree_probabilities(custom_probabilities)
+        else:
+            probs = {code: 1 / 6 for code in ['BV', 'CF', 'HE', 'EE', 'HT', 'AD']}
+
+        self._update_root_node_weighted(tree, stages[0], probs)
 
         # Build tree structure based on method
         if method == 'fan':
@@ -113,7 +118,7 @@ class DFESScenarioTreeBuilder:
         weighted_state = SystemState(
             demand_factor={b: 0.0 for b in self.buses},
             dg_capacity={b: 0.0 for b in self.buses},
-            bess_capacity={b: 0.0 for b in self.buses},
+            storage_capacity={b: 0.0 for b in self.buses},
             ev_uptake={b: 0.0 for b in self.buses}
         )
 
@@ -134,7 +139,7 @@ class DFESScenarioTreeBuilder:
 
             if 'storage_capacity' in scenario_data:  # Note: storage_capacity from DFES
                 for bus_id, value in scenario_data['storage_capacity'].items():
-                    weighted_state.bess_capacity[bus_id] += value * probability
+                    weighted_state.storage_capacity[bus_id] += value * probability
 
             if 'ev_uptake' in scenario_data:
                 for bus_id, value in scenario_data['ev_uptake'].items():
@@ -146,8 +151,8 @@ class DFESScenarioTreeBuilder:
                 weighted_state.demand_factor[bus] = 1.0
             if bus not in weighted_state.dg_capacity:
                 weighted_state.dg_capacity[bus] = 0.0
-            if bus not in weighted_state.bess_capacity:
-                weighted_state.bess_capacity[bus] = 0.0
+            if bus not in weighted_state.storage_capacity:
+                weighted_state.storage_capacity[bus] = 0.0
             if bus not in weighted_state.ev_uptake:
                 weighted_state.ev_uptake[bus] = 0.0
 
@@ -220,12 +225,12 @@ class DFESScenarioTreeBuilder:
             state = SystemState(
                 demand_factor={b: 1.0 for b in self.buses},
                 dg_capacity={b: 0.0 for b in self.buses},
-                bess_capacity={b: 0.0 for b in self.buses},
+                storage_capacity={b: 0.0 for b in self.buses},
                 ev_uptake={b: 0.0 for b in self.buses}
             )
 
             # Update with DFES data
-            for attr in ['demand_factor', 'dg_capacity', 'bess_capacity', 'ev_uptake']:
+            for attr in ['demand_factor', 'dg_capacity', 'storage_capacity', 'ev_uptake']:
                 if attr in state_data:
                     getattr(state, attr).update(state_data[attr])
 
@@ -317,7 +322,7 @@ class DFESScenarioTreeBuilder:
         new_state = SystemState(
             demand_factor={b: 1.0 for b in self.buses},
             dg_capacity={b: 0.0 for b in self.buses},
-            bess_capacity={b: 0.0 for b in self.buses},
+            storage_capacity={b: 0.0 for b in self.buses},
             ev_uptake={b: 0.0 for b in self.buses}
         )
 
@@ -330,7 +335,7 @@ class DFESScenarioTreeBuilder:
             )
 
             # Update state with DFES data where available
-            for attr in ['demand_factor', 'dg_capacity', 'bess_capacity', 'ev_uptake']:
+            for attr in ['demand_factor', 'dg_capacity', 'storage_capacity', 'ev_uptake']:
                 if attr in scenario_data:
                     new_state.__dict__[attr].update(scenario_data[attr])
         else:
@@ -344,7 +349,7 @@ class DFESScenarioTreeBuilder:
             weighted_data = {
                 'demand_factor': {},
                 'dg_capacity': {},
-                'bess_capacity': {},
+                'storage_capacity': {},
                 'ev_uptake': {}
             }
 

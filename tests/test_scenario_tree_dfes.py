@@ -37,7 +37,7 @@ def main():
         stages=[2025, 2030, 2035, 2040, 2045, 2050],  # All 6 stages
         investment_stages=[2030, 2040],  # Investment decision years
         method='fan',
-        custom_probabilities={'BV': 0.20, 'CF': 0.10, 'HE': 0.15, 'EE': 0.20, 'HT': 0.15, 'AD': 0.20},
+        custom_probabilities={'BV': 0.10, 'CF': 0.10, 'HE': 0.20, 'EE': 0.20, 'HT': 0.20, 'AD': 0.20},
         windstorm_scenarios_per_investment=4  # Will be implemented later
     )
     print(f"✓ Built scenario tree with {len(tree.nodes)} nodes")
@@ -48,7 +48,7 @@ def main():
     if root_state:
         print(f"✓ Root has demand factors for {len(root_state.demand_factor)} buses")
         print(f"✓ Root has DG capacity for {len(root_state.dg_capacity)} buses")
-        print(f"✓ Root has storage capacity for {len(root_state.bess_capacity)} buses")
+        print(f"✓ Root has storage capacity for {len(root_state.storage_capacity)} buses")
         print(f"✓ Root has EV uptake for {len(root_state.ev_uptake)} buses")
     else:
         print("⚠ Root node has no state data")
@@ -494,7 +494,7 @@ def export_scenario_tree_to_excel(tree, filepath="../Scenario_Tree_Results/test_
                     'Stage_Type': node.stage_type
                 }
                 for bus in sample_buses:
-                    row[f'Bus_{bus}_MWh'] = node.state.bess_capacity.get(bus, 0.0)
+                    row[f'Bus_{bus}_MWh'] = node.state.storage_capacity.get(bus, 0.0)
                 bess_data.append(row)
 
         df_bess = pd.DataFrame(bess_data)

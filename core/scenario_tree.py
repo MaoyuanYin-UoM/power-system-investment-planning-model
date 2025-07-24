@@ -13,10 +13,10 @@ class SystemState:
     """Represents the full system state at a particular node in the scenario tree."""
 
     def __init__(self, demand_factor=None, dg_capacity=None,
-                 bess_capacity=None, ev_uptake=None, renewable_penetration=0.0):
+                 storage_capacity=None, ev_uptake=None, renewable_penetration=0.0):
         self.demand_factor = demand_factor or {}
         self.dg_capacity = dg_capacity or {}
-        self.bess_capacity = bess_capacity or {}
+        self.storage_capacity = storage_capacity or {}
         self.ev_uptake = ev_uptake or {}
         self.renewable_penetration = renewable_penetration
 
@@ -85,7 +85,7 @@ class ScenarioTree:
         base_state = SystemState(
             demand_factor={b: 1.0 for b in self.buses},
             dg_capacity={b: 0.0 for b in self.buses},
-            bess_capacity={b: 0.0 for b in self.buses},
+            storage_capacity={b: 0.0 for b in self.buses},
             ev_uptake={b: 0.0 for b in self.buses}
         )
 
@@ -225,7 +225,7 @@ class ScenarioTree:
                 node_data['state'] = {
                     'demand_factor': node.state.demand_factor,
                     'dg_capacity': node.state.dg_capacity,
-                    'bess_capacity': node.state.bess_capacity,
+                    'storage_capacity': node.state.storage_capacity,
                     'ev_uptake': node.state.ev_uptake,
                     'renewable_penetration': node.state.renewable_penetration
                 }
@@ -296,7 +296,7 @@ class ScenarioTree:
                 node.state = SystemState(
                     demand_factor=state_data['demand_factor'],
                     dg_capacity=state_data['dg_capacity'],
-                    bess_capacity=state_data['bess_capacity'],
+                    storage_capacity=state_data['storage_capacity'],
                     ev_uptake=state_data['ev_uptake'],
                     renewable_penetration=state_data.get('renewable_penetration', 0.0)
                 )
@@ -333,10 +333,10 @@ class ScenarioTree:
             'dfes_scenario': node.dfes_scenario,
             'total_demand_factor': sum(node.state.demand_factor.values()),
             'total_dg_capacity': sum(node.state.dg_capacity.values()),
-            'total_bess_capacity': sum(node.state.bess_capacity.values()),
+            'total_storage_capacity': sum(node.state.storage_capacity.values()),
             'total_ev_uptake': sum(node.state.ev_uptake.values()),
             'num_buses_with_dg': sum(1 for v in node.state.dg_capacity.values() if v > 0),
-            'num_buses_with_bess': sum(1 for v in node.state.bess_capacity.values() if v > 0),
+            'num_buses_with_bess': sum(1 for v in node.state.storage_capacity.values() if v > 0),
             'num_buses_with_ev': sum(1 for v in node.state.ev_uptake.values() if v > 0)
         }
 
@@ -376,9 +376,9 @@ class ScenarioTree:
                      index=False)
 
         # Export BESS capacity
-        df_bess = pd.DataFrame(list(node.state.bess_capacity.items()),
+        df_bess = pd.DataFrame(list(node.state.storage_capacity.items()),
                                columns=['Bus', 'BESS_Capacity_MWh'])
-        df_bess.to_csv(os.path.join(output_dir, f"{prefix}_bess_capacity.csv"),
+        df_bess.to_csv(os.path.join(output_dir, f"{prefix}_storage_capacity.csv"),
                        index=False)
 
         # Export EV uptake
@@ -672,7 +672,7 @@ class ScenarioTreeBuilder:
         new_state = SystemState(
             demand_factor={},
             dg_capacity={},
-            bess_capacity={},
+            storage_capacity={},
             ev_uptake={}
         )
 
@@ -699,7 +699,7 @@ class ScenarioTreeBuilder:
             )
 
         # Similar logic for BESS and EV...
-        new_state.bess_capacity = current_state.bess_capacity.copy()
+        new_state.storage_capacity = current_state.storage_capacity.copy()
         new_state.ev_uptake = current_state.ev_uptake.copy()
 
         return new_state
