@@ -80,8 +80,8 @@ def main():
     # visualize_tree_with_ellipsis(tree, investment_stages=[2035, 2050])
 
     # 8. output scenario tree into an excel file
-    # export_scenario_tree_to_excel(tree, "../Scenario_Tree_Results/test_scenario_tree_export.xlsx")
-    tree.to_json(filepath="../Scenario_Tree_Results/test_scenario_tree_export.json")
+    # export_scenario_tree_to_excel(tree, "../Scenario_Trees/test_scenario_tree_export.xlsx")
+    tree.to_json(filepath="../Scenario_Trees/test_scenario_tree_export.json")
 
     print("\n✓ Test completed.")
 
@@ -400,7 +400,7 @@ def main():
 #     return fig, ax
 
 
-def export_scenario_tree_to_excel(tree, filepath="../Scenario_Tree_Results/test_scenario_tree_export.xlsx"):
+def export_scenario_tree_to_excel(tree, filepath="../Scenario_Trees/test_scenario_tree_export.xlsx"):
     """
     Export scenario tree structure and data to Excel spreadsheet.
 

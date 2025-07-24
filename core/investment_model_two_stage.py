@@ -32,7 +32,7 @@ class InvestmentClass():
     def build_investment_model(self,
                                network_name: str = "29_bus_GB_transmission_network_with_Kearsley_GSP_group",
                                windstorm_name: str = "windstorm_GB_transmission_network",
-                               path_all_ws_scenarios: str = "Scenario_Results/Extracted_Windstorm_Scenarios/6_selected_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year.json",
+                               path_all_ws_scenarios: str = "Scenario_Database/Extracted_Windstorm_Scenarios/6_selected_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year.json",
                                include_normal_scenario: bool = True,
                                normal_scenario_prob: float = 0.99,
                                use_representative_days: bool = True,  # New default

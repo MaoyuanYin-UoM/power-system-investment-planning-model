@@ -1,5 +1,5 @@
 from visualization import *
-from data_processing.scenario_generation_model import *
+from data_processing.scenario_generation_for_multi_stage_model import *
 
 # wcon = WindConfig()
 # ws = WindClass(wcon)
@@ -20,7 +20,7 @@ from data_processing.scenario_generation_model import *
 # visualize_fragility_curve(wcon)
 # visualize_bch_and_ws_contour(network_name='matpower_case22', windstorm_name='windstorm_1_matpower_case22')
 #
-# file_path = "Scenario_Results/all_scenarios_month.json"
+# file_path = "Scenario_Database/all_scenarios_month.json"
 # scenario_number = 1
 # event_number = 1
 # visualize_windstorm_event(file_path, scenario_number, event_number)
@@ -42,12 +42,12 @@ from data_processing.scenario_generation_model import *
 
 
 # generate_ws_scenarios(network_preset='matpower_case22', windstorm_preset='windstorm_1_matpower_case22')
-# extract_ws_scenarios('Scenario_Results/all_full_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json',
-#                      'Scenario_Results/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json')
+# extract_ws_scenarios('Scenario_Database/all_full_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json',
+#                      'Scenario_Database/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json')
 
 
-# visualize_windstorm_event('Scenario_Results/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json', 1, 1)
-# visualize_all_windstorm_events(file_path='Scenario_Results/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json')
+# visualize_windstorm_event('Scenario_Database/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json', 1, 1)
+# visualize_all_windstorm_events(file_path='Scenario_Database/all_ws_scenarios_matpower_case22_windstorm_1_matpower_case22_year.json')
 
 
 # net = make_network('GB_transmission_network')
@@ -112,12 +112,12 @@ from data_processing.scenario_generation_model import *
 #                       network_preset='29_bus_GB_transmission_network_with_Kearsley_GSP_group',
 #                       windstorm_preset='windstorm_GB_transmission_network')
 #
-# extract_ws_scenarios(full_file=f'Scenario_Results/Full_Windstorm_Scenarios/{len(num_ws_prd)}_full_scenarios_29_bus_GB_transmission_network_with_Kearsley_GSP_group_windstorm_GB_transmission_network_year_seed_{seed}.json',
-#                      out_file=f'Scenario_Results/Extracted_Windstorm_Scenarios/{len(num_ws_prd)}_ws_scenarios_GB29-Kearsley_network_seed_{seed}.json')
+# extract_ws_scenarios(full_file=f'Scenario_Database/Full_Windstorm_Scenarios/{len(num_ws_prd)}_full_scenarios_29_bus_GB_transmission_network_with_Kearsley_GSP_group_windstorm_GB_transmission_network_year_seed_{seed}.json',
+#                      out_file=f'Scenario_Database/Extracted_Windstorm_Scenarios/{len(num_ws_prd)}_ws_scenarios_GB29-Kearsley_network_seed_{seed}.json')
 #
 # for i in range(len(num_ws_prd)):
 #     for j in range(num_ws_prd[i]):
-#         visualize_windstorm_event(file_path=f'Scenario_Results/Extracted_Windstorm_Scenarios/{len(num_ws_prd)}_ws_scenarios_GB29-Kearsley_network_seed_{seed}.json',
+#         visualize_windstorm_event(file_path=f'Scenario_Database/Extracted_Windstorm_Scenarios/{len(num_ws_prd)}_ws_scenarios_GB29-Kearsley_network_seed_{seed}.json',
 #                                   scenario_number=i, event_number=j)
 
 
@@ -142,7 +142,7 @@ from data_processing.scenario_generation_model import *
 #     generate_ws_scenarios(
 #         num_ws_prd=[1],  # Single scenario with single windstorm event
 #         seed=seed,
-#         out_dir="Scenario_Results/Full_Windstorm_Scenarios_Single",
+#         out_dir="Scenario_Database/Full_Windstorm_Scenarios_Single",
 #         network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
 #         windstorm_preset="windstorm_GB_transmission_network"
 #     )
@@ -155,7 +155,7 @@ from data_processing.scenario_generation_model import *
 #     if windstorm_preset == "windstorm_GB_transmission_network":
 #         windstorm_alias = "GB"
 #
-#     file_path = f"Scenario_Results/Full_Windstorm_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
+#     file_path = f"Scenario_Database/Full_Windstorm_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
 #     generated_files.append(file_path)
 #
 #
@@ -190,19 +190,19 @@ from data_processing.scenario_generation_model import *
 #     if windstorm_preset == "windstorm_GB_transmission_network":
 #         windstorm_alias = "GB"
 #
-#     file_path = f"Scenario_Results/Full_Windstorm_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
+#     file_path = f"Scenario_Database/Full_Windstorm_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
 #     selected_files.append(file_path)
 #
 # # Combine the selected scenarios
 # print("=== Combining selected scenarios ===")
 # combined_file = combine_extracted_scenarios(
 #     scenario_files=selected_files,
-#     out_file=f"Scenario_Results/Full_Windstorm_Scenarios/{len(selected_seeds)}_selected_effective_scenarios.json"
+#     out_file=f"Scenario_Database/Full_Windstorm_Scenarios/{len(selected_seeds)}_selected_effective_scenarios.json"
 # )
 #
 # # Extract windstorm windows for use in the investment model
 # print("\n=== Extracting windstorm windows ===")
-# extracted_file = "Scenario_Results/Extracted_Windstorm_Scenarios/6_ws_selected_effective_scenarios.json"
+# extracted_file = "Scenario_Database/Extracted_Windstorm_Scenarios/6_ws_selected_effective_scenarios.json"
 # extract_ws_scenarios(combined_file, extracted_file)
 #
 # print(f"\n=== Extract and combine scenarios completed! ===")

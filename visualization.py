@@ -596,7 +596,7 @@ def visualize_windstorm_event(file_path, scenario_number, event_number, custom_t
 
 
 def visualize_all_windstorm_events(
-        file_path="Scenario_Results/all_full_scenarios_year.json"
+        file_path="Scenario_Database/all_full_scenarios_year.json"
 ):
     """
     Loop through all scenarios/events in the given JSON and

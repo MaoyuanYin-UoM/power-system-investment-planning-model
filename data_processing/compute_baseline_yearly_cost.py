@@ -175,7 +175,7 @@ def build_full_year_dc_opf_model(
 
 def run_full_year_dc_opf(
     solver: str = "gurobi",
-    out_dir: str = "Scenario_Results",
+    out_dir: str = "Scenario_Database",
     out_file: str = "normal_scenario_annual_cost.json"
 ) -> float:
     """

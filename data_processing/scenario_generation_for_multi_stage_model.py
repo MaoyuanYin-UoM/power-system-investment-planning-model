@@ -8,7 +8,7 @@ from factories.network_factory import make_network
 from factories.windstorm_factory import make_windstorm
 
 
-def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Results/Full_Windstorm_Scenarios",
+def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Database/Full_Windstorm_Scenarios",
                           network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
                           windstorm_preset="windstorm_GB_transmission_network"):
     """
@@ -210,8 +210,8 @@ def combine_extracted_scenarios(scenario_files, out_file, scenario_probabilities
 
 
 def extract_ws_scenarios(
-    full_file: str = "Scenario_Results/Full_Windstorm_Scenarios/all_full_scenarios_year.json",
-    out_file: str  = "Scenario_Results/Extracted_Windstorm_Scenarios/all_ws_scenarios_year.json"
+    full_file: str = "Scenario_Database/Full_Windstorm_Scenarios/all_full_scenarios_year.json",
+    out_file: str  = "Scenario_Database/Extracted_Windstorm_Scenarios/all_ws_scenarios_year.json"
 ):
     """
     Extract each windstorm window (storm duration + all additional repair hours)
@@ -286,7 +286,7 @@ def extract_ws_scenarios(
 def generate_normal_operation_scenario(
         duration_hours=8760,  # Full year by default
         start_hour=1,
-        out_dir="Scenario_Results/Normal_Scenarios",
+        out_dir="Scenario_Database/Normal_Scenarios",
         network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group"
 ):
     """

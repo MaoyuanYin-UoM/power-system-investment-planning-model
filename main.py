@@ -1,6 +1,6 @@
-from core.investment_model import *
+from core.investment_model_two_stage import *
 
-# path_ws_scenarios = "Scenario_Results/Extracted_Windstorm_Scenarios/1_ws_scenarios_GB29-Kearsley_network_seed_104.json"
+# path_ws_scenarios = "Scenario_Database/Extracted_Windstorm_Scenarios/1_ws_scenarios_GB29-Kearsley_network_seed_104.json"
 #
 # inv = InvestmentClass()
 # model = inv.build_investment_model(path_all_ws_scenarios=path_ws_scenarios,
@@ -14,9 +14,9 @@ from core.investment_model import *
 # =====================
 # Loop with different windstorm scenarios
 
-# paths = ["Scenario_Results/Extracted_Windstorm_Scenarios/1_ws_scenarios_GB29-Kearsley_network_seed_104.json",
-#          "Scenario_Results/Extracted_Windstorm_Scenarios/5_ws_scenarios_GB29-Kearsley_network_seed_101.json",
-#          "Scenario_Results/Extracted_Windstorm_Scenarios/5_ws_scenarios_GB29-Kearsley_network_seed_102.json",
+# paths = ["Scenario_Database/Extracted_Windstorm_Scenarios/1_ws_scenarios_GB29-Kearsley_network_seed_104.json",
+#          "Scenario_Database/Extracted_Windstorm_Scenarios/5_ws_scenarios_GB29-Kearsley_network_seed_101.json",
+#          "Scenario_Database/Extracted_Windstorm_Scenarios/5_ws_scenarios_GB29-Kearsley_network_seed_102.json",
 #          ]
 #
 # for path in paths:
@@ -35,8 +35,8 @@ from core.investment_model import *
 # Seeds with windstorms passing the Kearsley group:
 # --> for 1-ws scenarios, seed=112
 # --> for 5-ws scenarios, seed=104
-path_ws_scenarios = "Scenario_Results/Extracted_Windstorm_Scenarios/4_selected_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year_seeds_[112, 152, 166, 198].json"
-path_normal_scenario = "Scenario_Results/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json"
+path_ws_scenarios = "Scenario_Database/Scenarios_for_Two_Stage_Model/Extracted_Windstorm_Scenarios/4_selected_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year_seeds_[112, 152, 166, 198].json"
+path_normal_scenario = "Scenario_Database/Scenarios_for_Two_Stage_Model/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json"
 
 # resilience_thresholds = [
 #     None,

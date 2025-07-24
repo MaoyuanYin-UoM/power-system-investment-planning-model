@@ -1,5 +1,5 @@
 # -----------------------------------------------------------
-# Below is a copy of the old 'investment_model.py'
+# Below is a copy of the old 'investment_model_two_stage.py'
 # -----------------------------------------------------------
 
 
@@ -30,7 +30,7 @@ class InvestmentClass():
             setattr(self, pars, getattr(obj, pars))
 
     def build_investment_model(self,
-                               path_all_ws_scenarios: str = "Scenario_Results/all_ws_scenarios_year.json"):
+                               path_all_ws_scenarios: str = "Scenario_Database/all_ws_scenarios_year.json"):
         """
         Build a Pyomo MILP model for resilience enhancement investment planning (line hardening)
         against windstorms, using the form of stochastic programming over multiple scenarios.

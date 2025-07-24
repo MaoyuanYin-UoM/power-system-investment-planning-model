@@ -1,4 +1,4 @@
-from scenario_generation_model import *
+from scenario_generation_for_multi_stage_model import *
 from visualization import *
 
 
@@ -22,7 +22,7 @@ for seed in candidate_seeds:
     # generate_ws_scenarios(
     #     num_ws_prd=[1],  # Single scenario with single windstorm event
     #     seed=seed,
-    #     out_dir="Scenario_Results/Full_Windstorm_Scenarios_Single",
+    #     out_dir="Scenario_Database/Full_Windstorm_Scenarios_Single",
     #     network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
     #     windstorm_preset="windstorm_GB_transmission_network"
     # )
@@ -86,11 +86,11 @@ for i, (file_path, seed) in enumerate(zip(generated_files, candidate_seeds), 1):
 #     if windstorm_preset == "windstorm_GB_transmission_network":
 #         windstorm_alias = "GB"
 #
-#     full_file_path = f"Scenario_Results/Full_Windstorm_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
+#     full_file_path = f"Scenario_Database/Full_Windstorm_Scenarios_Single/1_full_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
 #     full_files.append(full_file_path)
 #
 #     # Create the file path for extracted scenario file
-#     extracted_file_path = f"Scenario_Results/Extracted_Windstorm_Scenarios_Single/1_ws_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
+#     extracted_file_path = f"Scenario_Database/Extracted_Windstorm_Scenarios_Single/1_ws_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seed_{seed}.json"
 #
 #     # Extract the windstorm wind from the full scenario
 #     extract_ws_scenarios(full_file_path, extracted_file_path)
@@ -99,7 +99,7 @@ for i, (file_path, seed) in enumerate(zip(generated_files, candidate_seeds), 1):
 #
 # # Step 2. Combine the extracted scenarios
 # # Create the file path for the combined scenario file
-# combined_extracted_file = f"Scenario_Results/Extracted_Windstorm_Scenarios/{len(selected_seeds)}_selected_ws_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seeds_{selected_seeds}.json"
+# combined_extracted_file = f"Scenario_Database/Extracted_Windstorm_Scenarios/{len(selected_seeds)}_selected_ws_scenarios_network_{network_alias}_windstorm_{windstorm_alias}_year_seeds_{selected_seeds}.json"
 #
 # combined_file = combine_extracted_scenarios(
 #     scenario_files=extracted_files,

@@ -93,7 +93,7 @@ def solve_dc_opf(net):
 
 def print_opf_results(net):
     """Print results of DC OPF"""
-    print("\n=== DC Optimal Power Flow Scenario_Results ===")
+    print("\n=== DC Optimal Power Flow Scenario_Database ===")
     print("\nBus Voltages (pu and angles):")
     print(net.res_bus[["vm_pu", "va_degree"]])
     print("\nGenerator Outputs (MW):")
