@@ -472,7 +472,18 @@ def visualize_fragility_curve_comparison(WindConfig,
     return fig, (ax1, ax2)
 
 
-def visualize_windstorm_event(file_path, scenario_number, event_number, custom_title=None):
+def visualize_windstorm_event(file_path, scenario_number, event_number,
+                              custom_title=None,
+                              # Font size parameters
+                              title_fontsize=14,
+                              xlabel_fontsize=12,
+                              ylabel_fontsize=12,
+                              tick_fontsize=10,
+                              legend_fontsize=10,
+                              # Legend parameters
+                              legend_loc="best",
+                              legend_bbox_to_anchor=None,
+                              legend_ncol=1):
     """
     Visualizes the path of a windstorm event from the stored ws_scenarios .json files.
 
@@ -481,7 +492,24 @@ def visualize_windstorm_event(file_path, scenario_number, event_number, custom_t
     - scenario_number: Scenario number (1-based)
     - event_number: Event number (1-based)
     - custom_title: Custom title for the plot. If None, uses default format
+    - title_fontsize: Font size for the plot title
+    - xlabel_fontsize: Font size for x-axis label
+    - ylabel_fontsize: Font size for y-axis label
+    - tick_fontsize: Font size for axis tick labels
+    - legend_fontsize: Font size for legend
+    - legend_loc: Location of legend
+    - legend_bbox_to_anchor: Tuple (x, y) for custom legend position
+    - legend_ncol: Number of columns for legend entries
     """
+    # Import necessary modules
+    import json
+    import numpy as np
+    import math
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Circle
+    from factories.network_factory import make_network
+    from factories.windstorm_factory import make_windstorm
+
     # Load data from the .json file
     with open(file_path, "r") as f:
         data = json.load(f)
@@ -529,8 +557,8 @@ def visualize_windstorm_event(file_path, scenario_number, event_number, custom_t
 
     # Extract branch data from network
     net.set_gis_data()  # Ensure GIS data is set
-    bch_gis_bgn = net.data.net.bch_gis_bgn
-    bch_gis_end = net.data.net.bch_gis_end
+    bch_gis_bgn = net._get_bch_gis_bgn()
+    bch_gis_end = net._get_bch_gis_end()
 
     # Check if branch_level exists
     has_branch_levels = hasattr(net.data.net, 'branch_level')
@@ -580,16 +608,26 @@ def visualize_windstorm_event(file_path, scenario_number, event_number, custom_t
     ax.set_ylim(ymin - 1, ymax + 1)
 
     # Labels, title, and legend
-    ax.set_xlabel("Longitude")
-    ax.set_ylabel("Latitude")
+    ax.set_xlabel("Longitude", fontsize=xlabel_fontsize)
+    ax.set_ylabel("Latitude", fontsize=ylabel_fontsize)
+
+    # Set tick font sizes
+    ax.tick_params(axis='both', labelsize=tick_fontsize)
 
     # Use custom title if provided, otherwise use default
     if custom_title:
-        ax.set_title(custom_title)
+        ax.set_title(custom_title, fontsize=title_fontsize, fontweight='bold')
     else:
-        ax.set_title(f"Windstorm Path - Scenario {scenario_number}, Event {event_number}")
+        ax.set_title(f"Windstorm Path - Scenario {scenario_number}, Event {event_number}",
+                     fontsize=title_fontsize, fontweight='bold')
 
-    ax.legend()
+    # Set legend with custom font size and position
+    if legend_bbox_to_anchor:
+        ax.legend(fontsize=legend_fontsize, loc=legend_loc,
+                  bbox_to_anchor=legend_bbox_to_anchor, ncol=legend_ncol)
+    else:
+        ax.legend(fontsize=legend_fontsize, loc=legend_loc, ncol=legend_ncol)
+
     ax.grid(True)
 
     plt.show()
@@ -638,7 +676,17 @@ def visualize_bch_and_ws_contour(network_name: str = "default",
                                  tn_linewidth: float = 1.5,
                                  dn_linewidth: float = 1.5,
                                  title: str = None,
-                                 show_windstorm_contours: bool = True):  # New parameter
+                                 show_windstorm_contours: bool = True,
+                                 # Font size parameters
+                                 title_fontsize: int = 14,
+                                 xlabel_fontsize: int = 12,
+                                 ylabel_fontsize: int = 12,
+                                 tick_fontsize: int = 10,
+                                 legend_fontsize: int = 10,
+                                 # Legend parameters
+                                 legend_loc: str = "best",
+                                 legend_bbox_to_anchor: tuple = None,
+                                 legend_ncol: int = 1):
     """
     Visualize the branches along with the starting- and ending-points contour for windstorm path generation.
     Now includes bus ID labels similar to visualize_network_bch.
@@ -647,7 +695,7 @@ def visualize_bch_and_ws_contour(network_name: str = "default",
     - network_name: Name of the network preset registered in network_factory
     - windstorm_name: Name of the windstorm preset registered in windstorm_factory
     - label_buses: If True, write the bus ID next to each plotted node
-    - label_fontsize: Font size for the labels
+    - label_fontsize: Font size for the bus ID labels
     - label_offset_lon: Horizontal offset (in degrees) applied to the label
     - label_color: Text colour of the bus labels
     - zoomed_distribution: If True, zoom in to show distribution network details
@@ -656,6 +704,17 @@ def visualize_bch_and_ws_contour(network_name: str = "default",
     - dn_linewidth: Line thickness for distribution branches
     - title: Custom title for the plot. If None, uses default title
     - show_windstorm_contours: If True, shows windstorm contours. If False, shows only network branches
+    - title_fontsize: Font size for the plot title
+    - xlabel_fontsize: Font size for x-axis label
+    - ylabel_fontsize: Font size for y-axis label
+    - tick_fontsize: Font size for axis tick labels
+    - legend_fontsize: Font size for legend
+    - legend_loc: Location of legend. Options: 'best', 'upper right', 'upper left', 'lower left',
+                  'lower right', 'right', 'center left', 'center right', 'lower center',
+                  'upper center', 'center'
+    - legend_bbox_to_anchor: Tuple (x, y) for custom legend position. E.g., (1.05, 1) places legend
+                             outside plot area on the right
+    - legend_ncol: Number of columns for legend entries
     """
     # Import statements
     import matplotlib.pyplot as plt
@@ -725,66 +784,92 @@ def visualize_bch_and_ws_contour(network_name: str = "default",
     for idx, (bgn, end) in enumerate(zip(bch_gis_bgn, bch_gis_end)):
         # Determine branch level if available
         if has_branch_levels:
-            branch_level = net.data.net.branch_level.get(idx + 1, 'T')  # Default to 'T' if not found
+            # branch_level is a dict with 1-based keys
+            branch_level = net.data.net.branch_level.get(idx + 1, 'T')
+            if branch_level == 'T' or branch_level == 'TN':
+                color = 'darkgreen'
+                alpha = 0.8
+                lw = tn_linewidth
+                label = 'Transmission Branches' if not tn_plotted else None
+                tn_plotted = True
+            elif branch_level == 'D' or branch_level == 'DN':
+                color = 'orange'
+                alpha = 0.6
+                lw = dn_linewidth
+                label = 'Distribution Branches' if not dn_plotted else None
+                dn_plotted = True
+            else:  # 'T-D' coupling branch
+                color = 'purple'
+                alpha = 0.7
+                lw = (tn_linewidth + dn_linewidth) / 2
+                label = None
         else:
-            branch_level = 'T'  # Default to transmission if no level info
-
-        # Set color and linewidth based on branch level
-        if branch_level == 'T' or branch_level == 'T-D':
+            # Default if branch_level doesn't exist
             color = 'darkgreen'
-            linewidth = tn_linewidth
-            label = 'Transmission Branch' if not tn_plotted else ""
-            tn_plotted = True
-        else:  # 'D'
-            color = 'orange'
-            linewidth = dn_linewidth
-            label = 'Distribution Branch' if not dn_plotted else ""
-            dn_plotted = True
+            alpha = 0.8
+            lw = 1.5
+            label = 'Network Branches' if idx == 0 else None
 
-        ax.plot([bgn[0], end[0]], [bgn[1], end[1]], color=color,
-                alpha=0.8, linewidth=linewidth, zorder=1, label=label)
+        ax.plot([bgn[0], end[0]], [bgn[1], end[1]],
+                color=color, alpha=alpha, lw=lw, label=label, zorder=3)
 
-    # Draw bus markers & labels
+    # Plot buses with labels if requested
     if label_buses:
-        for lon, lat, bid in zip(bus_lon, bus_lat, bus_ids):
-            # Determine bus level
-            if has_bus_levels:
+        # Different colors for transmission and distribution buses if level info exists
+        if has_bus_levels:
+            for lon, lat, bid in zip(bus_lon, bus_lat, bus_ids):
+                # bus_level is a dict indexed by bus ID
                 bus_level = net.data.net.bus_level.get(bid, 'T')
-            else:
-                bus_level = 'T'
 
-            # Set marker color based on bus level
-            marker_color = 'darkgreen' if bus_level == 'T' else 'orange'
+                if bus_level == 'T' or bus_level == 'TN':
+                    marker_color = 'darkgreen'
+                    marker_size = 30
+                else:  # 'D' or 'DN'
+                    marker_color = 'orange'
+                    marker_size = 20
 
-            # a tiny marker
-            ax.scatter(lon, lat, s=15, c=marker_color, zorder=3)
-            # text label, slightly offset in longitude
-            ax.text(lon + label_offset_lon, lat,
-                    str(bid),
-                    fontsize=label_fontsize,
-                    ha="left", va="center",
-                    color=label_color,
-                    zorder=4)
+                # Plot marker
+                ax.scatter(lon, lat, s=marker_size, c=marker_color, zorder=4)
+                # Plot label
+                ax.text(lon + label_offset_lon, lat, str(bid),
+                        fontsize=label_fontsize, ha="left", va="center",
+                        color=label_color, zorder=5)
+        else:
+            # Default if bus_level doesn't exist
+            for lon, lat, bid in zip(bus_lon, bus_lat, bus_ids):
+                ax.scatter(lon, lat, s=20, c='black', zorder=4)
+                ax.text(lon + label_offset_lon, lat, str(bid),
+                        fontsize=label_fontsize, ha="left", va="center",
+                        color=label_color, zorder=5)
 
-    # Set axis limits based on zoom option
+    # Handle zooming
     if zoomed_distribution and has_bus_levels:
-        # Find distribution bus coordinates
-        dn_lons = [lon for lon, bid in zip(bus_lon, bus_ids)
-                   if net.data.net.bus_level.get(bid, 'T') == 'D']
-        dn_lats = [lat for lat, bid in zip(bus_lat, bus_ids)
-                   if net.data.net.bus_level.get(bid, 'T') == 'D']
+        # Find distribution bus bounds
+        dn_lons = []
+        dn_lats = []
+        for i, bid in enumerate(bus_ids):
+            # bus_level is a dict indexed by bus ID
+            bus_level = net.data.net.bus_level.get(bid, 'T')
+            if bus_level == 'D' or bus_level == 'DN':
+                dn_lons.append(bus_lon[i])
+                dn_lats.append(bus_lat[i])
 
-        if dn_lons and dn_lats:
-            # Calculate bounds with border
-            min_lon = min(dn_lons) - zoom_border
-            max_lon = max(dn_lons) + zoom_border
-            min_lat = min(dn_lats) - zoom_border
-            max_lat = max(dn_lats) + zoom_border
+        if dn_lons:  # Only zoom if distribution buses exist
+            min_lon, max_lon = min(dn_lons), max(dn_lons)
+            min_lat, max_lat = min(dn_lats), max(dn_lats)
+
+            # Add border
+            lon_range = max_lon - min_lon
+            lat_range = max_lat - min_lat
+            min_lon -= zoom_border * lon_range
+            max_lon += zoom_border * lon_range
+            min_lat -= zoom_border * lat_range
+            max_lat += zoom_border * lat_range
 
             ax.set_xlim(min_lon, max_lon)
             ax.set_ylim(min_lat, max_lat)
         else:
-            print("Warning: No distribution buses found for zooming.")
+            # If no distribution buses found, auto scale
             ax.relim()
             ax.autoscale()
     else:
@@ -793,30 +878,38 @@ def visualize_bch_and_ws_contour(network_name: str = "default",
         ax.autoscale()
 
     # Labels, title, and legend
-    ax.set_xlabel("Longitude", fontsize=12)
-    ax.set_ylabel("Latitude", fontsize=12)
+    ax.set_xlabel("Longitude", fontsize=xlabel_fontsize)
+    ax.set_ylabel("Latitude", fontsize=ylabel_fontsize)
+
+    # Set tick font sizes
+    ax.tick_params(axis='both', labelsize=tick_fontsize)
 
     # Set title - use custom title if provided, otherwise use default
     if title:
-        ax.set_title(title, fontsize=14, fontweight='bold')
+        ax.set_title(title, fontsize=title_fontsize, fontweight='bold')
     else:
         # Default title based on view mode and content
         if show_windstorm_contours:
             if zoomed_distribution:
                 ax.set_title(f"Branches and Windstorm Contours - {network_name} (Distribution Focus)",
-                             fontsize=14, fontweight='bold')
+                             fontsize=title_fontsize, fontweight='bold')
             else:
                 ax.set_title(f"Branches and Windstorm Contours - {network_name}",
-                             fontsize=14, fontweight='bold')
+                             fontsize=title_fontsize, fontweight='bold')
         else:
             if zoomed_distribution:
                 ax.set_title(f"Network Branches - {network_name} (Distribution Focus)",
-                             fontsize=14, fontweight='bold')
+                             fontsize=title_fontsize, fontweight='bold')
             else:
                 ax.set_title(f"Network Branches - {network_name}",
-                             fontsize=14, fontweight='bold')
+                             fontsize=title_fontsize, fontweight='bold')
 
-    ax.legend()
+    # Set legend with custom font size and position
+    if legend_bbox_to_anchor:
+        ax.legend(fontsize=legend_fontsize, loc=legend_loc,
+                  bbox_to_anchor=legend_bbox_to_anchor, ncol=legend_ncol)
+    else:
+        ax.legend(fontsize=legend_fontsize, loc=legend_loc, ncol=legend_ncol)
     ax.grid(True)
 
     plt.show()

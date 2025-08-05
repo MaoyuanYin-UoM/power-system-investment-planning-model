@@ -249,7 +249,7 @@ class DFESScenarioTreeBuilder:
             if stage_type == 'investment':
                 node = tree.nodes[node_id]
                 # Embedded scenarios will be added in a separate step
-                node.embedded_scenarios = []  # Placeholder for now
+                node.operational_scenarios = []
 
             # Store scenario name in first-stage node for reference
             if stage_idx == 1:

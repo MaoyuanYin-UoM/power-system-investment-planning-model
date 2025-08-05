@@ -37,7 +37,7 @@ class ScenarioNode:
 
         self.stage_type = 'operational'  # 'investment' or 'operational'
         self.dfes_scenario = None  # Track DFES pathway (BV, CF, HE, etc.)
-        self.embedded_scenarios = []  # List of embedded scenarios at investment nodes
+        self.operational_scenarios = []  # List of embedded scenarios at investment nodes
 
     def add_child(self, child_id: int):
         """Add a child node"""
@@ -216,7 +216,7 @@ class ScenarioTree:
                 'cumulative_probability': node.cumulative_probability,
                 'stage_type': node.stage_type,
                 'dfes_scenario': node.dfes_scenario,
-                'embedded_scenarios': node.embedded_scenarios,  # Will be empty for now
+                'operational_scenarios': node.operational_scenarios,  # Will be empty for now
                 'state': None
             }
 
@@ -288,7 +288,7 @@ class ScenarioTree:
             node.cumulative_probability = node_data['cumulative_probability']
             node.stage_type = node_data.get('stage_type', 'operational')
             node.dfes_scenario = node_data.get('dfes_scenario')
-            node.embedded_scenarios = node_data.get('embedded_scenarios', [])
+            node.operational_scenarios = node_data.get('operational_scenarios', [])
 
             # Recreate state if it exists
             if node_data['state']:

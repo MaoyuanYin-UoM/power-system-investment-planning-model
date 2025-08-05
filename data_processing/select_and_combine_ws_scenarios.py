@@ -1,4 +1,4 @@
-from scenario_generation_for_multi_stage_model import *
+from ws_scenario_generation import *
 from visualization import *
 
 

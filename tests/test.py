@@ -1,5 +1,5 @@
 from visualization import *
-from data_processing.scenario_generation_for_multi_stage_model import *
+from data_processing.ws_scenario_generation import *
 
 # wcon = WindConfig()
 # ws = WindClass(wcon)
@@ -117,7 +117,7 @@ from data_processing.scenario_generation_for_multi_stage_model import *
 #
 # for i in range(len(num_ws_prd)):
 #     for j in range(num_ws_prd[i]):
-#         visualize_windstorm_event(file_path=f'Scenario_Database/Extracted_Windstorm_Scenarios/{len(num_ws_prd)}_ws_scenarios_GB29-Kearsley_network_seed_{seed}.json',
+#         visualize_windstorm_event(file_path=f'../Scenario_Database/Scenarios_for_Two_Stage_Model/Extracted_Windstorm_Scenarios/{len(num_ws_prd)}_ws_scenarios_GB29-Kearsley_network_seed_{seed}.json',
 #                                   scenario_number=i, event_number=j)
 
 
@@ -211,8 +211,76 @@ from data_processing.scenario_generation_for_multi_stage_model import *
 # print(f"Seeds used: {selected_seeds}")
 
 
+# ========================================
+# Visualize windstorm events
+# ========================================
+
+# import os
+# from pathlib import Path
+
+# current_file = Path(__file__)
+# project_root = current_file.parent  # Adjust based on depth
+
+# Define the seeds to visualize
+# seeds = [112, 152, 166, 198]
+
+# scenario_dir = project_root / "Scenario_Database" / "Scenarios_for_Two_Stage_Model" / "Extracted_Windstorm_Scenarios_Single"
+
+# print("Current working directory:", os.getcwd())
+
+# Visualize each windstorm event
+# for seed in seeds:
+
+    # file_name = f"1_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year_seed_{seed}.json"
+    # file_path = scenario_dir / file_name
+
+    # file_path = f"../Scenario_Database/Scenarios_for_Two_Stage_Model/Extracted_Windstorm_Scenarios_Single/1_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year_seed_{seed}.json"
+
+    # visualize_windstorm_event(
+    #     file_path=file_path,
+    #     scenario_number=1,
+    #     event_number=1,
+    #     custom_title="custom_title",
+    #     # Customize font sizes
+    #     title_fontsize=16,
+    #     xlabel_fontsize=14,
+    #     ylabel_fontsize=14,
+    #     tick_fontsize=12,
+    #     legend_fontsize=12,
+    #     legend_loc="upper left"  # Place legend in upper left to avoid overlapping with windstorm path
+    # )
 
 
+# # Define the seeds to visualize
+# seeds = [112, 152, 166, 198]
+#
+# # Solution 1: Use os.path.join (most reliable on Windows)
+# current_dir = os.getcwd()
+# parent_dir = os.path.dirname(current_dir)
+#
+# for seed in seeds:
+#     file_path = os.path.join(
+#         parent_dir,
+#         "Scenario_Database",
+#         "Scenarios_for_Two_Stage_Model",
+#         "Extracted_Windstorm_Scenarios_Single",
+#         f"1_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year_seed_{seed}.json"
+#     )
+#
+#     print(f"Visualizing windstorm event for seed {seed}...")
+#
+#     visualize_windstorm_event(
+#         file_path=file_path,
+#         scenario_number=1,
+#         event_number=1,
+#         custom_title=f"Windstorm Event - Seed {seed}",
+#         title_fontsize=16,
+#         xlabel_fontsize=14,
+#         ylabel_fontsize=14,
+#         tick_fontsize=12,
+#         legend_fontsize=12,
+#         legend_loc="upper left"
+#     )
 
 
 
@@ -284,35 +352,41 @@ from data_processing.scenario_generation_for_multi_stage_model import *
 
 # visualize_network_bch(network_name="29_bus_GB_transmission_network_with_Kearsley_GSP_group")
 
-# visualize_bch_and_ws_contour(network_name="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
-#                              windstorm_name="windstorm_GB_transmission_network",
-#                              show_windstorm_contours=False,
-#                              label_buses=False,
-#                              zoomed_distribution=True,
-#                              zoom_border=0.03,
-#                              tn_linewidth=2,
-#                              dn_linewidth=2.8,
-#                              title="Topology for Kearsley GSP group",
-#                              )
+visualize_bch_and_ws_contour(network_name="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
+                             windstorm_name="windstorm_GB_transmission_network",
+                             show_windstorm_contours=False,
+                             label_buses=False,
+                             zoomed_distribution=True,
+                             zoom_border=0.1,
+                             tn_linewidth=2,
+                             dn_linewidth=2.8,
+                             title="Topology for Kearsley GSP Group",
+                             title_fontsize=20,
+                             xlabel_fontsize=16,
+                             ylabel_fontsize=16,
+                             tick_fontsize=14,
+                             legend_fontsize=14,
+                             legend_loc='upper left',
+                             )
 
 
-wcon = make_windstorm("windstorm_GB_transmission_network")
+# wcon = make_windstorm("windstorm_GB_transmission_network")
 # visualize_fragility_curve(wcon)
 
-visualize_fragility_curve_shift(
-    wcon,
-    hardening_levels=[20],
-    colors=['blue', 'green'],
-    show_arrow=True,
-    save_path="../Images_and_Plots/fragility_curve_shift.png",
-    title="Fragility Curve Shift",
-    show_textbox=False,
-    title_fontsize=16,
-    axis_label_fontsize=14,
-    axis_tick_fontsize=12,
-    legend_fontsize=12,
-    arrow_text_fontsize=12,
-)
+# visualize_fragility_curve_shift(
+#     wcon,
+#     hardening_levels=[20],
+#     colors=['blue', 'green'],
+#     show_arrow=True,
+#     save_path="../Images_and_Plots/fragility_curve_shift.png",
+#     title="Fragility Curve Shift",
+#     show_textbox=False,
+#     title_fontsize=16,
+#     axis_label_fontsize=14,
+#     axis_tick_fontsize=12,
+#     legend_fontsize=12,
+#     arrow_text_fontsize=12,
+# )
 #
 # # 2. Show just one hardening level for clarity
 # visualize_fragility_curve_shift(
@@ -333,10 +407,15 @@ visualize_fragility_curve_shift(
 # visualize_investment_vs_resilience(excel_file="Optimization_Results/Investment_Model/RM_expected_total_EENS_dn/4_ws_scenario_[112, 152, 166, 198]/data_for_plot.xlsx")
 
 # visualize_investment_pareto_front(
-#     excel_file="Optimization_Results/Investment_Model/RM_expected_total_EENS_dn/4_ws_scenario_[112, 152, 166, 198]_updated_(2)/data_for_plot.xlsx",
+#     excel_file="../Optimization_Results/Investment_Model/RM_expected_total_EENS_dn/4_ws_scenario_[112, 152, 166, 198]_updated_(2)/data_for_plot.xlsx",
 #     show_extreme_points=False,
 #     show_stats=False,
 #     show_feasible_region=False,
+#     title_fontsize=16,
+#     tick_fontsize=14,
+#     label_fontsize=16,
+#     stats_fontsize=14,
+#     annotation_fontsize=11,
 # )
 
 

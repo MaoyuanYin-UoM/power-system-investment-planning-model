@@ -33,16 +33,17 @@ power_system_resilience_planning_under_uncertainties/
 │
 ├── data_processing/                # Scripts or modules for data reading and processing, scenario generation etc.
 │   ├── __init__.py
-│   ├── compute_baseline_yearly_cost.py                 #
-│   ├── compute_line_length.py                          #
-│   ├── dfes_data_processor.py                          # Process the DFES data workbook for creating a scenario tree based on DFES pathways
-│   ├── fine_tune_bus_coordinates.py                    #
-│   ├── normalize_demand_profile.py                     #
-│   ├── scenario_generation_for_multi_stage_model.py    # Script to generate candidate scenarios for the multi-stage model 
-│   ├── scenario_generation_for_two_stage_model.py      # The old scripts to generate scenarios for the two-stage model
-│   ├── scenario_tree_builder_dfes.py                   # Helper functions for builder a scenario tree based on DFES pathways
-│   ├── select_and_combine_ws_scenarios.py              #
-│   └── set_dfes_data.py                                #
+│   ├── compute_baseline_yearly_cost.py         #
+│   ├── compute_line_length.py                  #
+│   ├── dfes_data_processor.py                  # Process the DFES data workbook for creating a scenario tree based on DFES pathways
+│   ├── fine_tune_bus_coordinates.py            #
+│   ├── normalize_demand_profile.py             #
+│   ├── scenario_tree_builder_dfes.py           # Helper functions for builder a scenario tree based on DFES pathways
+│   ├── select_and_combine_ws_scenarios.py      #
+│   ├── set_dfes_data.py                        #
+│   ├── ws_scenario_generation.py               # Generate windstorm scenarios for the two-stage model
+│   ├── ws_scenario_library_generator.py        # Generate a library of scenarios for the use of scenario tree 
+│   └── ws_scenario_screener.py                 # Screen scenarios in the library to extract only effective scenarios
 │
 ├── factories/                      # Factory pattern implementations (quick instance construction for core classes)
 │   ├── __init__.py

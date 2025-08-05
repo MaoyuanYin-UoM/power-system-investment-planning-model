@@ -424,7 +424,7 @@ def export_scenario_tree_to_excel(tree, filepath="../Scenario_Trees/test_scenari
                 'DFES_Scenario': node.dfes_scenario if node.dfes_scenario else 'N/A',
                 'Transition_Prob': node.transition_probability,
                 'Cumulative_Prob': node.cumulative_probability,
-                'Has_Embedded_Scenarios': len(node.embedded_scenarios) > 0
+                'Has_Embedded_Scenarios': len(node.operational_scenarios) > 0
             })
 
         df_structure = pd.DataFrame(tree_data)
@@ -537,7 +537,7 @@ def export_scenario_tree_to_excel(tree, filepath="../Scenario_Trees/test_scenari
                     'DFES_Scenario': node.dfes_scenario,
                     'Parent_Year': tree.nodes[node.parent_id].year if node.parent_id is not None else 'N/A',
                     'Cumulative_Probability': node.cumulative_probability,
-                    'Embedded_Scenarios_Count': len(node.embedded_scenarios)
+                    'Embedded_Scenarios_Count': len(node.operational_scenarios)
                 })
 
         if inv_nodes_data:
