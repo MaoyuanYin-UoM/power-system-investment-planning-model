@@ -32,11 +32,11 @@ class InvestmentClass():
     def build_investment_model(self,
                                network_name: str = "29_bus_GB_transmission_network_with_Kearsley_GSP_group",
                                windstorm_name: str = "windstorm_GB_transmission_network",
-                               path_all_ws_scenarios: str = "Scenario_Database/Extracted_Windstorm_Scenarios/6_selected_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year.json",
+                               path_ws_scenario_library: str = "Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_GB_100scn_s10000_filt_b10_h2_buf15.json",
                                include_normal_scenario: bool = True,
                                normal_scenario_prob: float = 0.99,
-                               use_representative_days: bool = True,  # New default
-                               representative_days: list = None,  # New parameter
+                               use_representative_days: bool = True,
+                               representative_days: list = None,
                                resilience_metric_threshold: float = None,
                                solver_for_normal_opf: str = 'gurobi'):
         """
@@ -85,13 +85,26 @@ class InvestmentClass():
                 print_summary=True
             )
 
-            # Clean up the normal model to free memory
-            del normal_model
+            # Extract timesteps before deleting model
+            normal_scenario_hours = list(normal_model.Set_ts.data())
 
+            # Clean up
+            del normal_model
             print("Normal operation cost computation completed.\n")
 
+        else:
+            # Define timesteps when no normal scenario
+            if use_representative_days:
+                representative_days = representative_days or [15, 105, 195, 285]
+                normal_scenario_hours = []
+                for day in representative_days:
+                    start_hour = (day - 1) * 24 + 1
+                    normal_scenario_hours.extend(range(start_hour, start_hour + 24))
+            else:
+                normal_scenario_hours = list(range(1, 8761))
+
         # 0.2 Read Windstorm Scenarios
-        with open(path_all_ws_scenarios) as f:
+        with open(path_ws_scenario_library) as f:
             data = json.load(f)
 
         if "metadata" in data:
@@ -99,16 +112,23 @@ class InvestmentClass():
         else:
             raise ValueError("JSON does not contain 'metadata'")
 
-        if "ws_scenarios" in data:
-            ws_scenarios = data["ws_scenarios"]
+        # Handle both old and new format
+        if "scenarios" in data:
+            # New library format: convert dictionary to list
+            ws_scenarios = []
+            for scenario_id, scenario_data in sorted(data["scenarios"].items()):
+                # Add simulation_id for compatibility
+                scenario_data["simulation_id"] = int(scenario_id.split("_")[1]) + 1  # ws_0000 → 1
+                ws_scenarios.append(scenario_data)
         else:
-            raise ValueError("JSON does not contain 'ws_scenarios'")
+            raise ValueError("JSON does not contain 'scenarios'")
 
         # Store windstorm infor into metadata
         self.meta = Object()
-        self.meta.ws_seed = metadata.get("seed", None)
-        self.meta.n_ws_scenarios = metadata.get("number_of_ws_simulations", len(ws_scenarios))
-        self.meta.period_type = metadata.get("period_type", "year")
+        self.meta.ws_seed = metadata.get("seed", metadata.get("base_seed", None))
+        self.meta.n_ws_scenarios = metadata.get("number_of_ws_simulations",
+                                                metadata.get("num_scenarios", len(ws_scenarios)))
+        self.meta.library_type = metadata.get("library_type", "windstorm_scenarios")
 
         # Store normal scenario info into metadata
         if include_normal_scenario:
@@ -131,9 +151,6 @@ class InvestmentClass():
         else:
             # Only windstorm scenarios
             scn_prob = {sc: 1 / len(Set_scn) for sc in Set_scn}
-
-        _abs_start_ts = {sim["simulation_id"]: sim["events"][0]["bgn_hr"]
-                      for sim in ws_scenarios}
 
 
         # ------------------------------------------------------------------
@@ -168,11 +185,59 @@ class InvestmentClass():
 
         Set_gen = list(range(1, len(net.data.net.gen) + 1))
 
-        # scenario-specific timestep sets ----------------------------------
-        Set_ts_scn = {
-            sim["simulation_id"]: list(range(1, len(sim["bch_rand_nums"][0]) + 1))
-            for sim in ws_scenarios
-        }
+        has_renewables = (hasattr(net.data.net, 'profile_Pg_renewable') and
+                          net.data.net.profile_Pg_renewable is not None and
+                          hasattr(net.data.net, 'gen_type'))
+
+        # Classify generators by type (for renewable handling)
+        if has_renewables:
+            renewable_gens = []
+            non_renewable_gens = []
+
+            for g in Set_gen:  # Note: using Set_gen, not model.Set_gen yet
+                gen_idx = g - 1
+                gen_bus = net.data.net.gen[gen_idx]
+
+                if gen_bus in Set_bus_dn and net.data.net.gen_type[gen_idx] in ['wind', 'pv']:
+                    renewable_gens.append(g)
+                else:
+                    non_renewable_gens.append(g)
+        else:
+            renewable_gens = []
+            non_renewable_gens = Set_gen  # All generators are non-renewable
+
+        # scenario-specific timestep sets (absolute hour indices from the year)
+        Set_ts_scn = {}
+
+        for sim in ws_scenarios:
+            sc_id = sim["simulation_id"]
+
+            # Collect all hours affected by any windstorm event
+            affected_hours = set()
+
+            if "events" in sim:  # New format
+                events = sim["events"]
+                for event in events:
+                    bgn_hr = event["bgn_hr"]  # Absolute hour in year (1-8760)
+                    duration = event["duration"]
+
+                    # Get max TTR for this event
+                    if "bch_ttr" in event:
+                        max_ttr = max(event["bch_ttr"])
+                    else:
+                        max_ttr = 0
+
+                    # Add all affected hours (event + repair window)
+                    for hr in range(bgn_hr, bgn_hr + duration + max_ttr):
+                        if 1 <= hr <= 8760:  # Ensure within year bounds
+                            affected_hours.add(hr)
+
+            # Convert to sorted list
+            Set_ts_scn[sc_id] = sorted(list(affected_hours))
+
+            # If no events, include at least hour 1 to avoid empty set issues
+            if not Set_ts_scn[sc_id]:
+                Set_ts_scn[sc_id] = [1]
 
         # Tuple sets:
         #  - st: scenario, timestep
@@ -232,6 +297,8 @@ class InvestmentClass():
         model.Set_bch_lines = pyo.Set(initialize=Set_bch_lines)
         model.Set_bch_hrdn_lines = pyo.Set(initialize=Set_bch_hrdn_lines)
         model.Set_gen = pyo.Set(initialize=Set_gen)
+        model.Set_gen_renewable = pyo.Set(initialize=renewable_gens)
+        model.Set_gen_non_renewable = pyo.Set(initialize=non_renewable_gens)
 
         model.Set_ts_scn = {sc: pyo.Set(initialize=Set_ts_scn[sc])
                             for sc in Set_scn}
@@ -259,14 +326,12 @@ class InvestmentClass():
         # 3.2) Second-stage recourse variables  (indexed by scenario)
 
         # Before defining variables, first check if the model include reactive power demand
-        temp_qd_dict = {}  # You need to build Qd_dict early
+        temp_qd_dict = {}  # need to build Qd_dict early
         for sim in ws_scenarios:
             sc = sim["simulation_id"]
-            bgn = _abs_start_ts[sc]
-            for t in Set_ts_scn[sc]:
-                abs_hr = bgn + t - 1
+            for abs_hr in Set_ts_scn[sc]:  # Use absolute hour directly
                 for b in Set_bus_dn:
-                    temp_qd_dict[(sc, b, t)] = net.data.net.profile_Qd[b - 1][abs_hr - 1]
+                    temp_qd_dict[(sc, b, abs_hr)] = net.data.net.profile_Qd[b - 1][abs_hr - 1]
 
         has_reactive_demand = any(v > 0 for v in temp_qd_dict.values())
         print(f"Reactive demand detected: {has_reactive_demand}")
@@ -330,26 +395,60 @@ class InvestmentClass():
         # 4.1)  Scenario probability
         model.scn_prob = pyo.Param(model.Set_scn, initialize=scn_prob)
 
-        # 4.2)  Network static data  (costs, limits …)  – match names exactly
-        # - base value
+        # 4.2)  Network static data
+        # - Base value
         model.base_MVA = pyo.Param(initialize=net.data.net.base_MVA)
 
-        # - generator cost (c0 + c1·P)
+        # - Generator cost (c0 + c1·P)
         coef_len = len(net.data.net.gen_cost_coef[0])
         model.gen_cost_coef = pyo.Param(
             model.Set_gen, range(coef_len),
             initialize={(g, c): net.data.net.gen_cost_coef[g - 1][c]
                         for g in model.Set_gen for c in range(coef_len)}
         )
-        # - generation limits
-        model.Pg_max = pyo.Param(model.Set_gen,
-                                 initialize={g: net.data.net.Pg_max[g - 1] for g in model.Set_gen})
-        model.Pg_min = pyo.Param(model.Set_gen,
-                                 initialize={g: net.data.net.Pg_min[g - 1] for g in model.Set_gen})
-        model.Qg_max = pyo.Param(model.Set_gen,
-                                 initialize={g: net.data.net.Qg_max[g - 1] for g in model.Set_gen})
-        model.Qg_min = pyo.Param(model.Set_gen,
-                                 initialize={g: net.data.net.Qg_min[g - 1] for g in model.Set_gen})
+
+        # - Generation capacity parameters
+        # Static capacity for all generators (already scaled from network_factory)
+        model.Pg_max = pyo.Param(
+            model.Set_gen,
+            initialize={g: net.data.net.Pg_max[g - 1] for g in model.Set_gen}
+        )
+        model.Pg_min = pyo.Param(
+            model.Set_gen,
+            initialize={g: net.data.net.Pg_min[g - 1] for g in model.Set_gen}
+        )
+
+        model.Qg_max = pyo.Param(
+            model.Set_gen,
+            initialize={g: net.data.net.Qg_max[g - 1] for g in model.Set_gen}
+        )
+        model.Qg_min = pyo.Param(
+            model.Set_gen,
+            initialize={g: net.data.net.Qg_min[g - 1] for g in model.Set_gen}
+        )
+
+        # - Renewable generation availability (time-varying)
+        if has_renewables and model.Set_gen_renewable:
+            # Get unique windstorm hours across all scenarios
+            windstorm_hours = set()
+            for sc in Set_scn:
+                windstorm_hours.update(Set_ts_scn[sc])
+            windstorm_hours = sorted(list(windstorm_hours))
+
+            # Renewable availability for windstorm hours only
+            renewable_availability = {}
+            for g in model.Set_gen_renewable:
+                gen_idx = g - 1
+                profile = net.data.net.profile_Pg_renewable[gen_idx]
+                for hr in windstorm_hours:
+                    renewable_availability[(g, hr)] = \
+                        profile[hr - 1] if profile else net.data.net.Pg_max[gen_idx]
+
+            model.Pg_renewable_avail = pyo.Param(
+                model.Set_gen_renewable, windstorm_hours,
+                initialize=renewable_availability,
+                mutable=False
+            )
 
         # - branch constants
         model.B_tn = pyo.Param(model.Set_bch_tn,
@@ -391,18 +490,16 @@ class InvestmentClass():
                                          within=pyo.NonNegativeReals)
         model.budget = pyo.Param(initialize=net.data.budget_bch_hrdn)
 
-        # - demand profiles (Pd, Qd) by absolute hour
+        # - demand profiles (Pd, Qd) using absolute hours
         Pd_param = {}
         Qd_param = {}
         for sim in ws_scenarios:
             sc = sim["simulation_id"]
-            bgn = _abs_start_ts[sc]
-            for t in Set_ts_scn[sc]:
-                abs_hr = bgn + t - 1
+            for abs_hr in Set_ts_scn[sc]:  # Now directly using absolute hours
                 for b in net.data.net.bus:
-                    Pd_param[(sc, b, t)] = net.data.net.profile_Pd[b - 1][abs_hr - 1]
+                    Pd_param[(sc, b, abs_hr)] = net.data.net.profile_Pd[b - 1][abs_hr - 1]
                     if b in Set_bus_dn:
-                        Qd_param[(sc, b, t)] = net.data.net.profile_Qd[b - 1][abs_hr - 1]
+                        Qd_param[(sc, b, abs_hr)] = net.data.net.profile_Qd[b - 1][abs_hr - 1]
 
         model.Pd = pyo.Param(model.Set_sbt, initialize=Pd_param)
         model.Qd = pyo.Param(model.Set_sbt_dn, initialize=Qd_param)
@@ -415,17 +512,48 @@ class InvestmentClass():
 
         for sim in ws_scenarios:
             sc = sim["simulation_id"]
-            gust_series = sim["events"][0]["gust_speed"]
+
+            # Initialize default values for all hours in Set_ts_scn
             for t in Set_ts_scn[sc]:
-                gs = gust_series[t - 1] if t <= len(gust_series) else 0
-                gust_dict[(sc, t)] = gs
-            # branch-level arrays
+                gust_dict[(sc, t)] = 0  # No wind - 2D indexing!
+
             for l in range(1, len(net.data.net.bch) + 1):
-                ttr_dict[(sc, l)] = sim["bch_ttr"][l - 1]
-                for t, val in enumerate(sim["bch_rand_nums"][l - 1], start=1):
-                    rand_dict[(sc, l, t)] = val
-                for t, val in enumerate(sim["flgs_impacted_bch"][l - 1], start=1):
-                    impact_dict[(sc, l, t)] = val
+                for t in Set_ts_scn[sc]:
+                    rand_dict[(sc, l, t)] = 1.0  # No failure (rand > any threshold)
+                    impact_dict[(sc, l, t)] = 0  # Not impacted
+
+            # Overwrite with actual event data where events occur
+            for event in sim.get("events", []):
+                bgn_hr = event["bgn_hr"]
+                duration = event["duration"]
+
+                for hr_in_event in range(duration):
+                    abs_hr = bgn_hr + hr_in_event  # Absolute hour
+
+                    if abs_hr in Set_ts_scn[sc]:  # Should always be true
+                        # Gust speed (same for all branches) - 2D indexing!
+                        if isinstance(event["gust_speed"], list):
+                            gust_dict[(sc, abs_hr)] = event["gust_speed"][hr_in_event]
+                        else:
+                            gust_dict[(sc, abs_hr)] = event["gust_speed"]
+
+                        # Update all branches for this hour
+                        for l in range(1, len(net.data.net.bch) + 1):
+                            l_idx = l - 1  # Convert to 0-based for array indexing
+
+                            # Branch-specific data
+                            if "bch_rand_nums" in event:
+                                rand_dict[(sc, l, abs_hr)] = event["bch_rand_nums"][l_idx][hr_in_event]
+
+                            if "flgs_impacted_bch" in event:
+                                impact_dict[(sc, l, abs_hr)] = event["flgs_impacted_bch"][l_idx][hr_in_event]
+
+                # TTR (max across all events for each branch)
+                if "bch_ttr" in event:
+                    for l in range(1, len(net.data.net.bch) + 1):
+                        key = (sc, l)
+                        current_ttr = ttr_dict.get(key, 0)
+                        ttr_dict[key] = max(current_ttr, event["bch_ttr"][l - 1])
 
         model.gust_speed = pyo.Param(model.Set_st,
                                      initialize=gust_dict)
@@ -435,6 +563,13 @@ class InvestmentClass():
                                             initialize=impact_dict, within=pyo.Binary)
         model.branch_ttr = pyo.Param(model.Set_scn, model.Set_bch_tn | model.Set_bch_dn,
                                      initialize=ttr_dict)
+
+        # Create a parameter to store the absolute starting hour of each ws scenario
+        # (useful for defining certain constraints later)
+        first_timestep_dict = {sc: min(Set_ts_scn[sc]) for sc in Set_scn}
+        model.first_timestep = pyo.Param(model.Set_scn,
+                                         initialize=first_timestep_dict,
+                                         doc="First timestep for each ws scenario")
 
         # Asset lifetime (the number of years that operational cost will be computed based on)
         model.asset_lifetime = pyo.Param(
@@ -449,6 +584,7 @@ class InvestmentClass():
             mutable=False,
             doc="Annual discount rate (constant)"
         )
+
 
         # ------------------------------------------------------------------
         # 5. Constraints
@@ -535,22 +671,24 @@ class InvestmentClass():
         #   nothing happens (fail_applies == 0)
         def fail_activation_rule_1(model, sc, l, t):
             """ fail_applies can be 1 only if both branch_status at timestep 't-1' is 1 """
-            if t > 1:
-                return model.fail_applies[sc, l, t] <= model.branch_status[sc, l, t - 1]
-            else:
+            # Skip constraint for first timestep (assume branches start operational)
+            if t == model.first_timestep[sc]:
                 return pyo.Constraint.Skip
+            return model.fail_applies[sc, l, t] <= model.branch_status[sc, l, t - 1]
 
         def fail_activation_rule_2(model, sc, l, t):
             """ fail_applies can be 1 only if fail_indicator is 1 """
-            return model.fail_applies[sc, l, t] <= model.fail_indicator[sc, l, t]
+            if t == model.first_timestep[sc]:
+                return pyo.Constraint.Skip
+            return model.fail_applies[sc, l, t] <= model.fail_indicator[sc, l, t] + (
+                        1 - model.branch_status[sc, l, t - 1])
 
         def fail_activation_rule_3(model, sc, l, t):
             """ If both conditions are met, fail_applies must be 1 """
-            if t > 1:
-                return (model.fail_applies[sc, l, t] >= model.branch_status[sc, l, t - 1]
-                        + model.fail_indicator[sc, l, t] - 1)
-            else:
+            if t == model.first_timestep[sc]:
                 return pyo.Constraint.Skip
+            return model.fail_applies[sc, l, t] >= model.fail_indicator[sc, l, t] - (
+                        1 - model.branch_status[sc, l, t - 1])
 
         model.Constraint_FailActivation1 = pyo.Constraint(model.Set_slt_lines, rule=fail_activation_rule_1)
         model.Constraint_FailActivation2 = pyo.Constraint(model.Set_slt_lines, rule=fail_activation_rule_2)
@@ -566,9 +704,12 @@ class InvestmentClass():
         # - If the branch status is operational (branch_status == 1), there must not be no failure applied during the
         #   last 'ttr' hours (fail_applies[t'] == 0, for t' from (t - ttr) to t)
         def failure_persistence_rule(model, sc, l, t):
-            window_start = max(1, t - model.branch_ttr[sc, l] + 1)
+            window_start = max(model.first_timestep[sc], t - model.branch_ttr[sc, l] + 1)
+            # Only sum over timesteps that exist in the scenario
             return (model.branch_status[sc, l, t]
-                    + sum(model.fail_applies[sc, l, τ] for τ in range(window_start, t + 1))
+                    + sum(model.fail_applies[sc, l, τ]
+                          for τ in Set_ts_scn[sc]
+                          if window_start <= τ <= t)
                     ) <= 1
 
         model.Constraint_FailurePersistence = pyo.Constraint(model.Set_slt_lines, rule=failure_persistence_rule)
@@ -580,12 +721,14 @@ class InvestmentClass():
             (assuming we're still within the time horizon)
             """
             ttr = model.branch_ttr[sc, l]
+            target_t = t - ttr
 
-            # Check if we're far enough into the scenario to look back ttr steps
-            if t > ttr:
+            # Check if the target timestep exists in the scenario
+            if target_t in Set_ts_scn[sc]:
                 # If there was a failure exactly ttr steps ago, we must repair now
-                return model.repair_applies[sc, l, t] >= model.fail_applies[sc, l, t - ttr]
+                return model.repair_applies[sc, l, t] >= model.fail_applies[sc, l, target_t]
             else:
+                # If the target timestep doesn't exist, skip this constraint
                 return pyo.Constraint.Skip
 
         model.Constraint_RepairTiming = pyo.Constraint(model.Set_slt_lines, rule=repair_timing_rule)
@@ -597,13 +740,16 @@ class InvestmentClass():
             This prevents repairs from happening too early or without a failure
             """
             ttr = model.branch_ttr[sc, l]
+            target_t = t - ttr
 
-            if t > ttr:
+            # Check if we're far enough into the scenario to look back ttr steps
+            if target_t >= model.first_timestep[sc]:
                 # Sum of all failures in the window (t-ttr+1, t-1)
-                # If any failure happened in this window (except exactly ttr ago), no repair allowed
+                # Only consider timesteps that exist in the scenario
                 recent_failures = sum(
                     model.fail_applies[sc, l, tau]
-                    for tau in range(max(1, t - ttr + 1), t)
+                    for tau in Set_ts_scn[sc]
+                    if max(model.first_timestep[sc], t - ttr + 1) <= tau < t
                 )
                 return model.repair_applies[sc, l, t] <= 1 - recent_failures
             else:
@@ -615,21 +761,20 @@ class InvestmentClass():
         # Repair cannot happen if the line is already operational
         def no_repair_if_operational_rule(model, sc, l, t):
             """
-            If a line is operational at t-1, it cannot be repaired at t
-            (you can only repair failed lines)
+            If a line is operational at t-1, it cannot be repaired at t (only failed lines can be repaired)
             """
-            if t > 1:
-                return model.repair_applies[sc, l, t] <= 1 - model.branch_status[sc, l, t - 1]
-            else:
-                # No repairs at t=1 (all lines start operational)
+            if t == model.first_timestep[sc]:  # Use the parameter instead of hardcoded 1
+                # No repairs at first timestep (all lines start operational)
                 return model.repair_applies[sc, l, t] == 0
+            else:
+                return model.repair_applies[sc, l, t] <= 1 - model.branch_status[sc, l, t - 1]
 
         model.Constraint_NoRepairIfOperational = pyo.Constraint(model.Set_slt_lines, rule=no_repair_if_operational_rule)
 
         # - A Branch has to keep its status at last timestep unless failure or repair happens
         def bch_status_transition_rule(model, sc, l, t):
             # The scenario starts with all lines operational
-            if t == 1:
+            if t == model.first_timestep[sc]:
                 return model.branch_status[sc, l, t] == 1
             return (model.branch_status[sc, l, t] == model.branch_status[sc, l, t - 1] - model.fail_applies[sc, l, t]
                     + model.repair_applies[sc, l, t])
@@ -811,30 +956,31 @@ class InvestmentClass():
         model.Constraint_V2min = pyo.Constraint(model.Set_sbt_dn, rule=V2_dn_lower_limit_rule)
 
         # 5.8) Generator limits
-        def Pg_upper_limit_rule(model, sc, g, t):
-            return model.Pg[sc, g, t] <= model.Pg_max[g]
+        def Pg_upper_limit_rule(model, s, g, t):
+            """Upper bound for generation"""
+            if has_renewables and g in model.Set_gen_renewable:
+                return model.Pg[s, g, t] <= model.Pg_renewable_avail[g, t]
+            else:
+                return model.Pg[s, g, t] <= model.Pg_max[g]
 
-        def Pg_lower_limit_rule(model, sc, g, t):
-            return model.Pg[sc, g, t] >= model.Pg_min[g]
+        def Pg_lower_limit_rule(model, s, g, t):
+            return model.Pg[s, g, t] >= model.Pg_min[g]
+
+        model.Constraint_Pg_upper = pyo.Constraint(model.Set_sgt, rule=Pg_upper_limit_rule)
+        model.Constraint_Pg_lower = pyo.Constraint(model.Set_sgt, rule=Pg_lower_limit_rule)
 
         def Qg_upper_limit_rule(model, sc, g, t):
-            # Skip this constraint if no reactive demand exists
             if not has_reactive_demand:
                 return pyo.Constraint.Skip
-
             return model.Qg[sc, g, t] <= model.Qg_max[g]
 
         def Qg_lower_limit_rule(model, sc, g, t):
-            # Skip this constraint if no reactive demand exists
             if not has_reactive_demand:
                 return pyo.Constraint.Skip
-
             return model.Qg[sc, g, t] >= model.Qg_min[g]
 
-        model.Constraint_PgUpperLimit = pyo.Constraint(model.Set_sgt, rule=Pg_upper_limit_rule)
-        model.Constraint_PgLowerLimit = pyo.Constraint(model.Set_sgt, rule=Pg_lower_limit_rule)
-        model.Constraint_QgUpperLimit = pyo.Constraint(model.Set_sgt, rule=Qg_upper_limit_rule)
-        model.Constraint_QgLowerLimit = pyo.Constraint(model.Set_sgt, rule=Qg_lower_limit_rule)
+        model.Constraint_Qg_upper = pyo.Constraint(model.Set_sgt, rule=Qg_upper_limit_rule)
+        model.Constraint_Qg_lower = pyo.Constraint(model.Set_sgt, rule=Qg_lower_limit_rule)
 
         # 5.9) Slack-bus reference theta = 0
         def slack_rule(model, sc, t):
@@ -1320,7 +1466,6 @@ class InvestmentClass():
             tuple: (model, scale_factor) where scale_factor is for annualizing costs
         """
         from factories.network_factory import make_network
-
         net = make_network(network_name)
 
         # Determine hours to compute
@@ -1370,11 +1515,33 @@ class InvestmentClass():
         model.Set_gen = pyo.Set(initialize=Set_gen)
         model.Set_ts = pyo.Set(initialize=Set_ts)
 
+        # Check for renewable generators
+        has_renewables = (hasattr(net.data.net, 'profile_Pg_renewable') and
+                          net.data.net.profile_Pg_renewable is not None and
+                          hasattr(net.data.net, 'gen_type'))
+
+        if has_renewables:
+            # Classify generators
+            renewable_gens = []
+            non_renewable_gens = []
+
+            for g in Set_gen:
+                gen_idx = g - 1
+                gen_bus = net.data.net.gen[gen_idx]
+
+                if gen_bus in Set_bus_dn and net.data.net.gen_type[gen_idx] in ['wind', 'pv']:
+                    renewable_gens.append(g)
+                else:
+                    non_renewable_gens.append(g)
+
+            model.Set_gen_renewable = pyo.Set(initialize=renewable_gens)
+            model.Set_gen_non_renewable = pyo.Set(initialize=non_renewable_gens)
+
         # Get slack bus
         slack_bus = net.data.net.slack_bus
 
         # ------------------------------------------------------------------
-        # 2. Parameters (COMPLETE)
+        # 2. Parameters
         # ------------------------------------------------------------------
         model.base_MVA = pyo.Param(initialize=net.data.net.base_MVA)
 
@@ -1404,6 +1571,25 @@ class InvestmentClass():
                                  initialize={g: net.data.net.Qg_max[g - 1] for g in Set_gen})
         model.Qg_min = pyo.Param(model.Set_gen,
                                  initialize={g: net.data.net.Qg_min[g - 1] for g in Set_gen})
+
+        # Create renewable availability for normal operation hours
+        renewable_availability = {}
+        for g in renewable_gens:
+            gen_idx = g - 1
+            if net.data.net.profile_Pg_renewable[gen_idx] is not None:
+                for t in model.Set_ts:  # t is the timestep index (1, 2, 3...)
+                    abs_hr = hours_to_compute[t - 1]  # Get absolute hour
+                    renewable_availability[(g, t)] = \
+                        net.data.net.profile_Pg_renewable[gen_idx][abs_hr - 1]
+            else:
+                for t in model.Set_ts:
+                    renewable_availability[(g, t)] = net.data.net.Pg_max[gen_idx]
+
+        model.Pg_renewable_avail = pyo.Param(
+            model.Set_gen_renewable, model.Set_ts,
+            initialize=renewable_availability,
+            mutable=False
+        )
 
         # Generator cost coefficients (THIS WAS MISSING!)
         coef_len = len(net.data.net.gen_cost_coef[0])
@@ -1580,7 +1766,10 @@ class InvestmentClass():
 
         # 4.7) Generator Limits
         def pg_upper_rule(model, g, t):
-            return model.Pg[g, t] <= model.Pg_max[g]
+            if has_renewables and g in model.Set_gen_renewable:
+                return model.Pg[g, t] <= model.Pg_renewable_avail[g, t]
+            else:
+                return model.Pg[g, t] <= model.Pg_max[g]
 
         def pg_lower_rule(model, g, t):
             return model.Pg[g, t] >= model.Pg_min[g]
@@ -1690,6 +1879,8 @@ class InvestmentClass():
         total_pc *= model.scale_factor
         total_qc *= model.scale_factor
 
+        total_eens = total_pc * 1
+
         from factories.network_factory import make_network
         net = make_network(model.network_name)
 
@@ -1714,10 +1905,15 @@ class InvestmentClass():
         # Verify total cost breakdown
         calculated_total = gen_cost_total + grid_cost + ls_cost_total
 
-        # Check for load shedding
-        total_eens = sum(pyo.value(model.Pc[b, t])
-                              for b in model.Set_bus_tn | model.Set_bus_dn
-                              for t in model.Set_ts)
+        # Extract renewable generation usage
+        if hasattr(model, 'Set_gen_renewable'):
+            renewable_gen_output = 0
+            for g in model.Set_gen_renewable:  # FIXED: Changed from 'renewable_gens' to 'model.Set_gen_renewable'
+                for t in model.Set_ts:
+                    renewable_gen_output += pyo.value(model.Pg[g, t])
+            renewable_gen_output *= model.scale_factor
+        else:
+            renewable_gen_output = 0
 
         if print_summary:
             print("\n" + "=" * 60)
@@ -1732,9 +1928,9 @@ class InvestmentClass():
             print(f"  - Load shedding cost: ${ls_cost_total:,.2f}")
             print(f"    - Active (Pc): ${ls_cost_active * model.scale_factor:,.2f}")
             print(f"    - Reactive (Qc): ${ls_cost_reactive * model.scale_factor:,.2f}")
-            print(f"Total load shed: {total_pc:.4f} MW active, {total_qc:.4f} MVAr reactive")
-            print(f"Total EENS: {total_eens:.4f} MWh")
             print(f"Cost verification: ${calculated_total:,.2f} (should equal total)")
+            print(f"Total (DN) renewable generation: {renewable_gen_output:.4f} MWh active")
+            print(f"Total EENS: {total_eens:.4f} MWh")
             print("=" * 60 + "\n")
 
         return {
@@ -1746,6 +1942,7 @@ class InvestmentClass():
             "ls_cost_total": ls_cost_total,
             "load_shed_mw": total_pc,
             "load_shed_mvar": total_qc,
+            "total_eens_mwh": total_eens,
             "hours_computed": model.hours_computed,
             "scale_factor": model.scale_factor,
             "representative_days": model.representative_days,

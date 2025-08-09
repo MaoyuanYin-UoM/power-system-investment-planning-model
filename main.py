@@ -35,8 +35,8 @@ from core.investment_model_two_stage import *
 # Seeds with windstorms passing the Kearsley group:
 # --> for 1-ws scenarios, seed=112
 # --> for 5-ws scenarios, seed=104
-path_ws_scenarios = "Scenario_Database/Scenarios_for_Two_Stage_Model/Extracted_Windstorm_Scenarios/4_selected_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year_seeds_[112, 152, 166, 198].json"
-path_normal_scenario = "Scenario_Database/Scenarios_for_Two_Stage_Model/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json"
+path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_GB_100scn_s10000_filt_b10_h2_buf15.json"
+# path_normal_scenario = "Scenario_Database/Scenarios_for_Old_Two_Stage_Model/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json"
 
 # resilience_thresholds = [
 #     None,
@@ -53,7 +53,7 @@ path_normal_scenario = "Scenario_Database/Scenarios_for_Two_Stage_Model/Normal_S
 # ]
 
 resilience_metric_thresholds = [
-    # None,
+    None,
     # 1.4e4,
     # 1.3e4,
     # 1.2e4,
@@ -81,13 +81,13 @@ resilience_metric_thresholds = [
 
 for resilience_metric_threshold in resilience_metric_thresholds:
     inv = InvestmentClass()
-    model = inv.build_investment_model(path_all_ws_scenarios=path_ws_scenarios,
-                                       normal_scenario_prob = 0.99,
+    model = inv.build_investment_model(path_ws_scenario_library=path_ws_scenario_library,
+                                       normal_scenario_prob=0.99,
                                        resilience_metric_threshold=resilience_metric_threshold
                                        )
     results = inv.solve_investment_model(model, write_lp=False, write_result=True,
                                          solver_name='gurobi',
-                                         # result_path='Optimization_Results/Investment_Model/results_selected_variable.csv',
+                                         result_path=None,
                                          mip_gap=5e-8,
                                          time_limit=10800
                                          )

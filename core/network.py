@@ -10,6 +10,7 @@ from pyomo.contrib.mpc.examples.cstr.model import initialize_model
 from pyomo.opt import SolverFactory
 import os, pathlib
 from datetime import datetime
+from pathlib import Path
 
 from core.config import NetConfig
 from core.windstorm import WindClass
@@ -33,7 +34,11 @@ class NetworkClass:
         ws = WindClass()
 
         # Set scaled demand profiles for all buses
-        DP_file_path = "../Input_Data/Demand_Profile/normalized_hourly_demand_profile_year.xlsx"
+        # - Get the correct absolute directory
+        script_dir = Path(__file__).parent.absolute()
+        project_root = script_dir.parent
+        DP_file_path = project_root / "Input_Data" / "Demand_Profile" / "normalized_hourly_demand_profile_year.xlsx"
+        # - Read and set the demand profile
         df = pd.read_excel(DP_file_path, header=0)  # ignore any header row
         if ws.data.MC.lng_prd == 'year':
             normalized_profile = df.iloc[:, 0].tolist()  # Extract the whole column (1 year) and convert to list
@@ -42,6 +47,11 @@ class NetworkClass:
         elif ws.data.MC.lng_prd == 'week':
             normalized_profile = df.iloc[0:168, 0].tolist()  # Extract the first week
         self.set_scaled_profile_for_buses(normalized_profile)
+
+        # Set renewable generation profiles if applicable
+        # This will check if generator types are defined and load appropriate profiles
+        if hasattr(self.data.net, 'gen_type'):
+            self.set_renewable_generation_profiles()
 
     def build_dc_opf_model(self):
         """
@@ -1075,3 +1085,168 @@ class NetworkClass:
     def _get_bch_gis_end(self):
         """Get bch_gis_end"""
         return self.data.net.bch_gis_end
+
+    def read_renewable_profile(self, file_path):
+        """Read normalized renewable generation profile from given file path into a Python list"""
+        try:
+            # Read the Excel file
+            df = pd.read_excel(file_path, header=0)
+            # Extract the generation column (column B, index 1) and convert to list
+            # Assuming 8760 hourly values for a year
+            renewable_profile = df.iloc[:, 1].tolist()
+            return renewable_profile
+        except Exception as e:
+            print(f"Error reading renewable profile from {file_path}: {str(e)}")
+            return None
+
+    def set_renewable_generation_profiles(self):
+        """
+        Set renewable generation profiles for wind and PV generators.
+        Profiles are scaled versions of normalized profiles based on generator capacity.
+        """
+        # Check if we have renewable generators
+        if not hasattr(self.data.net, 'gen_type'):
+            print("No generator type information available. Skipping renewable profiles.")
+            return
+
+        # Get the time period from windstorm settings
+        ws = WindClass()
+
+        # Initialize profile variables to None
+        wind_profile_normalized = None
+        pv_profile_normalized = None
+
+        # Determine profile length based on period
+        if ws.data.MC.lng_prd == 'year':
+            default_profile_length = 8760
+        elif ws.data.MC.lng_prd == 'month':
+            default_profile_length = 720
+        elif ws.data.MC.lng_prd == 'week':
+            default_profile_length = 168
+        else:
+            default_profile_length = 8760
+
+        # Read wind profile if we have wind generators
+        has_wind = 'wind' in self.data.net.gen_type
+        if has_wind:
+            if hasattr(self.data.net, 'wind_profile_path'):
+                wind_profile_full = self.read_renewable_profile(self.data.net.wind_profile_path)
+                if wind_profile_full:
+                    # Trim profile based on time period
+                    if ws.data.MC.lng_prd == 'year':
+                        wind_profile_normalized = wind_profile_full[:8760]
+                    elif ws.data.MC.lng_prd == 'month':
+                        wind_profile_normalized = wind_profile_full[:720]
+                    elif ws.data.MC.lng_prd == 'week':
+                        wind_profile_normalized = wind_profile_full[:168]
+                    else:
+                        wind_profile_normalized = wind_profile_full
+                else:
+                    # Default to constant profile if file reading fails
+                    print("Using default constant wind profile")
+                    wind_profile_normalized = [0.3] * default_profile_length  # Default 30% capacity factor
+            else:
+                # No profile path provided, use default
+                print("No wind profile path provided. Using default constant wind profile")
+                wind_profile_normalized = [0.3] * default_profile_length
+
+        # Read PV profile if we have PV generators
+        has_pv = 'pv' in self.data.net.gen_type
+        if has_pv:
+            if hasattr(self.data.net, 'pv_profile_path'):
+                pv_profile_full = self.read_renewable_profile(self.data.net.pv_profile_path)
+                if pv_profile_full:
+                    # Trim profile based on time period
+                    if ws.data.MC.lng_prd == 'year':
+                        pv_profile_normalized = pv_profile_full[:8760]
+                    elif ws.data.MC.lng_prd == 'month':
+                        pv_profile_normalized = pv_profile_full[:720]
+                    elif ws.data.MC.lng_prd == 'week':
+                        pv_profile_normalized = pv_profile_full[:168]
+                    else:
+                        pv_profile_normalized = pv_profile_full
+                else:
+                    # Default to a simple day-night profile if file reading fails
+                    print("Using default PV profile")
+                    # Simple sinusoidal daily pattern (0 at night, peak at noon)
+                    pv_profile_normalized = []
+                    for hour in range(default_profile_length):
+                        hour_of_day = hour % 24
+                        if 6 <= hour_of_day <= 18:
+                            # Daylight hours: sinusoidal pattern
+                            value = 0.2 * math.sin(math.pi * (hour_of_day - 6) / 12)
+                        else:
+                            value = 0
+                        pv_profile_normalized.append(value)
+            else:
+                # No profile path provided, use default
+                print("No PV profile path provided. Using default PV profile")
+                # Simple sinusoidal daily pattern
+                pv_profile_normalized = []
+                for hour in range(default_profile_length):
+                    hour_of_day = hour % 24
+                    if 6 <= hour_of_day <= 18:
+                        value = 0.2 * math.sin(math.pi * (hour_of_day - 6) / 12)
+                    else:
+                        value = 0
+                    pv_profile_normalized.append(value)
+
+        # Create scaled profiles for each generator
+        profile_Pg_wind = []
+        profile_Pg_pv = []
+        profile_Pg_gas = []
+
+        for i, (gen_bus, gen_type, pg_max) in enumerate(zip(self.data.net.gen,
+                                                            self.data.net.gen_type,
+                                                            self.data.net.Pg_max)):
+            if gen_type == 'wind' and has_wind and wind_profile_normalized:
+                # Scale wind profile by generator capacity
+                scaled_profile = [v * pg_max for v in wind_profile_normalized]
+                profile_Pg_wind.append(scaled_profile)
+            elif gen_type == 'pv' and has_pv and pv_profile_normalized:
+                # Scale PV profile by generator capacity
+                scaled_profile = [v * pg_max for v in pv_profile_normalized]
+                profile_Pg_pv.append(scaled_profile)
+            elif gen_type == 'gas':
+                # Gas generators are dispatchable - no fixed profile
+                # Determine profile length based on what's available
+                if wind_profile_normalized:
+                    profile_length = len(wind_profile_normalized)
+                elif pv_profile_normalized:
+                    profile_length = len(pv_profile_normalized)
+                else:
+                    profile_length = default_profile_length
+                profile_Pg_gas.append([pg_max] * profile_length)  # Always available at max capacity
+
+        # Store profiles in data structure
+        self.data.net.profile_Pg_wind = profile_Pg_wind if profile_Pg_wind else None
+        self.data.net.profile_Pg_pv = profile_Pg_pv if profile_Pg_pv else None
+        self.data.net.profile_Pg_gas = profile_Pg_gas if profile_Pg_gas else None
+
+        # Also create a combined renewable profile list aligned with generator indices
+        # This will be useful for optimization models
+        profile_Pg_renewable = []
+        wind_idx = 0
+        pv_idx = 0
+        gas_idx = 0
+
+        for gen_type in self.data.net.gen_type:
+            if gen_type == 'wind' and profile_Pg_wind:
+                profile_Pg_renewable.append(profile_Pg_wind[wind_idx])
+                wind_idx += 1
+            elif gen_type == 'pv' and profile_Pg_pv:
+                profile_Pg_renewable.append(profile_Pg_pv[pv_idx])
+                pv_idx += 1
+            elif gen_type == 'gas' and profile_Pg_gas:
+                # For gas, we could use None or the max capacity profile
+                profile_Pg_renewable.append(None)  # Gas is dispatchable, no fixed profile
+                gas_idx += 1
+            else:
+                profile_Pg_renewable.append(None)
+
+        self.data.net.profile_Pg_renewable = profile_Pg_renewable
+
+        print(f"Renewable generation profiles set successfully:")
+        print(f"  - Wind generators: {sum(1 for t in self.data.net.gen_type if t == 'wind')}")
+        print(f"  - PV generators: {sum(1 for t in self.data.net.gen_type if t == 'pv')}")
+        print(f"  - Gas generators: {sum(1 for t in self.data.net.gen_type if t == 'gas')}")

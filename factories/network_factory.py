@@ -20,8 +20,21 @@ def make_network(name: str) -> NetworkClass:
               As all these buses have zero load and gen, they are kept in the model and won't affect DC power flow.
         """
 
-        # 1) Load all the relevant sheets once
-        net_data = pd.ExcelFile(r"../Input_Data/GB_Network_full/GBNetwork_New.xlsx")
+        # 1) Load the network data
+        # Get the directory where this script is located
+        script_dir = Path(__file__).parent.absolute()
+        # Navigate to the project root
+        project_root = script_dir.parent
+        # Build the path to the Excel file
+        wb_path = project_root / "Input_Data" / "GB_Network_full" / "GBNetwork_New.xlsx"
+
+        # Check if file exists
+        if not wb_path.exists():
+            raise FileNotFoundError(f"Network data file not found at: {wb_path}\n"
+                                    f"Current working directory: {Path.cwd()}\n"
+                                    f"Script directory: {script_dir}")
+
+        net_data = pd.ExcelFile(wb_path)
 
         # - bus data:
         bus_df = net_data.parse(
@@ -196,7 +209,20 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         # 1.  Read the workbook
         # -----------------------------------------------------------
-        wb_path = Path(r"../Input_Data/Manchester_Distribution_Network/Kearsley_GSP_group_only_modified.xlsx")
+
+        # Get the directory where this script is located
+        script_dir = Path(__file__).parent.absolute()
+        # Navigate to the project root
+        project_root = script_dir.parent
+        # Build the path to the Excel file
+        wb_path = project_root / "Input_Data" / "Manchester_Distribution_Network" / "Kearsley_GSP_group_only_modified.xlsx"
+
+        # Check if file exists
+        if not wb_path.exists():
+            raise FileNotFoundError(f"Network data file not found at: {wb_path}\n"
+                                    f"Current working directory: {Path.cwd()}\n"
+                                    f"Script directory: {script_dir}")
+
         wb = pd.ExcelFile(wb_path)
 
         df_base = wb.parse("base_values")
@@ -216,30 +242,19 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.base_kV = None  # cosmetic for this model
 
         # -----------------------------------------------------------
-        # 3.  Bus data ------------------------------------------------
+        # 3.  Bus data
         # -----------------------------------------------------------
         ncon.data.net.bus = df_bus["Bus ID"].astype(int).tolist()
+        ncon.data.net.slack_bus = 1  # slack bus is the GSP bus (bus 1)
+        ncon.data.net.V_min = df_bus["V_min (pu)"].astype(float).tolist()
+        ncon.data.net.V_max = df_bus["V_max (pu)"].astype(float).tolist()
 
-        # slack bus (assume exactly one row has If Slack == 1)
-        ncon.data.net.slack_bus = int(df_bus.loc[df_bus["If Slack"] == 1,
-        "Bus ID"].iloc[0])
-
-        # angle limits (taken from the first row – all rows identical in your file)
-        ncon.data.net.theta_limits = [
-            float(df_bus["V_angle_min (rad)"].iloc[0]),
-            float(df_bus["V_angle_max (rad)"].iloc[0])
-        ]
-
-        # voltage-magnitude limits
-        ncon.data.net.V_min = (df_bus["V_min (pu)"]).tolist()
-        ncon.data.net.V_max = (df_bus["V_max (pu)"]).tolist()
-
-        # GEO coordinates
-        ncon.data.net.bus_lon = df_bus["Geo_lon"].tolist()
-        ncon.data.net.bus_lat = df_bus["Geo_lat"].tolist()
+        # read geographic coords
+        ncon.data.net.bus_lon = df_bus["Geo_lon"].astype(float).tolist()
+        ncon.data.net.bus_lat = df_bus["Geo_lat"].astype(float).tolist()
 
         # -----------------------------------------------------------
-        # 4.  Branch (line & transformer) data ----------------------
+        # 4.  Branch (line & transformer) data
         # -----------------------------------------------------------
         ncon.data.net.bch = (
             df_bch[["From_bus ID", "To_bus ID"]]
@@ -255,12 +270,6 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_X = df_bch["Reactance (pu)"].astype(float).tolist()
 
         # Apparent- and active-power limits
-
-        # ncon.data.net.bch_Smax = df_bch["S_max (MW)"].astype(float).tolist()
-        # ncon.data.net.bch_Pmax = df_bch["P_max (MW)"].astype(float).tolist()
-
-        # Currently due to possibly data mismatch between ENW network asset data and DFES demand and generation data,
-        # we use manually modified branch thermal limits values to avoid load shedding in normal operations
         ncon.data.net.bch_Smax = df_bch["S_max (MW)"].astype(float).tolist()
         ncon.data.net.bch_Pmax = df_bch["P_max (MW)"].astype(float).tolist()
 
@@ -271,7 +280,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_hardenable = (df_bch["If Hardenable"].fillna(0).astype(int).tolist())
 
         # -----------------------------------------------------------
-        # 5.  Load data ---------------------------------------------
+        # 5.  Demand data
         # -----------------------------------------------------------
         # Build Pd/Qd vectors aligned with the master bus list
         load_agg = (
@@ -291,22 +300,109 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.profile_Qd = None
 
         # -----------------------------------------------------------
-        # 6.  Generator data ----------------------------------------
+        # 6.  Generator data with technology-specific splitting
         # -----------------------------------------------------------
-        ncon.data.net.gen = df_gen["Bus ID"].astype(int).tolist()
-        ncon.data.net.Pg_max = df_gen["Pg_max"].astype(float).tolist()
-        ncon.data.net.Pg_min = df_gen["Pg_min"].astype(float).tolist()
-        ncon.data.net.Qg_max = df_gen["Qg_max"].astype(float).tolist()
-        ncon.data.net.Qg_min = df_gen["Qg_min"].astype(float).tolist()
+        # Read generation shares from Excel (defaults to 0 if columns don't exist)
+        if 'Gas Share' in df_gen.columns:
+            gas_shares = df_gen['Gas Share'].fillna(0).astype(float).tolist()
+        else:
+            gas_shares = [0] * len(df_gen)
 
-        # generation cost coefficients  (quadratic - linear)
-        ncon.data.net.gen_cost_coef = (
-            df_gen[["gen_cost_coef_0", "gen_cost_coef_1"]]
-            .fillna(0).values.tolist()
-        )
+        if 'Wind Share' in df_gen.columns:
+            wind_shares = df_gen['Wind Share'].fillna(0).astype(float).tolist()
+        else:
+            wind_shares = [0] * len(df_gen)
+
+        if 'PV Share' in df_gen.columns:
+            pv_shares = df_gen['PV Share'].fillna(0).astype(float).tolist()
+        else:
+            pv_shares = [0] * len(df_gen)
+
+        # Validate shares sum to 1 (or 0 if no generation)
+        for i, (gas, wind, pv) in enumerate(zip(gas_shares, wind_shares, pv_shares)):
+            total_share = gas + wind + pv
+            if total_share > 0 and abs(total_share - 1.0) > 1e-6:
+                print(f"Warning: Generation shares at generator {i + 1} sum to {total_share}, not 1.0")
+
+        # Split generators by technology type
+        gen_buses = []
+        gen_types = []  # 'gas', 'wind', or 'pv'
+        Pg_max_list = []
+        Pg_min_list = []
+        Qg_max_list = []
+        Qg_min_list = []
+        gen_cost_coef_list = []
+
+        for idx, row in df_gen.iterrows():
+            bus_id = int(row["Bus ID"])
+            pg_max_total = float(row["Pg_max"])
+            pg_min_total = float(row["Pg_min"])
+            qg_max_total = float(row["Qg_max"])
+            qg_min_total = float(row["Qg_min"])
+            cost_coef_0 = float(row["gen_cost_coef_0"]) if "gen_cost_coef_0" in row else 0
+            cost_coef_1 = float(row["gen_cost_coef_1"]) if "gen_cost_coef_1" in row else 0
+
+            gas_share = gas_shares[idx]
+            wind_share = wind_shares[idx]
+            pv_share = pv_shares[idx]
+
+            # Create gas generator if share > 0
+            if gas_share > 0:
+                gen_buses.append(bus_id)
+                gen_types.append('gas')
+                Pg_max_list.append(pg_max_total * gas_share)
+                Pg_min_list.append(pg_min_total * gas_share)
+                Qg_max_list.append(qg_max_total * gas_share)
+                Qg_min_list.append(qg_min_total * gas_share)
+                # Gas generators keep the original cost coefficients
+                gen_cost_coef_list.append([cost_coef_0, cost_coef_1])
+
+            # Create wind generator if share > 0
+            if wind_share > 0:
+                gen_buses.append(bus_id)
+                gen_types.append('wind')
+                Pg_max_list.append(pg_max_total * wind_share)
+                # Wind generators have zero minimum generation (renewable)
+                Pg_min_list.append(0)
+                Qg_max_list.append(qg_max_total * wind_share)
+                Qg_min_list.append(0)
+                # Renewable generators typically have zero marginal cost
+                gen_cost_coef_list.append([0, 0])
+
+            # Create PV generator if share > 0
+            if pv_share > 0:
+                gen_buses.append(bus_id)
+                gen_types.append('pv')
+                Pg_max_list.append(pg_max_total * pv_share)
+                # PV generators have zero minimum generation (renewable)
+                Pg_min_list.append(0)
+                Qg_max_list.append(qg_max_total * pv_share)
+                Qg_min_list.append(0)
+                # Renewable generators typically have zero marginal cost
+                gen_cost_coef_list.append([0, 0])
+
+        # Store in ncon
+        ncon.data.net.gen = gen_buses
+        ncon.data.net.gen_type = gen_types
+        ncon.data.net.Pg_max = Pg_max_list
+        ncon.data.net.Pg_min = Pg_min_list
+        ncon.data.net.Qg_max = Qg_max_list
+        ncon.data.net.Qg_min = Qg_min_list
+        ncon.data.net.gen_cost_coef = gen_cost_coef_list
 
         # -----------------------------------------------------------
-        # 7.  Cost-related parameters ---------------------------
+        # 7.  Renewable generation profiles
+        # -----------------------------------------------------------
+        # Initialize profile storage (will be populated by NetworkClass methods)
+        ncon.data.net.profile_Pg_wind = None
+        ncon.data.net.profile_Pg_pv = None
+
+        # Store file paths for renewable profiles for later loading
+        ncon.data.net.wind_profile_path = project_root / "Input_Data/Renewable_Generation_Profiles/wind_profile_2019_Manchester.xlsx"
+        ncon.data.net.pv_profile_path = project_root / "Input_Data/Renewable_Generation_Profiles/pv_profile_2015_Manchester.xlsx"
+
+        # -----------------------------------------------------------
+        # 8.  Cost-related parameters
         # -----------------------------------------------------------
         ncon.data.net.Pc_cost = [5000] * len(ncon.data.net.bus)  # active load shedding cost
         ncon.data.net.Qc_cost = [5000] * len(ncon.data.net.bus)  # reactive load shedding cost
@@ -322,7 +418,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_gis_end = None
 
         # -----------------------------------------------------------
-        # 8.  Fragility data ---------------------------
+        # 9.  Fragility data
         # -----------------------------------------------------------
         num_bch = len(ncon.data.net.bch)
         ncon.data.frg.mu = [3.8] * num_bch
@@ -505,7 +601,20 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         # 1.  Read workbook
         # -----------------------------------------------------------
-        wb_path = Path(r"../Input_Data/GB_Network_29bus/GB_Transmission_Network_29_Bus.xlsx")
+
+        # Get the directory where this script is located
+        script_dir = Path(__file__).parent.absolute()
+        # Navigate to the project root
+        project_root = script_dir.parent
+        # Build the path to the Excel file
+        wb_path = project_root / "Input_Data" / "GB_Network_29bus" / "GB_Transmission_Network_29_Bus.xlsx"
+
+        # Check if file exists
+        if not wb_path.exists():
+            raise FileNotFoundError(f"Network data file not found at: {wb_path}\n"
+                                    f"Current working directory: {Path.cwd()}\n"
+                                    f"Script directory: {script_dir}")
+
         wb = pd.ExcelFile(wb_path)
 
         df_base = wb.parse("base_values")
@@ -750,6 +859,22 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Qg_max.extend(dn.Qg_max)
         ncon.data.net.Qg_min.extend(dn.Qg_min)
         ncon.data.net.gen_cost_coef.extend(dn.gen_cost_coef)
+
+        # Handle gen_type: Currently GB network doesn't have 'gen_type' attribute, so create default for GB generators
+        if not hasattr(gb, 'gen_type'):
+            # Assume all GB transmission generators are 'gas' (dispatchable)
+            gb_gen_types = ['gas'] * len(gb.gen)
+        else:
+            gb_gen_types = gb.gen_type
+
+        # Set the combined gen_type list
+        ncon.data.net.gen_type = gb_gen_types + dn.gen_type
+
+        # Copy renewable profile paths from distribution network
+        if hasattr(dn, 'wind_profile_path'):
+            ncon.data.net.wind_profile_path = dn.wind_profile_path
+        if hasattr(dn, 'pv_profile_path'):
+            ncon.data.net.pv_profile_path = dn.pv_profile_path
 
         # 4.6  Fragility vectors
         ncon.data.frg.mu = list(gb_net.data.frg.mu) + list(dn_net.data.frg.mu)

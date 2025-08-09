@@ -21,7 +21,7 @@ def generate_windstorm_library(
         windstorm_preset: str,
         num_scenarios: int = 100,
         base_seed: int = 10000,
-        output_dir: str = "../Scenario_Database/Scenarios_for_Scenario_Tree/Original_Scenario_Libraries",
+        output_dir: str = "../Scenario_Database/Scenarios_Libraries/Original_Scenario_Libraries",
         library_name: Optional[str] = None
 ) -> str:
     """
@@ -406,7 +406,7 @@ if __name__ == "__main__":
         windstorm_preset="windstorm_GB_transmission_network",
         num_scenarios=100,
         base_seed=10000,
-        output_dir="../Scenario_Database/Scenarios_for_Scenario_Tree/Original_Scenario_Libraries",
+        output_dir="../Scenario_Database/Scenarios_Libraries/Original_Scenario_Libraries",
     )
 
     # Test loading functionality

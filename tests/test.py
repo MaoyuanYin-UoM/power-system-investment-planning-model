@@ -117,7 +117,7 @@ from data_processing.ws_scenario_generation import *
 #
 # for i in range(len(num_ws_prd)):
 #     for j in range(num_ws_prd[i]):
-#         visualize_windstorm_event(file_path=f'../Scenario_Database/Scenarios_for_Two_Stage_Model/Extracted_Windstorm_Scenarios/{len(num_ws_prd)}_ws_scenarios_GB29-Kearsley_network_seed_{seed}.json',
+#         visualize_windstorm_event(file_path=f'../Scenario_Database/Scenarios_for_Old_Two_Stage_Model/Extracted_Windstorm_Scenarios/{len(num_ws_prd)}_ws_scenarios_GB29-Kearsley_network_seed_{seed}.json',
 #                                   scenario_number=i, event_number=j)
 
 
@@ -224,7 +224,7 @@ from data_processing.ws_scenario_generation import *
 # Define the seeds to visualize
 # seeds = [112, 152, 166, 198]
 
-# scenario_dir = project_root / "Scenario_Database" / "Scenarios_for_Two_Stage_Model" / "Extracted_Windstorm_Scenarios_Single"
+# scenario_dir = project_root / "Scenario_Database" / "Scenarios_for_Old_Two_Stage_Model" / "Extracted_Windstorm_Scenarios_Single"
 
 # print("Current working directory:", os.getcwd())
 
@@ -234,7 +234,7 @@ from data_processing.ws_scenario_generation import *
     # file_name = f"1_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year_seed_{seed}.json"
     # file_path = scenario_dir / file_name
 
-    # file_path = f"../Scenario_Database/Scenarios_for_Two_Stage_Model/Extracted_Windstorm_Scenarios_Single/1_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year_seed_{seed}.json"
+    # file_path = f"../Scenario_Database/Scenarios_for_Old_Two_Stage_Model/Extracted_Windstorm_Scenarios_Single/1_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year_seed_{seed}.json"
 
     # visualize_windstorm_event(
     #     file_path=file_path,
@@ -262,7 +262,7 @@ from data_processing.ws_scenario_generation import *
 #     file_path = os.path.join(
 #         parent_dir,
 #         "Scenario_Database",
-#         "Scenarios_for_Two_Stage_Model",
+#         "Scenarios_for_Old_Two_Stage_Model",
 #         "Extracted_Windstorm_Scenarios_Single",
 #         f"1_ws_scenarios_network_29BusGB-KearsleyGSPGroup_windstorm_GB_year_seed_{seed}.json"
 #     )
