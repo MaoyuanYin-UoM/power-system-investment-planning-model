@@ -52,6 +52,10 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         # 0. Preliminaries
         # ------------------------------------------------------------------
+        print("\n" + "=" * 60)
+        print("Building Investment Planning Model...")
+        print("=" * 60)
+
         self.network_name = network_name
         self.windstorm_name = windstorm_name
 
@@ -156,6 +160,8 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         # 1. Index sets -- tn for transmission level network, dn for distribution level network
         # ------------------------------------------------------------------
+        print("\nCreating index sets...")
+
         Set_bus_tn = [b for b in net.data.net.bus
                       if net.data.net.bus_level[b] == "T"]
         Set_bus_dn = [b for b in net.data.net.bus
@@ -285,6 +291,8 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         # 2. Initialize Pyomo sets
         # ------------------------------------------------------------------
+        print("Initializing Pyomo model and sets...")
+
         model = pyo.ConcreteModel()
 
         model.Set_scn = pyo.Set(initialize=Set_scn)
@@ -318,6 +326,8 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         # 3. Variables
         # ------------------------------------------------------------------
+        print("Defining decision variables...")
+
         # 3.1) First-stage decision variables:
         model.line_hrdn = pyo.Var(model.Set_bch_hrdn_lines,
                                   bounds=(net.data.bch_hrdn_limits[0], net.data.bch_hrdn_limits[1]),
@@ -384,6 +394,8 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         # 4. Parameters
         # ------------------------------------------------------------------
+        print("Setting up model parameters...")
+
         # 4.0) Resilience level threshold
         model.resilience_metric_threshold = pyo.Param(
             initialize=(resilience_metric_threshold
@@ -589,6 +601,9 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         # 5. Constraints
         # ------------------------------------------------------------------
+        print("Building constraints...")
+
+        print("  - Investment budget constraints...")
         # 5.1) Budget
         def investment_budget_rule(model):
             return sum(
@@ -606,6 +621,7 @@ class InvestmentClass():
 
         model.Constraint_ShiftedGust = pyo.Constraint(model.Set_slt_lines, rule=shifted_gust_rule)
 
+        print("  - Piecewise fragility constraints...")
         # 5.3) Piece-wise fragility
         # compute linearized fragility data
         fragility_data = self.piecewise_linearize_fragility(net, line_idx=Set_bch_lines, num_pieces=6)
@@ -625,6 +641,7 @@ class InvestmentClass():
             pw_constr_type="EQ",
             pw_repn="DCC")
 
+        print("  - Failure logic constraints...")
         # 5.4) Failure logic constraints (unchanged from the original version)
         BigM = 1e4
 
@@ -789,6 +806,7 @@ class InvestmentClass():
         model.Constraint_FailureRepairExclusivity = pyo.Constraint(
             model.Set_slt_lines, rule=bch_fail_rep_exclusivity)
 
+        print("  - Operational constraints...")
         # 5.5) Power flow definitions
         def dc_flow_rule(model, sc, l, t):
             i, j = net.data.net.bch[l - 1]
@@ -996,6 +1014,8 @@ class InvestmentClass():
         model.num_scenarios = pyo.Param(initialize=num_scenarios)
         model.prob_factor = pyo.Param(initialize=prob_factor)
 
+        print("  - Resilience metric threshold constraints...")
+        # 5.10) Resilience metric threshold constraint (resilience metric <= pre-defined threshold)
         # Code 'expected total operational cost at dn level across all ws scenarios' (the resilience metric)
         # as an expression
         # (currently as we assume all windstorm scenarios have equal probabilities, we simply find the average value)
@@ -1040,7 +1060,6 @@ class InvestmentClass():
 
         model.exp_total_eens_dn_ws_expr = pyo.Expression(rule=expected_total_eens_dn_ws_rule)
 
-        # 5.10) resilience-level constraint (resilience metric <= pre-defined threshold)
         if resilience_metric_threshold is not None:
             model.Constraint_ResilienceLevel = pyo.Constraint(
                 # expr=model.exp_total_op_cost_dn_expr <= model.resilience_metric_threshold
@@ -1050,6 +1069,8 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         # 6. Objective
         # ------------------------------------------------------------------
+        print("Setting up objective function...")
+
         # Code total investment cost as an expression
         def total_inv_cost_rule(model):
             return sum(model.line_hrdn_cost[l] * model.line_hrdn[l]
@@ -1164,8 +1185,10 @@ class InvestmentClass():
                 mutable=False
             )
 
-        return model
+        print("\nModel building completed.")
+        print("=" * 60)
 
+        return model
 
     def solve_investment_model(
             self,
@@ -1189,6 +1212,8 @@ class InvestmentClass():
         result_path   : If not specified, a unique file name will be assigned
         solver_options: Extra options forwarded to the solver
         """
+
+        print(f"\nSolving model with {solver_name} (time limit: {time_limit}s)...")
 
         opt = SolverFactory(solver_name)
 
@@ -1219,40 +1244,34 @@ class InvestmentClass():
         # --- solve -----------------------------------------------------------
         results = opt.solve(model, tee=True)
 
+        # --- check solution status --------------------------------------------
         status = results.solver.status
         term_cond = results.solver.termination_condition
-        best_obj = pyo.value(model.Objective, exception=False)
 
-        # Handle gap extraction for different solvers
-        mip_gap_out = None
-        if solver_name.lower() == "gurobi":
-            mip_gap_out = getattr(results.solver, "gap", None)
-        elif solver_name.lower() in ["cbc", "glpk"]:
-            # CBC and GLPK don't directly provide gap in results.solver
-            if hasattr(results.problem, 'upper_bound') and hasattr(results.problem, 'lower_bound'):
-                ub = results.problem.upper_bound
-                lb = results.problem.lower_bound
-                if lb != 0:
-                    mip_gap_out = abs(ub - lb) / abs(lb)
+        if status == pyo.SolverStatus.ok and term_cond == pyo.TerminationCondition.optimal:
+            print("Optimal solution found.")
+            best_obj = pyo.value(model.Objective)
+            mip_gap_out = 0.0
+        elif status == pyo.SolverStatus.ok:
+            print("Feasible solution found.")
+            best_obj = pyo.value(model.Objective) if hasattr(model, 'Objective') else None
+            mip_gap_out = getattr(results.problem, 'lower_bound', None)
+            if mip_gap_out and best_obj:
+                mip_gap_out = abs(best_obj - mip_gap_out) / abs(best_obj)
+        else:
+            print("No feasible solution found.")
+            best_obj = None
+            mip_gap_out = None
 
-        # --- basic checking --------------------------------------------------
-        ok = (status == pyo.SolverStatus.ok
-              and term_cond in (pyo.TerminationCondition.optimal,
-                                pyo.TerminationCondition.feasible))
-        if not ok:
-            msg = f"Solver finished with status={status}, " \
-                  f"termination={term_cond}, gap={mip_gap_out}"
-            if write_lp:  # dump model only when really needed
-                model.write("LP_Models/model_at_failure.lp",
-                            io_options={"symbolic_solver_labels": True})
-            raise RuntimeError(msg)
-
-        # --- optional exports ------------------------------------------------
+        # --- write LP file if requested ---------------------------------------
         if write_lp:
             model.write("LP_Models/solved_model.lp",
                         io_options={"symbolic_solver_labels": True})
 
+        # --- write results if requested ---------------------------------------
         if write_result:
+            print("Writing results...")
+
             # If 'result_path' is not specified, create a unique file name with timestamp
             if result_path is None:
                 # Example: results_20240613_151822_GB-Kearsley_seed101.csv
@@ -1277,7 +1296,7 @@ class InvestmentClass():
                 if seed is not None:
                     fname += f"_seed_{seed}"
 
-                # Add the resilience level threshold value
+                # Add the resilience metric threshold value
                 rthres = float(getattr(model, "resilience_metric_threshold", float('inf')))
                 if rthres != float('inf'):
                     # Use scientific notation with 2 decimals (e.g., 2.5e8)
@@ -1293,10 +1312,18 @@ class InvestmentClass():
                 fname += f"_{timestamp}"
 
                 # File name finishes
-                fname += ".csv"
-                result_path = os.path.join("../Optimization_Results", "Investment_Model", fname)
+                fname += ".xlsx"  # Changed from .csv to .xlsx since we're using Excel writer
+
+                # Use absolute path for safety (ISSUE 2 FIX)
+                from pathlib import Path
+                current_file = Path(__file__).resolve()
+                project_root = current_file.parent.parent  # Go up from core/ to project root
+                result_dir = project_root / "Optimization_Results" / "Investment_Model"
+                result_dir.mkdir(parents=True, exist_ok=True)  # Create directory if it doesn't exist
+                result_path = str(result_dir / fname)
 
             self._write_selected_variables_to_excel(model, result_path)
+            print(f"Results written to: {result_path}")
 
         return {
             "objective": best_obj,

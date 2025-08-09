@@ -1246,7 +1246,7 @@ class NetworkClass:
 
         self.data.net.profile_Pg_renewable = profile_Pg_renewable
 
-        print(f"Renewable generation profiles set successfully:")
-        print(f"  - Wind generators: {sum(1 for t in self.data.net.gen_type if t == 'wind')}")
-        print(f"  - PV generators: {sum(1 for t in self.data.net.gen_type if t == 'pv')}")
-        print(f"  - Gas generators: {sum(1 for t in self.data.net.gen_type if t == 'gas')}")
+        # print(f"Renewable generation profiles set successfully:")
+        # print(f"  - Wind generators: {sum(1 for t in self.data.net.gen_type if t == 'wind')}")
+        # print(f"  - PV generators: {sum(1 for t in self.data.net.gen_type if t == 'pv')}")
+        # print(f"  - Gas generators: {sum(1 for t in self.data.net.gen_type if t == 'gas')}")
