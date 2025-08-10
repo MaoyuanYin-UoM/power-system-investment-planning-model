@@ -46,7 +46,8 @@ class NetworkClass:
             normalized_profile = df.iloc[0:720, 0].tolist()  # Extract the first month
         elif ws.data.MC.lng_prd == 'week':
             normalized_profile = df.iloc[0:168, 0].tolist()  # Extract the first week
-        self.set_scaled_profile_for_buses(normalized_profile)
+        
+        self.set_scaled_demand_profile_for_buses(normalized_profile)
 
         # Set renewable generation profiles if applicable
         # This will check if generator types are defined and load appropriate profiles
@@ -986,9 +987,12 @@ class NetworkClass:
 
         return demand_profile
 
-    def set_scaled_profile_for_buses(self, normalized_profile):
+    def set_scaled_demand_profile_for_buses(self, normalized_profile):
         """
-        Set demand profiles (both Pd and Qd) scaled from a normalized profile:
+        Set demand profiles (both Pd and Qd) scaled from a normalized profile.
+
+        Only sets profiles for buses that don't already have profiles (i.e., None entries).
+        This allows bus-specific profiles to be preserved if already set in network_factory.
 
         Note: If Pd_min and Qd_min are provided, do a linear stretch between min and max values;
               otherwise scale by max values only.
@@ -998,25 +1002,53 @@ class NetworkClass:
         Qd_max = self.data.net.Qd_max
         Qd_min = self.data.net.Qd_min
 
-        profile_Pd = []
-        profile_Qd = []
+        # Check if profile_Pd already exists and is a list
+        if hasattr(self.data.net, 'profile_Pd') and isinstance(self.data.net.profile_Pd, list):
+            # Profile_Pd exists - only fill None entries
+            profile_Pd = self.data.net.profile_Pd
+            profile_Qd = self.data.net.profile_Qd if hasattr(self.data.net, 'profile_Qd') else []
 
-        # Case 1: we have both min and max
-        if Pd_min is not None and Qd_min is not None:
-            for pd_max, pd_min, qd_max, qd_min in zip(Pd_max, Pd_min, Qd_max, Qd_min):
-                # linear stretch: scaled = min + norm * (max - min)
-                pd_profile = [pd_min + v * (pd_max - pd_min) for v in normalized_profile]
-                qd_profile = [qd_min + v * (qd_max - qd_min) for v in normalized_profile]
-                profile_Pd.append(pd_profile)
-                profile_Qd.append(qd_profile)
+            # Ensure profile_Qd has the same length as profile_Pd
+            while len(profile_Qd) < len(profile_Pd):
+                profile_Qd.append(None)
 
-        # Case 2: no min values provided → scale by max only
+            # Fill in None entries with scaled profiles
+            for i in range(len(profile_Pd)):
+                if profile_Pd[i] is None:
+                    # This bus needs a scaled profile
+                    if Pd_min is not None and Qd_min is not None:
+                        # Linear stretch between min and max
+                        pd_profile = [Pd_min[i] + v * (Pd_max[i] - Pd_min[i]) for v in normalized_profile]
+                        qd_profile = [Qd_min[i] + v * (Qd_max[i] - Qd_min[i]) for v in normalized_profile]
+                    else:
+                        # Scale by max only
+                        pd_profile = [v * Pd_max[i] for v in normalized_profile]
+                        qd_profile = [v * Qd_max[i] for v in normalized_profile]
+
+                    profile_Pd[i] = pd_profile
+                    profile_Qd[i] = qd_profile
+
         else:
-            for pd_max, qd_max in zip(Pd_max, Qd_max):
-                pd_profile = [v * pd_max for v in normalized_profile]
-                qd_profile = [v * qd_max for v in normalized_profile]
-                profile_Pd.append(pd_profile)
-                profile_Qd.append(qd_profile)
+            # No existing profiles - create new ones for all buses
+            profile_Pd = []
+            profile_Qd = []
+
+            # Case 1: we have both min and max
+            if Pd_min is not None and Qd_min is not None:
+                for pd_max, pd_min, qd_max, qd_min in zip(Pd_max, Pd_min, Qd_max, Qd_min):
+                    # linear stretch: scaled = min + norm * (max - min)
+                    pd_profile = [pd_min + v * (pd_max - pd_min) for v in normalized_profile]
+                    qd_profile = [qd_min + v * (qd_max - qd_min) for v in normalized_profile]
+                    profile_Pd.append(pd_profile)
+                    profile_Qd.append(qd_profile)
+
+            # Case 2: no min values provided → scale by max only
+            else:
+                for pd_max, qd_max in zip(Pd_max, Qd_max):
+                    pd_profile = [v * pd_max for v in normalized_profile]
+                    qd_profile = [v * qd_max for v in normalized_profile]
+                    profile_Pd.append(pd_profile)
+                    profile_Qd.append(qd_profile)
 
         self.data.net.profile_Pd = profile_Pd
         self.data.net.profile_Qd = profile_Qd

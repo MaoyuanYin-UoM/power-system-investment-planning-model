@@ -2,10 +2,9 @@
 
 from core.config import NetConfig
 from core.network import NetworkClass
+from factories.network_factory import make_network
 
-net_config = NetConfig()
-
-net = NetworkClass(net_config)
+net = make_network("29_bus_GB_transmission_network_with_Kearsley_GSP_group")
 
 model = net.build_dc_opf_model()
 results = net.solve_dc_opf(model, solver='gurobi')

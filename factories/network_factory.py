@@ -295,9 +295,93 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Qd_max = load_agg["Qd_max"].tolist()
         ncon.data.net.Qd_min = load_agg["Qd_min"].tolist()
 
-        # profiles will be filled later by NetworkClass.set_scaled_profile…
-        ncon.data.net.profile_Pd = None
-        ncon.data.net.profile_Qd = None
+        # Load bus-specific hourly demand profiles and set them directly
+        print("Loading bus-specific demand profiles for Kearsley GSP group...")
+
+        # Build path to the demand profile Excel file
+        profile_path = project_root / "Input_Data" / "bus_specific_hourly_demand_profiles_Kearsley_GSP_group_2024_01JanSorted_29Feb2024Removed.xlsx"
+
+        # Initialize profile lists for all buses
+        profile_Pd = []
+        profile_Qd = []
+
+        # First, load bus-specific profiles if available
+        bus_specific_profiles = {}  # Temporary storage for loaded profiles
+
+        if profile_path.exists():
+            # Read both sheets
+            wb_profiles = pd.ExcelFile(profile_path)
+            df_bsp = wb_profiles.parse("BSP MW")
+            df_primary = wb_profiles.parse("Primary MW")
+
+            # Extract bus ID mappings from row 3 (index 2)
+            bsp_bus_ids = df_bsp.iloc[2, 1:].dropna().astype(int).tolist()
+            primary_bus_ids = df_primary.iloc[2, 1:].dropna().astype(int).tolist()
+
+            # Extract bus names from row 4 (index 3)
+            bsp_names = df_bsp.iloc[3, 1:len(bsp_bus_ids) + 1].tolist()
+            primary_names = df_primary.iloc[3, 1:len(primary_bus_ids) + 1].tolist()
+
+            # Process BSP profiles (starting from row 5, index 4)
+            bsp_data = df_bsp.iloc[4:, 1:len(bsp_bus_ids) + 1].values
+            for idx, bus_id in enumerate(bsp_bus_ids):
+                half_hourly_profile = bsp_data[:, idx].astype(float)
+
+                # Convert half-hourly to hourly by averaging consecutive pairs
+                hourly_profile = []
+                for i in range(0, len(half_hourly_profile), 2):
+                    if i + 1 < len(half_hourly_profile):
+                        hourly_value = (half_hourly_profile[i] + half_hourly_profile[i + 1]) / 2.0
+                    else:
+                        hourly_value = half_hourly_profile[i]
+                    hourly_profile.append(hourly_value)
+
+                bus_specific_profiles[bus_id] = hourly_profile
+                print(f"  Loaded profile for BSP bus {bus_id} ({bsp_names[idx]}): {len(hourly_profile)} hours")
+
+            # Process Primary substation profiles
+            primary_data = df_primary.iloc[4:, 1:len(primary_bus_ids) + 1].values
+            for idx, bus_id in enumerate(primary_bus_ids):
+                half_hourly_profile = primary_data[:, idx].astype(float)
+
+                # Convert half-hourly to hourly
+                hourly_profile = []
+                for i in range(0, len(half_hourly_profile), 2):
+                    if i + 1 < len(half_hourly_profile):
+                        hourly_value = (half_hourly_profile[i] + half_hourly_profile[i + 1]) / 2.0
+                    else:
+                        hourly_value = half_hourly_profile[i]
+                    hourly_profile.append(hourly_value)
+
+                bus_specific_profiles[bus_id] = hourly_profile
+                print(f"  Loaded profile for Primary bus {bus_id} ({primary_names[idx]}): {len(hourly_profile)} hours")
+
+            print(f"Loaded bus-specific profiles for {len(bus_specific_profiles)} buses")
+
+            # Now assign profiles to all buses
+            for bus_id in ncon.data.net.bus:
+                if bus_id in bus_specific_profiles:
+                    # Use the bus-specific profile
+                    profile_Pd.append(bus_specific_profiles[bus_id])
+                    # Set Qd to zero for all timesteps (no reactive power data available)
+                    profile_Qd.append([0.0] * len(bus_specific_profiles[bus_id]))
+                else:
+                    # For buses without specific profiles (e.g., GSP bus 1),
+                    # use a flat profile at max demand (will be handled by NetworkClass if needed)
+                    # Or set to None to be filled by NetworkClass.set_scaled_demand_profile_for_buses
+                    profile_Pd.append(None)
+                    profile_Qd.append(None)
+
+        else:
+            print(f"Warning: Bus-specific demand profile file not found at {profile_path}")
+            print("Will use default scaled profiles instead.")
+            # Set to None to let NetworkClass handle it
+            profile_Pd = None
+            profile_Qd = None
+
+        # Set the profiles directly
+        ncon.data.net.profile_Pd = profile_Pd
+        ncon.data.net.profile_Qd = profile_Qd
 
         # -----------------------------------------------------------
         # 6.  Generator data with technology-specific splitting
@@ -402,7 +486,21 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.pv_profile_path = project_root / "Input_Data/Renewable_Generation_Profiles/pv_profile_2015_Manchester.xlsx"
 
         # -----------------------------------------------------------
-        # 8.  Cost-related parameters
+        # 8.  ESS data
+        # -----------------------------------------------------------
+        df_ess = wb.parse("ess")
+
+        # Read and set ESS data
+        ncon.data.net.ess = df_ess["Bus ID"].astype(int).tolist()
+        ncon.data.net.Pess_cap = df_ess["Pess_cap"].astype(float).tolist()
+        ncon.data.net.Eess_cap = df_ess["Eess_cap"].astype(float).tolist()
+        ncon.data.net.SOC_min = df_ess["SOC_min"].astype(float).tolist()
+        ncon.data.net.SOC_max = df_ess["SOC_max"].astype(float).tolist()
+        ncon.data.net.eta_ch = df_ess["eff_ch"].astype(float).tolist()
+        ncon.data.net.eta_dis = df_ess["eff_dis"].astype(float).tolist()
+
+        # -----------------------------------------------------------
+        # 9.  Cost-related parameters
         # -----------------------------------------------------------
         ncon.data.net.Pc_cost = [5000] * len(ncon.data.net.bus)  # active load shedding cost
         ncon.data.net.Qc_cost = [5000] * len(ncon.data.net.bus)  # reactive load shedding cost
@@ -418,7 +516,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_gis_end = None
 
         # -----------------------------------------------------------
-        # 9.  Fragility data
+        # 10.  Fragility data
         # -----------------------------------------------------------
         num_bch = len(ncon.data.net.bch)
         ncon.data.frg.mu = [3.8] * num_bch
@@ -796,7 +894,7 @@ def make_network(name: str) -> NetworkClass:
             return [_map(p[0]), _map(p[1])]
 
         # ------------------------------------------------------------------
-        # 4.  Append the DN data
+        # 4.  Append the DN data with correct bus ID mapping
         # ------------------------------------------------------------------
         # 4.1  Buses and their attributes
 
@@ -852,7 +950,30 @@ def make_network(name: str) -> NetworkClass:
         for k in range(num_dn):
             ncon.data.net.branch_level[num_tn + 2 + k] = 'D'
 
-        # 4.5  Generators
+        # 4.5 Bus-specific demand profiles
+            # Initialize profiles - all buses start with None
+            profile_Pd = [None] * len(ncon.data.net.bus)
+            profile_Qd = [None] * len(ncon.data.net.bus)
+
+            # Map DN profiles from dn_net (which already has bus-specific profiles loaded)
+            if dn.profile_Pd is not None:
+                for original_bus_id in dn.bus:
+                    # Get the profile from the original DN network
+                    original_bus_idx = dn.bus.index(original_bus_id)
+
+                    # Map to composite network bus ID
+                    composite_bus_id = dn_bus_map[original_bus_id]
+                    composite_bus_idx = ncon.data.net.bus.index(composite_bus_id)
+
+                    # Copy the profiles
+                    profile_Pd[composite_bus_idx] = dn.profile_Pd[original_bus_idx]
+                    profile_Qd[composite_bus_idx] = dn.profile_Qd[original_bus_idx]
+
+            # Set the profiles (TN buses remain None and will be filled by NetworkClass)
+            ncon.data.net.profile_Pd = profile_Pd
+            ncon.data.net.profile_Qd = profile_Qd
+
+        # 4.6  Generators
         ncon.data.net.gen.extend([_map(b) for b in dn.gen])
         ncon.data.net.Pg_max.extend(dn.Pg_max)
         ncon.data.net.Pg_min.extend(dn.Pg_min)
@@ -876,7 +997,20 @@ def make_network(name: str) -> NetworkClass:
         if hasattr(dn, 'pv_profile_path'):
             ncon.data.net.pv_profile_path = dn.pv_profile_path
 
-        # 4.6  Fragility vectors
+        # 4.7  ESS
+        if hasattr(dn, 'ess') and len(dn.ess) > 0:
+            # Remap ESS bus indices
+            ncon.data.net.ess = [_map(b) for b in dn.ess]
+
+            ncon.data.net.Pess_cap = dn.Pess_cap[:]
+            ncon.data.net.Eess_cap = dn.Eess_cap[:]
+            ncon.data.net.SOC_min = dn.SOC_min[:]
+            ncon.data.net.SOC_max = dn.SOC_max[:]
+            ncon.data.net.eta_ch = dn.eta_ch[:]
+            ncon.data.net.eta_dis = dn.eta_dis[:]
+
+
+        # 4.8  Fragility curve
         ncon.data.frg.mu = list(gb_net.data.frg.mu) + list(dn_net.data.frg.mu)
         ncon.data.frg.sigma = list(gb_net.data.frg.sigma) + list(dn_net.data.frg.sigma)
         ncon.data.frg.thrd_1 = list(gb_net.data.frg.thrd_1) + list(dn_net.data.frg.thrd_1)
@@ -922,7 +1056,6 @@ def make_network(name: str) -> NetworkClass:
         # 6.3) line hardening limits and budget
         ncon.data.bch_hrdn_limits = [0.0, 40.0]  # in m/s
         ncon.data.budget_bch_hrdn = 1e10  # in £
-
 
         net = NetworkClass(ncon)
         net.name = name
