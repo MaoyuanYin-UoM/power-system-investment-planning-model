@@ -162,17 +162,21 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         print("\nCreating index sets...")
 
-        Set_bus_tn = [b for b in net.data.net.bus
-                      if net.data.net.bus_level[b] == "T"]
-        Set_bus_dn = [b for b in net.data.net.bus
-                      if net.data.net.bus_level[b] == "D"]
+        # 1.1) Single sets
+        # - Basic sets
+        Set_bus = net.data.net.bus[:]
+        Set_bch = list(range(1, len(net.data.net.bch) + 1))
+        Set_gen = list(range(1, len(net.data.net.gen) + 1))
+        Set_ess = list(range(1, len(net.data.net.ess) + 1))
 
-        Set_bch_tn = [l for l in range(1, len(net.data.net.bch) + 1)
-                      if net.data.net.branch_level[l] in ("T", "T-D")]
+        # - Separate TN and DN
+        Set_bus_tn = [b for b in Set_bus if net.data.net.bus_level[b] == 'T']
+        Set_bus_dn = [b for b in Set_bus if net.data.net.bus_level[b] == 'D']
+        Set_bch_tn = [l for l in Set_bch if net.data.net.branch_level[l] == 'T' or
+                      net.data.net.branch_level[l] == 'T-D']
+        Set_bch_dn = [l for l in Set_bch if net.data.net.branch_level[l] == 'D']
 
-        Set_bch_dn = [l for l in range(1, len(net.data.net.bch) + 1)
-                      if net.data.net.branch_level[l] == "D"]
-
+        # - Further separate hardenable branches from branch set
         Set_bch_tn_lines = [l for l in Set_bch_tn
                             if net.data.net.bch_type[l - 1] == 1]  # hardenable branches (i.e., lines) at tn level
 
@@ -189,7 +193,8 @@ class InvestmentClass():
 
         Set_bch_hrdn_lines = Set_bch_tn_hrdn + Set_bch_dn_hrdn  # all lines that are hardenable
 
-        Set_gen = list(range(1, len(net.data.net.gen) + 1))
+        # - Existing generators (note we have subset 'renewable' and 'non-renewable')
+        Set_gen_exst = Set_gen
 
         has_renewables = (hasattr(net.data.net, 'profile_Pg_renewable') and
                           net.data.net.profile_Pg_renewable is not None and
@@ -197,24 +202,52 @@ class InvestmentClass():
 
         # Classify generators by type (for renewable handling)
         if has_renewables:
-            renewable_gens = []
-            non_renewable_gens = []
+            Set_gen_exst_ren = []  # renewable existing generators
+            Set_gen_exst_nren = []  # non-renewable existing generators
 
             for g in Set_gen:  # Note: using Set_gen, not model.Set_gen yet
                 gen_idx = g - 1
                 gen_bus = net.data.net.gen[gen_idx]
 
                 if gen_bus in Set_bus_dn and net.data.net.gen_type[gen_idx] in ['wind', 'pv']:
-                    renewable_gens.append(g)
+                    Set_gen_exst_ren.append(g)
                 else:
-                    non_renewable_gens.append(g)
+                    Set_gen_exst_nren.append(g)
         else:
-            renewable_gens = []
-            non_renewable_gens = Set_gen  # All generators are non-renewable
+            Set_gen_exst_ren = []
+            Set_gen_exst_nren = Set_gen_exst  # All generators are non-renewable
 
-        Set_bus_dg_installable = net.data.net.dg_installable_buses
-        Set_bus_bess_installable = net.data.net.bess_installable_buses
+        # - Existing ESS
+        Set_ess_exst = Set_ess
+        
+        # Set of buses where DG can be installed
+        Set_bus_dg_available = [b for b in Set_bus if net.data.net.dg_installation_availability[b - 1] == 1]
+        Set_bus_ess_available = [b for b in Set_bus if net.data.net.ess_installation_availability[b - 1] == 1]
 
+        # - New generators
+        # Create virtual generator IDs for new DG installations (one per available bus)
+        new_gen_to_bus_map = {}
+        Set_gen_new_nren = []  # In accordance with network_factory.py, new DGs are all gas type (i.e., non-renewbale)
+
+        for idx, b in enumerate(Set_bus_dg_available, start=1):
+            Set_gen_new_nren.append(idx)
+            new_gen_to_bus_map[idx] = b
+
+        # Renewable new generators (empty for now, for future extension)
+        Set_gen_new_ren = []  # Currently no renewable DG installations planned
+
+        # Combined set of all new generators
+        Set_gen_new = Set_gen_new_nren + Set_gen_new_ren
+
+        # - New ESS
+        # Create virtual ESS IDs for new ESS installations (one per available bus)
+        new_ess_to_bus_map = {}
+        Set_ess_new = []
+
+        for idx, b in enumerate(Set_bus_ess_available, start=1):
+            Set_ess_new.append(idx)
+            new_ess_to_bus_map[idx] = b
+        
         # scenario-specific timestep sets (absolute hour indices from the year)
         Set_ts_scn = {}
 
@@ -248,11 +281,12 @@ class InvestmentClass():
             if not Set_ts_scn[sc_id]:
                 Set_ts_scn[sc_id] = [1]
 
-        # Tuple sets:
+        # 1.2) Tuple sets:
         #  - st: scenario, timestep
         #  - sbt: scenario, bus, timestep
         #  - slt: scenario, branch, timestep
         #  - sgt: scenario, gen, timestep
+        #  - set: scenario, ess, timestep
         Set_st = [(sc, t) for sc in Set_scn for t in Set_ts_scn[sc]]
 
         Set_sbt = [(sc, b, t) for sc in Set_scn
@@ -281,15 +315,48 @@ class InvestmentClass():
 
         Set_slt_lines = Set_slt_tn_lines + Set_slt_dn_lines
 
-        Set_sgt = [(sc, g, t) for sc in Set_scn
-                   for g in Set_gen
-                   for t in Set_ts_scn[sc]]
+        Set_sgt_exst = [(sc, g, t) for sc in Set_scn
+                        for g in Set_gen_exst
+                        for t in Set_ts_scn[sc]]
 
-        Set_sgt_dn = [
+        Set_sgt_exst_ren = [(sc, g, t) for sc in Set_scn
+                            for g in Set_gen_exst_ren
+                            for t in Set_ts_scn[sc]]
+
+        Set_sgt_exst_nren = [(sc, g, t) for sc in Set_scn
+                             for g in Set_gen_exst_nren
+                             for t in Set_ts_scn[sc]]
+
+        Set_sgt_dn_exst = [
             (sc, g, t)
-            for (sc, g, t) in Set_sgt
+            for (sc, g, t) in Set_sgt_exst
             if net.data.net.bus_level[net.data.net.gen[g - 1]] == 'D'
         ]
+
+        Set_sgt_new = [(sc, g, t) for sc in Set_scn
+                       for g in Set_gen_new
+                       for t in Set_ts_scn[sc]]
+
+        Set_sgt_new_ren = [(sc, g, t) for sc in Set_scn
+                           for g in Set_gen_new_ren
+                           for t in Set_ts_scn[sc]]
+
+        Set_sgt_new_nren = [(sc, g, t) for sc in Set_scn
+                            for g in Set_gen_new_nren
+                            for t in Set_ts_scn[sc]]
+
+        Set_sgt_dn_new = [(sc, g, t) for sc in Set_scn
+                          for g in Set_gen_new
+                          for t in Set_ts_scn[sc]
+                          if new_gen_to_bus_map[g] in Set_bus_dn]
+
+        Set_set_exst = [(sc, e, t) for sc in Set_scn
+                        for e in Set_ess_exst
+                        for t in Set_ts_scn[sc]]
+
+        Set_set_new = [(sc, e, t) for sc in Set_scn
+                       for e in Set_ess_new
+                       for t in Set_ts_scn[sc]]
 
         # ------------------------------------------------------------------
         # 2. Initialize Pyomo sets
@@ -308,8 +375,10 @@ class InvestmentClass():
         model.Set_bch_lines = pyo.Set(initialize=Set_bch_lines)
         model.Set_bch_hrdn_lines = pyo.Set(initialize=Set_bch_hrdn_lines)
         model.Set_gen = pyo.Set(initialize=Set_gen)
-        model.Set_gen_renewable = pyo.Set(initialize=renewable_gens)
-        model.Set_gen_non_renewable = pyo.Set(initialize=non_renewable_gens)
+        model.Set_gen_exst_ren = pyo.Set(initialize=Set_gen_exst_ren)
+        model.Set_gen_exst_nren = pyo.Set(initialize=Set_gen_exst_nren)
+        model.Set_bus_dg_available = pyo.Set(initialize=Set_bus_dg_available)
+        model.Set_bus_ess_available = pyo.Set(initialize=Set_bus_ess_available)
 
         model.Set_ts_scn = {sc: pyo.Set(initialize=Set_ts_scn[sc])
                             for sc in Set_scn}
@@ -323,8 +392,22 @@ class InvestmentClass():
         model.Set_slt_tn_lines = pyo.Set(initialize=Set_slt_tn_lines, dimen=3)
         model.Set_slt_dn_lines = pyo.Set(initialize=Set_slt_dn_lines, dimen=3)
         model.Set_slt_lines = pyo.Set(initialize=Set_slt_lines, dimen=3)
-        model.Set_sgt = pyo.Set(initialize=Set_sgt, dimen=3)
-        model.Set_sgt_dn = pyo.Set(initialize=Set_sgt_dn, dimen=3)
+
+        # Generator tuple sets - EXISTING
+        model.Set_sgt_exst = pyo.Set(initialize=Set_sgt_exst, dimen=3)
+        model.Set_sgt_exst_ren = pyo.Set(initialize=Set_sgt_exst_ren, dimen=3)
+        model.Set_sgt_exst_nren = pyo.Set(initialize=Set_sgt_exst_nren, dimen=3)
+        model.Set_sgt_dn_exst = pyo.Set(initialize=Set_sgt_dn_exst, dimen=3)
+
+        # Generator tuple sets - NEW
+        model.Set_sgt_new = pyo.Set(initialize=Set_sgt_new, dimen=3)
+        model.Set_sgt_new_ren = pyo.Set(initialize=Set_sgt_new_ren, dimen=3)  # Empty is OK
+        model.Set_sgt_new_nren = pyo.Set(initialize=Set_sgt_new_nren, dimen=3)
+        model.Set_sgt_dn_new = pyo.Set(initialize=Set_sgt_dn_new, dimen=3)
+
+        # ESS tuple sets
+        model.Set_set_exst = pyo.Set(initialize=Set_set_exst, dimen=3)
+        model.Set_set_new = pyo.Set(initialize=Set_set_new, dimen=3)
 
         # ------------------------------------------------------------------
         # 3. Variables
@@ -332,9 +415,31 @@ class InvestmentClass():
         print("Defining decision variables...")
 
         # 3.1) First-stage decision variables:
+        # - Line hardening (continuous, m/s)
         model.line_hrdn = pyo.Var(model.Set_bch_hrdn_lines,
                                   bounds=(net.data.bch_hrdn_limits[0], net.data.bch_hrdn_limits[1]),
                                   within=pyo.NonNegativeReals)
+
+        # - (Gas) DG installation capacity (continuous, MW)
+        model.dg_install = pyo.Var(
+            model.Set_gen_new_nren,  # Index by new generator IDs
+            within=pyo.NonNegativeReals,
+            bounds=lambda model, g: (
+                net.data.net.dg_min_capacity[new_gen_to_bus_map[g] - 1],
+                net.data.net.dg_max_capacity[new_gen_to_bus_map[g] - 1]
+            )
+        )
+
+        # - ESS installation power capacity (continuous, MW)
+        # note: as the power-to-energy ratio for installed ESS is fixed, determining the power capacity is enough.
+        model.ess_install = pyo.Var(
+            model.Set_ess_new,  # Index by new ESS IDs
+            within=pyo.NonNegativeReals,
+            bounds=lambda model, e: (
+                net.data.net.ess_min_power_capacity[new_ess_to_bus_map[e] - 1],
+                net.data.net.ess_max_power_capacity[new_ess_to_bus_map[e] - 1]
+            )
+        )
 
         # 3.2) Second-stage recourse variables  (indexed by scenario)
 
@@ -350,18 +455,26 @@ class InvestmentClass():
         print(f"Reactive demand detected: {has_reactive_demand}")
 
 
-        # - generation
-        model.Pg = pyo.Var(model.Set_sgt, within=pyo.NonNegativeReals)
+        # - Generation of existing generators
+        # from existing generators:
+        model.Pg_exst = pyo.Var(model.Set_sgt_exst, within=pyo.NonNegativeReals)
         if has_reactive_demand:
-            model.Qg = pyo.Var(model.Set_sgt, within=pyo.Reals)
+            model.Qg_exst = pyo.Var(model.Set_sgt_exst, within=pyo.Reals)
         else:
-            model.Qg = pyo.Param(model.Set_sgt, default=0.0)
+            model.Qg_exst = pyo.Param(model.Set_sgt_exst, default=0.0)
 
-        # - bus state
+        # - Generation of new DGs:
+        model.Pg_new = pyo.Var(model.Set_sgt_new_nren, within=pyo.NonNegativeReals)  # Use tuple set
+        if has_reactive_demand:
+            model.Qg_new = pyo.Var(model.Set_sgt_new_nren, within=pyo.Reals)  # Use tuple set
+        else:
+            model.Qg_new = pyo.Param(model.Set_sgt_new_nren, default=0.0)
+
+        # - Bus state
         model.theta = pyo.Var(model.Set_sbt, within=pyo.Reals)
         model.V2_dn = pyo.Var(model.Set_sbt_dn, within=pyo.NonNegativeReals)
 
-        # - flows
+        # - Power flows
         model.Pf_tn = pyo.Var(model.Set_slt_tn, within=pyo.Reals)
         model.Pf_dn = pyo.Var(model.Set_slt_dn, within=pyo.Reals)
         if has_reactive_demand:
@@ -369,18 +482,34 @@ class InvestmentClass():
         else:
             model.Qf_dn = pyo.Param(model.Set_slt_dn, default=0.0)
 
-        # - load shedding (curtailed load)
+        # - Load sheddings (curtailed load)
         model.Pc = pyo.Var(model.Set_sbt, within=pyo.NonNegativeReals)
         if has_reactive_demand:
             model.Qc = pyo.Var(model.Set_sbt_dn, within=pyo.NonNegativeReals)
         else:
             model.Qc = pyo.Param(model.Set_sbt_dn, default=0.0)
 
-        # - grid import/export
+        # - Grid electricity import/export
         model.Pimp = pyo.Var(model.Set_st, within=pyo.NonNegativeReals)
         model.Pexp = pyo.Var(model.Set_st, within=pyo.NonNegativeReals)
 
-        # branch status
+        # Note: sice we use DC power flow at TN level, there's no need to define Qimp and Qexp
+
+        # - ESS operations of existing ESS
+        model.Pess_charge_exst = pyo.Var(model.Set_set_exst, within=pyo.NonNegativeReals)
+        model.Pess_discharge_exst = pyo.Var(model.Set_set_exst, within=pyo.NonNegativeReals)
+        model.SOC_exst = pyo.Var(model.Set_set_exst, within=pyo.NonNegativeReals)
+        model.ess_charge_binary_exst = pyo.Var(model.Set_set_exst, within=pyo.Binary)
+        model.ess_discharge_binary_exst = pyo.Var(model.Set_set_exst, within=pyo.Binary)
+
+        # - ESS operations of new ESS
+        model.Pess_charge_new = pyo.Var(model.Set_set_new, within=pyo.NonNegativeReals)
+        model.Pess_discharge_new = pyo.Var(model.Set_set_new, within=pyo.NonNegativeReals)
+        model.SOC_new = pyo.Var(model.Set_set_new, within=pyo.NonNegativeReals)
+        model.ess_charge_binary_new = pyo.Var(model.Set_set_new, within=pyo.Binary)
+        model.ess_discharge_binary_new = pyo.Var(model.Set_set_new, within=pyo.Binary)
+
+        # - branch status
         model.branch_status = pyo.Var(model.Set_slt_tn | model.Set_slt_dn, within=pyo.Binary)
 
         # - failure logic related (both tn and dn line failures are considered) (only 'lines' are failable)
@@ -414,36 +543,62 @@ class InvestmentClass():
         # - Base value
         model.base_MVA = pyo.Param(initialize=net.data.net.base_MVA)
 
-        # - Generator cost (c0 + c1·P)
+        # 4.3) Generation cost (c0 + c1·P)
+        # - for existing generators
         coef_len = len(net.data.net.gen_cost_coef[0])
-        model.gen_cost_coef = pyo.Param(
-            model.Set_gen, range(coef_len),
+        model.gen_cost_coef_exst = pyo.Param(
+            model.Set_gen_exst, range(coef_len),
             initialize={(g, c): net.data.net.gen_cost_coef[g - 1][c]
-                        for g in model.Set_gen for c in range(coef_len)}
+                        for g in Set_gen_exst for c in range(coef_len)}
         )
 
-        # - Generation capacity parameters
-        # Static capacity for all generators (already scaled from network_factory)
-        model.Pg_max = pyo.Param(
-            model.Set_gen,
-            initialize={g: net.data.net.Pg_max[g - 1] for g in model.Set_gen}
-        )
-        model.Pg_min = pyo.Param(
-            model.Set_gen,
-            initialize={g: net.data.net.Pg_min[g - 1] for g in model.Set_gen}
+        # - for new generators
+        new_coef_len = len(net.data.net.new_dg_gen_cost_coef[0])
+        model.gen_cost_coef_new = pyo.Param(
+            model.Set_gen_new_nren, range(new_coef_len),
+            initialize={(g, c): net.data.net.dg_gen_cost_coef[new_gen_to_bus_map[g] - 1][c]
+                        for g in Set_gen_new_nren for c in range(new_coef_len)}
         )
 
-        model.Qg_max = pyo.Param(
-            model.Set_gen,
-            initialize={g: net.data.net.Qg_max[g - 1] for g in model.Set_gen}
+        # 4.4) Generation limits
+        # - for existing generators
+        model.Pg_max_exst = pyo.Param(
+            model.Set_gen_exst,  # Changed from Set_gen
+            initialize={g: net.data.net.Pg_max[g - 1] for g in Set_gen_exst}
         )
-        model.Qg_min = pyo.Param(
+        model.Pg_min_exst = pyo.Param(
+            model.Set_gen_exst,
+            initialize={g: net.data.net.Pg_min[g - 1] for g in Set_gen_exst}
+        )
+        model.Qg_max_exst = pyo.Param(
             model.Set_gen,
-            initialize={g: net.data.net.Qg_min[g - 1] for g in model.Set_gen}
+            initialize={g: net.data.net.Qg_max[g - 1] for g in Set_gen_exst}
+        )
+        model.Qg_min_exst = pyo.Param(
+            model.Set_gen,
+            initialize={g: net.data.net.Qg_min[g - 1] for g in Set_gen_exst}
+        )
+
+        # - for new generators
+        model.Pg_max_new = pyo.Param(
+            model.Set_gen_exst,  # Changed from Set_gen
+            initialize={g: net.data.net.Pg_max[g - 1] for g in Set_gen_exst}
+        )
+        model.Pg_min_new = pyo.Param(
+            model.Set_gen_exst,
+            initialize={g: net.data.net.Pg_min[g - 1] for g in Set_gen_exst}
+        )
+        model.Qg_max_new = pyo.Param(
+            model.Set_gen,
+            initialize={g: net.data.net.Qg_max_exst[g - 1] for g in Set_gen_exst}
+        )
+        model.Qg_min_new = pyo.Param(
+            model.Set_gen,
+            initialize={g: net.data.net.Qg_min_exst[g - 1] for g in Set_gen_exst}
         )
 
         # - Renewable generation availability (time-varying)
-        if has_renewables and model.Set_gen_renewable:
+        if has_renewables and model.Set_gen_exst_ren:
             # Get unique windstorm hours across all scenarios
             windstorm_hours = set()
             for sc in Set_scn:
@@ -452,7 +607,7 @@ class InvestmentClass():
 
             # Renewable availability for windstorm hours only
             renewable_availability = {}
-            for g in model.Set_gen_renewable:
+            for g in model.Set_gen_exst_ren:
                 gen_idx = g - 1
                 profile = net.data.net.profile_Pg_renewable[gen_idx]
                 for hr in windstorm_hours:
@@ -460,7 +615,7 @@ class InvestmentClass():
                         profile[hr - 1] if profile else net.data.net.Pg_max[gen_idx]
 
             model.Pg_renewable_avail = pyo.Param(
-                model.Set_gen_renewable, windstorm_hours,
+                model.Set_gen_exst_ren, windstorm_hours,
                 initialize=renewable_availability,
                 mutable=False
             )
@@ -734,7 +889,7 @@ class InvestmentClass():
 
         model.Constraint_FailurePersistence = pyo.Constraint(model.Set_slt_lines, rule=failure_persistence_rule)
 
-        # Repair must happen exactly ttr timesteps after failure
+        # - Repair must happen exactly ttr timesteps after failure
         def repair_timing_rule(model, sc, l, t):
             """
             If a failure occurred exactly ttr timesteps ago, repair must happen now
@@ -753,7 +908,7 @@ class InvestmentClass():
 
         model.Constraint_RepairTiming = pyo.Constraint(model.Set_slt_lines, rule=repair_timing_rule)
 
-        # Repair cannot happen before ttr timesteps have passed since failure
+        # - Repair cannot happen before ttr timesteps have passed since failure
         def no_early_repair_rule(model, sc, l, t):
             """
             Repair cannot happen if there was no failure exactly ttr timesteps ago
@@ -778,7 +933,7 @@ class InvestmentClass():
 
         model.Constraint_NoEarlyRepair = pyo.Constraint(model.Set_slt_lines, rule=no_early_repair_rule)
 
-        # Repair cannot happen if the line is already operational
+        # - Repair cannot happen if the line is already operational
         def no_repair_if_operational_rule(model, sc, l, t):
             """
             If a line is operational at t-1, it cannot be repaired at t (only failed lines can be repaired)
@@ -818,7 +973,7 @@ class InvestmentClass():
 
         model.Constraint_FlowDef_TN = pyo.Constraint(model.Set_slt_tn, rule=dc_flow_rule)
 
-        # - Maximum allowable angle difference at lines
+        # Maximum allowable angle difference at lines
         ang_diff_max = net.data.net.theta_limits[1] - net.data.net.theta_limits[0]
 
         def line_angle_difference_upper_rule(model, sc, l, t):
@@ -912,7 +1067,7 @@ class InvestmentClass():
         model.Constraint_DN_S7 = pyo.Constraint(model.Set_slt_dn, rule=S7_dn_rule)
         model.Constraint_DN_S8 = pyo.Constraint(model.Set_slt_dn, rule=S8_dn_rule)
 
-        # 5.6) Power balance constraints (TN: active; DN: active & reactive)
+        # 5.6) Nodal balance constraints (TN: active; DN: active & reactive)
         slack_bus = net.data.net.slack_bus
 
         def P_balance_tn(model, sc, b, t):
@@ -979,7 +1134,7 @@ class InvestmentClass():
         # 5.8) Generator limits
         def Pg_upper_limit_rule(model, s, g, t):
             """Upper bound for generation"""
-            if has_renewables and g in model.Set_gen_renewable:
+            if has_renewables and g in model.Set_gen_exst_renewable:
                 return model.Pg[s, g, t] <= model.Pg_renewable_avail[g, t]
             else:
                 return model.Pg[s, g, t] <= model.Pg_max[g]
@@ -1003,7 +1158,76 @@ class InvestmentClass():
         model.Constraint_Qg_upper = pyo.Constraint(model.Set_sgt, rule=Qg_upper_limit_rule)
         model.Constraint_Qg_lower = pyo.Constraint(model.Set_sgt, rule=Qg_lower_limit_rule)
 
-        # 5.9) Slack-bus reference theta = 0
+        # 5.9) ESS operation constraints todo: to be checked and debugged
+        # ESS Charge/Discharge Power Limits
+        def ess_charge_limit_rule(model, s, b, t):
+            """ESS charging cannot exceed installed power capacity"""
+            return model.Pess_charge[s, b, t] <= model.ess_install[b] * model.ess_charge_binary[s, b, t]
+
+        def ess_discharge_limit_rule(model, s, b, t):
+            """ESS discharging cannot exceed installed power capacity"""
+            return model.Pess_discharge[s, b, t] <= model.ess_install[b] * model.ess_discharge_binary[s, b, t]
+
+        model.Constraint_ESS_charge_limit = pyo.Constraint(
+            model.Set_scn, model.Set_bus, model.Set_ts,
+            rule=ess_charge_limit_rule
+        )
+        model.Constraint_ESS_discharge_limit = pyo.Constraint(
+            model.Set_scn, model.Set_bus, model.Set_ts,
+            rule=ess_discharge_limit_rule
+        )
+
+        # ESS Charge/Discharge Exclusivity
+        def ess_exclusivity_rule(model, s, b, t):
+            """ESS cannot charge and discharge simultaneously"""
+            return model.ess_charge_binary[s, b, t] + model.ess_discharge_binary[s, b, t] <= 1
+
+        model.Constraint_ESS_exclusivity = pyo.Constraint(
+            model.Set_scn, model.Set_bus, model.Set_ts,
+            rule=ess_exclusivity_rule
+        )
+
+        # ESS SOC Dynamics
+        def soc_dynamics_rule(model, s, b, t):
+            """SOC evolution considering charge/discharge efficiency"""
+            if t == model.first_timestep[s]:
+                # Initial SOC
+                energy_capacity = model.ess_install[b] * net.data.net.ess_power_energy_ratio[b - 1]
+                return model.SOC[s, b, t] == energy_capacity * net.data.net.ess_initial_soc[b - 1]
+            else:
+                eta_ch = net.data.net.ess_charge_eff[b - 1]
+                eta_dis = net.data.net.ess_discharge_eff[b - 1]
+                dt = 1  # hourly timestep
+                return model.SOC[s, b, t] == model.SOC[s, b, t - 1] + \
+                    (model.Pess_charge[s, b, t] * eta_ch - model.Pess_discharge[s, b, t] / eta_dis) * dt
+
+        model.Constraint_SOC_dynamics = pyo.Constraint(
+            model.Set_scn, model.Set_bus, model.Set_ts,
+            rule=soc_dynamics_rule
+        )
+
+        # ESS SOC Limits
+        def soc_min_rule(model, s, b, t):
+            """SOC must stay above minimum"""
+            energy_capacity = model.ess_install[b] * net.data.net.ess_power_energy_ratio[b - 1]
+            return model.SOC[s, b, t] >= energy_capacity * net.data.net.ess_soc_min[b - 1]
+
+        def soc_max_rule(model, s, b, t):
+            """SOC must stay below maximum"""
+            energy_capacity = model.ess_install[b] * net.data.net.ess_power_energy_ratio[b - 1]
+            return model.SOC[s, b, t] <= energy_capacity * net.data.net.ess_soc_max[b - 1]
+
+        model.Constraint_SOC_min = pyo.Constraint(
+            model.Set_scn, model.Set_bus, model.Set_ts,
+            rule=soc_min_rule
+        )
+        model.Constraint_SOC_max = pyo.Constraint(
+            model.Set_scn, model.Set_bus, model.Set_ts,
+            rule=soc_max_rule
+        )
+
+
+        # 5.10) Slack-bus reference theta = 0
         def slack_rule(model, sc, t):
             return model.theta[sc, slack_bus, t] == 0
 
@@ -1018,7 +1242,7 @@ class InvestmentClass():
         model.prob_factor = pyo.Param(initialize=prob_factor)
 
         print("  - Resilience metric threshold constraints...")
-        # 5.10) Resilience metric threshold constraint (resilience metric <= pre-defined threshold)
+        # 5.11) Resilience metric threshold constraint (resilience metric <= pre-defined threshold)
         # Code 'expected total operational cost at dn level across all ws scenarios' (the resilience metric)
         # as an expression
         # (currently as we assume all windstorm scenarios have equal probabilities, we simply find the average value)
@@ -1074,13 +1298,14 @@ class InvestmentClass():
         # ------------------------------------------------------------------
         print("Setting up objective function...")
 
-        # Code total investment cost as an expression
+        # Code total investment cost as an expression  todo: to be updated
         def total_inv_cost_rule(model):
             return sum(model.line_hrdn_cost[l] * model.line_hrdn[l]
                        for l in model.Set_bch_hrdn_lines)
 
         model.total_inv_cost_expr = pyo.Expression(rule=total_inv_cost_rule)
 
+        # todo: to be updated
         def expected_total_op_cost_rule(model):
             # 1) Generation cost
             gen_cost = sum(

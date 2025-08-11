@@ -551,7 +551,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.ess_install_cost = [1e5] * len(ncon.data.net.bus)  # £100k per MW power capacity
 
         # Generation cost of installed DGs
-        ncon.data.net.dg_gen_cost_coef = [[0, 70] for _ in range(len(ncon.data.net.bus))]
+        ncon.data.net.new_dg_gen_cost_coef = [[0, 70] for _ in range(len(ncon.data.net.bus))]
 
         # -----------------------------------------------------------
         # 11.  Fragility data
@@ -890,7 +890,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.ess_install_cost = [1e9] * len(ncon.data.net.bus)  # £/MW - unusable, set a large value
 
         # Generation cost of installed DGs
-        ncon.data.net.dg_gen_cost_coef = [[0, 70] for _ in range(len(ncon.data.net.bus))]
+        ncon.data.net.new_dg_gen_cost_coef = [[0, 70] for _ in range(len(ncon.data.net.bus))]
 
         # -----------------------------------------------------------
         # 9.  Fragility data (uniform defaults)
@@ -1064,7 +1064,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.ess_initial_soc.extend(dn.ess_initial_soc)
 
         # Generation cost for new DG
-        ncon.data.net.dg_gen_cost_coef.extend(dn.dg_gen_cost_coef)
+        ncon.data.net.new_dg_gen_cost_coef.extend(dn.new_dg_gen_cost_coef)
 
         # 4.9) Cost-related parameters
 
