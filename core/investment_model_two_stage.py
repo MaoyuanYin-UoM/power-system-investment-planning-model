@@ -212,6 +212,9 @@ class InvestmentClass():
             renewable_gens = []
             non_renewable_gens = Set_gen  # All generators are non-renewable
 
+        Set_bus_dg_installable = net.data.net.dg_installable_buses
+        Set_bus_bess_installable = net.data.net.bess_installable_buses
+
         # scenario-specific timestep sets (absolute hour indices from the year)
         Set_ts_scn = {}
 

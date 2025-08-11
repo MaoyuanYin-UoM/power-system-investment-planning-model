@@ -423,8 +423,8 @@ def make_network(name: str) -> NetworkClass:
             pg_min_total = float(row["Pg_min"])
             qg_max_total = float(row["Qg_max"])
             qg_min_total = float(row["Qg_min"])
-            cost_coef_0 = float(row["gen_cost_coef_0"]) if "gen_cost_coef_0" in row else 0
-            cost_coef_1 = float(row["gen_cost_coef_1"]) if "gen_cost_coef_1" in row else 0
+            cost_coef_0 = float(row["gen_cost_coef_0 (Gas)"]) if "gen_cost_coef_0" in row else 0
+            cost_coef_1 = float(row["gen_cost_coef_1 (Gas)"]) if "gen_cost_coef_1" in row else 0
 
             gas_share = gas_shares[idx]
             wind_share = wind_shares[idx]
@@ -500,23 +500,61 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.eta_dis = df_ess["eff_dis"].astype(float).tolist()
 
         # -----------------------------------------------------------
-        # 9.  Cost-related parameters
+        # 9.  DG and ESS installation parameters
         # -----------------------------------------------------------
-        ncon.data.net.Pc_cost = [5000] * len(ncon.data.net.bus)  # active load shedding cost
-        ncon.data.net.Qc_cost = [5000] * len(ncon.data.net.bus)  # reactive load shedding cost
+        # 9.1) Installation availability
+        # Currently we assume all DN substations (i.e., those that appear in 'df_load') are available to install DG/ESS
+        buses_with_loads = set(df_load['Bus ID'].unique().tolist())
 
+        ncon.data.net.dg_installation_availability = [
+            1 if b in buses_with_loads else 0
+            for b in ncon.data.net.bus
+        ]
+
+        ncon.data.net.ess_installation_availability = [
+            1 if b in buses_with_loads else 0
+            for b in ncon.data.net.bus
+        ]
+
+        # 9.2) DG-related parameters
+        ncon.data.net.dg_min_capacity = [0.0] * len(ncon.data.net.bus)  # MW
+        ncon.data.net.dg_max_capacity = [10.0] * len(ncon.data.net.bus)  # MW
+
+        # 9.3) ESS-related parameters
+        ncon.data.net.ess_min_power_capacity = [0.0] * len(ncon.data.net.bus)  # MW
+        ncon.data.net.ess_max_power_capacity = [10.0] * len(ncon.data.net.bus)  # MW
+        ncon.data.net.ess_power_energy_ratio = [0.25] * len(ncon.data.net.bus)  # assume 0.25
+        ncon.data.net.ess_charge_eff = [0.95] * len(ncon.data.net.bus)
+        ncon.data.net.ess_discharge_eff = [0.95] * len(ncon.data.net.bus)
+        ncon.data.net.ess_soc_min = [0.1] * len(ncon.data.net.bus)
+        ncon.data.net.ess_soc_max = [0.9] * len(ncon.data.net.bus)
+        ncon.data.net.ess_initial_soc = [1.0] * len(ncon.data.net.bus)  # assume 100% initial SOC
+
+        # -----------------------------------------------------------
+        # 10.  Cost-related parameters
+        # -----------------------------------------------------------
         ncon.data.net.Pimp_cost = 50  # active power importing cost
         ncon.data.net.Pexp_cost = 0  # active power exporting remuneration
         ncon.data.net.Qimp_cost = 50  # reactive power importing cost
         ncon.data.net.Qexp_cost = 0  # reactive power exporting remuneration
 
-        # placeholders – will be set by NetworkClass.set_gis_data()
-        ncon.data.net.all_bus_coords_in_tuple = None
-        ncon.data.net.bch_gis_bgn = None
-        ncon.data.net.bch_gis_end = None
+        ncon.data.net.Pc_cost = [5000] * len(ncon.data.net.bus)  # active load shedding cost
+        ncon.data.net.Qc_cost = [0] * len(ncon.data.net.bus)  # reactive load shedding cost
+
+        # line hardening cost is modelled as:
+        # (£) per unit line length (km) and per unit amount fragility curve shift (m/s)
+        ncon.data.net.hrdn_cost = [2e4] * len(ncon.data.net.bch)  # £20k/km/(m/s) for DN lines
+        ncon.data.net.repair_cost = [5e3] * len(ncon.data.net.bch)  # £5k/repair for DN lines
+
+        # DG/ESS installation costs (note the power-to-energy ratio for each installation is fixed)
+        ncon.data.net.dg_install_cost = [5e4] * len(ncon.data.net.bus)  # £50k per MW installed
+        ncon.data.net.ess_install_cost = [1e5] * len(ncon.data.net.bus)  # £100k per MW power capacity
+
+        # Generation cost of installed DGs
+        ncon.data.net.dg_gen_cost_coef = [[0, 70] for _ in range(len(ncon.data.net.bus))]
 
         # -----------------------------------------------------------
-        # 10.  Fragility data
+        # 11.  Fragility data
         # -----------------------------------------------------------
         num_bch = len(ncon.data.net.bch)
         ncon.data.frg.mu = [3.8] * num_bch
@@ -812,19 +850,50 @@ def make_network(name: str) -> NetworkClass:
         )
 
         # -----------------------------------------------------------
-        # 7.  Economic parameters
+        # 7.  DG and ESS installation availability and capacity
         # -----------------------------------------------------------
-        ncon.data.net.Pc_cost = [1000] * len(ncon.data.net.bus)  # load-shedding penalty £/MW
-        ncon.data.net.Pimp_cost = 50  # grid import £/MW
-        ncon.data.net.Pexp_cost = 0  # export remuneration £/MW
+        # 7.1) Installation availability
+        # Assume no installation availability at TN level for DG/ESS
+        ncon.data.net.dg_installation_availability = [0] * len(ncon.data.net.bus)
+        ncon.data.net.ess_installation_availability = [0] * len(ncon.data.net.bus)
 
-        # No reactive-power modelling – set dummies
-        ncon.data.net.Qc_cost = [0] * len(ncon.data.net.bus)
+        # 7.2) DG-related parameters
+        ncon.data.net.dg_min_capacity = [0.0] * len(ncon.data.net.bus)  # MW
+        ncon.data.net.dg_max_capacity = [0.0] * len(ncon.data.net.bus)  # MW - 0 maximum value to ensure no installation
+
+        # 7.3) ESS-related parameters
+        ncon.data.net.ess_min_power_capacity = [0.0] * len(ncon.data.net.bus)  # MW
+        ncon.data.net.ess_max_power_capacity = [0.0] * len(ncon.data.net.bus)  # MW - 0 maximum value
+        ncon.data.net.ess_power_energy_ratio = [0.25] * len(ncon.data.net.bus)  # assume 0.25
+        ncon.data.net.ess_charge_eff = [0.95] * len(ncon.data.net.bus)
+        ncon.data.net.ess_discharge_eff = [0.95] * len(ncon.data.net.bus)
+        ncon.data.net.ess_soc_min = [0.1] * len(ncon.data.net.bus)
+        ncon.data.net.ess_soc_max = [0.9] * len(ncon.data.net.bus)
+        ncon.data.net.ess_initial_soc = [1.0] * len(ncon.data.net.bus)  # assume 100% initial SOC
+
+        # -----------------------------------------------------------
+        # 8.  Cost-related parameters
+        # -----------------------------------------------------------
+        ncon.data.net.Pimp_cost = 50
+        ncon.data.net.Pexp_cost = 0
         ncon.data.net.Qimp_cost = 50
         ncon.data.net.Qexp_cost = 0
 
+        ncon.data.net.Pc_cost = [1000] * len(ncon.data.net.bus)
+        ncon.data.net.Qc_cost = [0] * len(ncon.data.net.bus)
+
+        ncon.data.net.hrdn_cost = [5e4] * len(ncon.data.net.bch)  # £50k/km/(m/s) for TN lines
+        ncon.data.net.repair_cost = [1e4] * len(ncon.data.net.bch)  # £10k/repair for TN lines
+
+        # DG/ESS installation costs
+        ncon.data.net.dg_install_cost = [1e9] * len(ncon.data.net.bus)  # £/MW - unusable, set a large placeholder value
+        ncon.data.net.ess_install_cost = [1e9] * len(ncon.data.net.bus)  # £/MW - unusable, set a large value
+
+        # Generation cost of installed DGs
+        ncon.data.net.dg_gen_cost_coef = [[0, 70] for _ in range(len(ncon.data.net.bus))]
+
         # -----------------------------------------------------------
-        # 8.  Fragility data (uniform defaults)
+        # 9.  Fragility data (uniform defaults)
         # -----------------------------------------------------------
         num_bch = len(ncon.data.net.bch)
         ncon.data.frg.mu = [3.8] * num_bch
@@ -834,7 +903,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.frg.shift_f = [0.0] * num_bch
 
         # -----------------------------------------------------------
-        # 9.  Instantiate & label the network
+        # 10.  Instantiate & label the network
         # -----------------------------------------------------------
         net = NetworkClass(ncon)
         net.name = name
@@ -894,86 +963,52 @@ def make_network(name: str) -> NetworkClass:
             return [_map(p[0]), _map(p[1])]
 
         # ------------------------------------------------------------------
-        # 4.  Append the DN data with correct bus ID mapping
+        # 4.  Append the DN data with correct bus ID mapping -- Bus indexed attributes (directly extend)
         # ------------------------------------------------------------------
-        # 4.1  Buses and their attributes
-
+        # 4.1) Bus index and level tag
         new_dn_buses = [_map(b) for b in dn.bus]
         ncon.data.net.bus.extend(new_dn_buses)
+        ncon.data.net.bus_level.update({b: 'D' for b in new_dn_buses})
+
+        # 4.2) Bus voltage limits
         ncon.data.net.V_min.extend(dn.V_min)
         ncon.data.net.V_max.extend(dn.V_max)
-        ncon.data.net.Pd_max.extend(dn.Pd_max)
-        ncon.data.net.Qd_max.extend(dn.Qd_max)
-        ncon.data.net.Pc_cost.extend(dn.Pc_cost)
-        ncon.data.net.Qc_cost.extend(dn.Qc_cost)
-        ncon.data.net.Pd_min.extend(dn.Pd_min)
-        ncon.data.net.Qd_min.extend(dn.Qd_min)
 
+        # 4.3) Bus geodata
         if dn.bus_lon is not None:  # GIS coords
             ncon.data.net.bus_lon.extend(dn.bus_lon)
             ncon.data.net.bus_lat.extend(dn.bus_lat)
 
-        # tag
-        ncon.data.net.bus_level.update({b: 'D' for b in new_dn_buses})
+        # 4.4) Max/Min demand
+        ncon.data.net.Pd_max.extend(dn.Pd_max)
+        ncon.data.net.Qd_max.extend(dn.Qd_max)
+        ncon.data.net.Pd_min.extend(dn.Pd_min)
+        ncon.data.net.Qd_min.extend(dn.Qd_min)
 
-        # 4.2  Branches
-        ncon.data.net.bch.extend([_map_pair(p) for p in dn.bch])
-        ncon.data.net.bch_type = list(gb.bch_type) + list(dn.bch_type)
-        ncon.data.net.bch_R.extend(dn.bch_R)
-        ncon.data.net.bch_X.extend(dn.bch_X)
-        ncon.data.net.bch_Smax.extend(dn.bch_Smax)
-        ncon.data.net.bch_Pmax.extend(dn.bch_Pmax)
-        ncon.data.net.bch_length_km.extend(dn.bch_length_km)
-        ncon.data.net.bch_hardenable.extend(dn.bch_hardenable)
+        # 4.5) Bus-specific demand profiles
+        # Initialize profiles - all buses start with None
+        profile_Pd = [None] * len(ncon.data.net.bus)
+        profile_Qd = [None] * len(ncon.data.net.bus)
 
-        # 4.3  Insert the TN–DN coupling branch (after the TN list)
-        idx_cpl = len(gb.bch)  # position in the master list
-        ncon.data.net.bch.insert(idx_cpl, [21, _map(1)])  # 21 ←→ Kearsley-bus 1
-        ncon.data.net.bch_type.insert(idx_cpl, 0)  # treat as transformer
-        ncon.data.net.bch_R.insert(idx_cpl, 0.0)
-        ncon.data.net.bch_X.insert(idx_cpl, 0.0001)
-        ncon.data.net.bch_Smax.insert(idx_cpl, 1e6)
-        ncon.data.net.bch_Pmax.insert(idx_cpl, 1e6)
-        ncon.data.net.bch_length_km.insert(idx_cpl, 0.0)
-        ncon.data.net.bch_hardenable.insert(idx_cpl, 0)
+        # Map DN profiles from dn_net (which already has bus-specific profiles loaded)
+        if dn.profile_Pd is not None:
+            for original_bus_id in dn.bus:
+                # Get the profile from the original DN network
+                original_bus_idx = dn.bus.index(original_bus_id)
 
-        # 4.4  Re-build branch-level tags
-        num_tn = len(gb.bch)
-        num_dn = len(dn.bch)
-        ncon.data.net.branch_level = {}
+                # Map to composite network bus ID
+                composite_bus_id = dn_bus_map[original_bus_id]
+                composite_bus_idx = ncon.data.net.bus.index(composite_bus_id)
 
-        for i in range(1, num_tn + 1):
-            ncon.data.net.branch_level[i] = 'T'
+                # Copy the profiles
+                profile_Pd[composite_bus_idx] = dn.profile_Pd[original_bus_idx]
+                profile_Qd[composite_bus_idx] = dn.profile_Qd[original_bus_idx]
 
-        ncon.data.net.branch_level[num_tn + 1] = 'T-D'  # the coupling link
+        # Set the profiles (TN buses remain None and will be filled by NetworkClass)
+        ncon.data.net.profile_Pd = profile_Pd
+        ncon.data.net.profile_Qd = profile_Qd
 
-        for k in range(num_dn):
-            ncon.data.net.branch_level[num_tn + 2 + k] = 'D'
-
-        # 4.5 Bus-specific demand profiles
-            # Initialize profiles - all buses start with None
-            profile_Pd = [None] * len(ncon.data.net.bus)
-            profile_Qd = [None] * len(ncon.data.net.bus)
-
-            # Map DN profiles from dn_net (which already has bus-specific profiles loaded)
-            if dn.profile_Pd is not None:
-                for original_bus_id in dn.bus:
-                    # Get the profile from the original DN network
-                    original_bus_idx = dn.bus.index(original_bus_id)
-
-                    # Map to composite network bus ID
-                    composite_bus_id = dn_bus_map[original_bus_id]
-                    composite_bus_idx = ncon.data.net.bus.index(composite_bus_id)
-
-                    # Copy the profiles
-                    profile_Pd[composite_bus_idx] = dn.profile_Pd[original_bus_idx]
-                    profile_Qd[composite_bus_idx] = dn.profile_Qd[original_bus_idx]
-
-            # Set the profiles (TN buses remain None and will be filled by NetworkClass)
-            ncon.data.net.profile_Pd = profile_Pd
-            ncon.data.net.profile_Qd = profile_Qd
-
-        # 4.6  Generators
+        # 4.6) Generators
         ncon.data.net.gen.extend([_map(b) for b in dn.gen])
         ncon.data.net.Pg_max.extend(dn.Pg_max)
         ncon.data.net.Pg_min.extend(dn.Pg_min)
@@ -997,7 +1032,7 @@ def make_network(name: str) -> NetworkClass:
         if hasattr(dn, 'pv_profile_path'):
             ncon.data.net.pv_profile_path = dn.pv_profile_path
 
-        # 4.7  ESS
+        # 4.7) ESS
         if hasattr(dn, 'ess') and len(dn.ess) > 0:
             # Remap ESS bus indices
             ncon.data.net.ess = [_map(b) for b in dn.ess]
@@ -1009,53 +1044,120 @@ def make_network(name: str) -> NetworkClass:
             ncon.data.net.eta_ch = dn.eta_ch[:]
             ncon.data.net.eta_dis = dn.eta_dis[:]
 
+        # 4.8) DG/ESS installation parameters
+        # - Installation availability
+        ncon.data.net.dg_installation_availability.extend(dn.dg_installation_availability)
+        ncon.data.net.ess_installation_availability.extend(dn.ess_installation_availability)
 
-        # 4.8  Fragility curve
-        ncon.data.frg.mu = list(gb_net.data.frg.mu) + list(dn_net.data.frg.mu)
-        ncon.data.frg.sigma = list(gb_net.data.frg.sigma) + list(dn_net.data.frg.sigma)
-        ncon.data.frg.thrd_1 = list(gb_net.data.frg.thrd_1) + list(dn_net.data.frg.thrd_1)
-        ncon.data.frg.thrd_2 = list(gb_net.data.frg.thrd_2) + list(dn_net.data.frg.thrd_2)
-        ncon.data.frg.shift_f = list(gb_net.data.frg.shift_f) + list(dn_net.data.frg.shift_f)
+        # - Installation capacity limits
+        ncon.data.net.dg_min_capacity.extend(dn.dg_min_capacity)
+        ncon.data.net.dg_max_capacity.extend(dn.dg_max_capacity)
+        ncon.data.net.ess_min_power_capacity.extend(dn.ess_min_power_capacity)
+        ncon.data.net.ess_max_power_capacity.extend(dn.ess_min_power_capacity)
+
+        # - ESS technical parameters
+        ncon.data.net.ess_power_energy_ratio.extend(dn.ess_power_energy_ratio)
+        ncon.data.net.ess_charge_eff.extend(dn.ess_charge_eff)
+        ncon.data.net.ess_discharge_eff.extend(dn.ess_discharge_eff)
+        ncon.data.net.ess_soc_min.extend(dn.ess_soc_min)
+        ncon.data.net.ess_soc_max.extend(dn.ess_soc_max)
+        ncon.data.net.ess_initial_soc.extend(dn.ess_initial_soc)
+
+        # Generation cost for new DG
+        ncon.data.net.dg_gen_cost_coef.extend(dn.dg_gen_cost_coef)
+
+        # 4.9) Cost-related parameters
+
+        # Note: electricity import/export cost are scalars, and here we directly use the data from the TN level network
+        # --> No action needed here.
+
+        # - Load curtailment cost
+        ncon.data.net.Pc_cost.extend(dn.Pc_cost)
+        ncon.data.net.Qc_cost.extend(dn.Qc_cost)
+
+        # - DG/ESS installation costs
+        ncon.data.net.dg_install_cost.extend(dn.dg_install_cost)
+        ncon.data.net.ess_install_cost.extend(dn.ess_install_cost)
 
         # ------------------------------------------------------------------
-        # 5.  Slack and base values
+        # 5.  Append the DN data with correct bus ID mapping -- Branch indexed attributes (extend with handling for the
+        #     coupling branch)
+        # ------------------------------------------------------------------
+        # 5.1) Extend branch properties
+        # - branch type and level tag
+        ncon.data.net.bch.extend([_map_pair(p) for p in dn.bch])
+        ncon.data.net.bch_type = list(gb.bch_type) + list(dn.bch_type)
+        # - branch technical properties
+        ncon.data.net.bch_R.extend(dn.bch_R)
+        ncon.data.net.bch_X.extend(dn.bch_X)
+        ncon.data.net.bch_Smax.extend(dn.bch_Smax)
+        ncon.data.net.bch_Pmax.extend(dn.bch_Pmax)
+        # - hardening-related parameters
+        ncon.data.net.bch_length_km.extend(dn.bch_length_km)
+        ncon.data.net.bch_hardenable.extend(dn.bch_hardenable)
+        ncon.data.net.hrdn_cost.extend(dn.hrdn_cost)
+        ncon.data.net.repair_cost.extend(dn.repair_cost)
+
+        # 5.2) Insert the TN–DN coupling branch (after the TN list)
+        idx_cpl = len(gb.bch)  # position in the master list
+        ncon.data.net.bch.insert(idx_cpl, [21, _map(1)])  # 21 ←→ Kearsley-bus 1
+        ncon.data.net.bch_type.insert(idx_cpl, 0)  # treat as transformer
+        ncon.data.net.bch_R.insert(idx_cpl, 0.0)
+        ncon.data.net.bch_X.insert(idx_cpl, 0.0001)
+        ncon.data.net.bch_Smax.insert(idx_cpl, 1e6)
+        ncon.data.net.bch_Pmax.insert(idx_cpl, 1e6)
+        ncon.data.net.bch_length_km.insert(idx_cpl, 0)
+        ncon.data.net.bch_hardenable.insert(idx_cpl, 0)
+        ncon.data.net.hrdn_cost.insert(idx_cpl, 0)
+        ncon.data.net.repair_cost.insert(idx_cpl, 0)
+
+        # 5.3) Re-build branch-level tags
+        num_tn = len(gb.bch)
+        num_dn = len(dn.bch)
+        ncon.data.net.branch_level = {}
+
+        for i in range(1, num_tn + 1):
+            ncon.data.net.branch_level[i] = 'T'
+
+        ncon.data.net.branch_level[num_tn + 1] = 'T-D'  # the coupling link
+
+        for k in range(num_dn):
+            ncon.data.net.branch_level[num_tn + 2 + k] = 'D'
+
+        # 5.4) Fragility curve (default fragility curve data is set for the coupling branch)
+        ncon.data.frg.mu = list(gb_net.data.frg.mu)
+        ncon.data.frg.mu.insert(idx_cpl, 3.8)
+        ncon.data.frg.mu.extend(dn_net.data.frg.mu)
+
+        ncon.data.frg.sigma = list(gb_net.data.frg.sigma)
+        ncon.data.frg.sigma.insert(idx_cpl, 0.122)
+        ncon.data.frg.sigma.extend(dn_net.data.frg.sigma)
+
+        ncon.data.frg.thrd_1 = list(gb_net.data.frg.thrd_1)
+        ncon.data.frg.thrd_1.insert(idx_cpl, 20)
+        ncon.data.frg.thrd_1.extend(dn_net.data.frg.thrd_1)
+
+        ncon.data.frg.thrd_2 = list(gb_net.data.frg.thrd_2)
+        ncon.data.frg.thrd_2.insert(idx_cpl, 90)
+        ncon.data.frg.thrd_2.extend(dn_net.data.frg.thrd_2)
+
+        ncon.data.frg.shift_f = list(gb_net.data.frg.shift_f)
+        ncon.data.frg.shift_f.insert(idx_cpl, 0.0)
+        ncon.data.frg.shift_f.extend(dn_net.data.frg.shift_f)
+
+        # ------------------------------------------------------------------
+        # 6.  Slack and base values
         # ------------------------------------------------------------------
         ncon.data.net.slack_bus = gb.slack_bus
         ncon.data.net.base_MVA = gb.base_MVA
         ncon.data.net.base_kV = gb.base_kV
 
         # ------------------------------------------------------------------
-        # 6. Specify additional data that are needed when building the investment model
+        # 7. Other scalar parameters for the entire composite network
         # ------------------------------------------------------------------
-        # 6.1) line hardening cost (£) per unit length (km) of the line and per unit amount (m/s) that the fragility
-        # curve is shifted
-        ncon.data.cost_rate_hrdn_tn = 1e5  # transmission lines
-        ncon.data.cost_rate_hrdn_dn = 5e4  # distribution lines
-
-        ncon.data.cost_bch_hrdn = []
-        for i, length in enumerate(ncon.data.net.bch_length_km):
-            level = ncon.data.net.branch_level[i + 1]  # 'T', 'D', or 'T-D'
-            is_line = ncon.data.net.bch_type[i] == 1  # 1=line, 0=transformer/coupling branch
-            if not is_line:  # not hardenable
-                ncon.data.cost_bch_hrdn.append(0.0)  # assign 0 value as a placeholder
-            elif level == 'T':
-                ncon.data.cost_bch_hrdn.append(ncon.data.cost_rate_hrdn_tn * length)
-            elif level == 'D':
-                ncon.data.cost_bch_hrdn.append(ncon.data.cost_rate_hrdn_dn * length)
-            else:  # the virtual TN–DN coupling branch
-                ncon.data.cost_bch_hrdn.append(0.0)
-
-        # 6.2) line repair cost
-        rep_rate_tn = 1e5  # repair cost (£) per unit length (km) of line at transmission level
-        rep_rate_dn = 5e4  # repair cost (£) per unit length (km) of line at distribution level
-        ncon.data.cost_bch_rep = [
-            rep_rate_dn * length if ncon.data.net.branch_level[i + 1] == 'D' else rep_rate_tn * length
-            for i, length in enumerate(ncon.data.net.bch_length_km)
-        ]  # Note: the line repair at both transmission and distribution level are considered
-
-        # 6.3) line hardening limits and budget
         ncon.data.bch_hrdn_limits = [0.0, 40.0]  # in m/s
         ncon.data.budget_bch_hrdn = 1e10  # in £
+
 
         net = NetworkClass(ncon)
         net.name = name
