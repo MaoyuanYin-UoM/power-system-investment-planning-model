@@ -468,10 +468,10 @@ def make_network(name: str) -> NetworkClass:
         # Store in ncon
         ncon.data.net.gen = gen_buses
         ncon.data.net.gen_type = gen_types
-        ncon.data.net.Pg_max = Pg_max_list
-        ncon.data.net.Pg_min = Pg_min_list
-        ncon.data.net.Qg_max = Qg_max_list
-        ncon.data.net.Qg_min = Qg_min_list
+        ncon.data.net.Pg_max_exst = Pg_max_list
+        ncon.data.net.Pg_min_exst = Pg_min_list
+        ncon.data.net.Qg_max_exst = Qg_max_list
+        ncon.data.net.Qg_min_exst = Qg_min_list
         ncon.data.net.gen_cost_coef = gen_cost_coef_list
 
         # -----------------------------------------------------------
@@ -492,12 +492,15 @@ def make_network(name: str) -> NetworkClass:
 
         # Read and set ESS data
         ncon.data.net.ess = df_ess["Bus ID"].astype(int).tolist()
-        ncon.data.net.Pess_cap = df_ess["Pess_cap"].astype(float).tolist()
-        ncon.data.net.Eess_cap = df_ess["Eess_cap"].astype(float).tolist()
-        ncon.data.net.SOC_min = df_ess["SOC_min"].astype(float).tolist()
-        ncon.data.net.SOC_max = df_ess["SOC_max"].astype(float).tolist()
-        ncon.data.net.eta_ch = df_ess["eff_ch"].astype(float).tolist()
-        ncon.data.net.eta_dis = df_ess["eff_dis"].astype(float).tolist()
+        ncon.data.net.Pess_max_exst = df_ess["Pess_cap"].astype(float).tolist()  # Max power (MW)
+        ncon.data.net.Pess_min_exst = [0.0] * len(df_ess)  # Min power (MW) - typically 0
+        ncon.data.net.Eess_max_exst = df_ess["Eess_cap"].astype(float).tolist()  # Max energy (MWh)
+        ncon.data.net.Eess_max_exst = [0.0] * len(df_ess)  # Min energy (MWh)
+        ncon.data.net.eff_ch_exst = df_ess["eff_ch"].astype(float).tolist()  # Charging efficiency
+        ncon.data.net.eff_dis_exst = df_ess["eff_dis"].astype(float).tolist()  # Discharging efficiency
+        ncon.data.net.SOC_min_exst = df_ess["SOC_min"].astype(float).tolist()  # Minimum SOC
+        ncon.data.net.SOC_max_exst = df_ess["SOC_max"].astype(float).tolist()  # Maximum SOC
+        ncon.data.net.initial_SOC_exst = df_ess["SOC_max"].astype(float).tolist()  # Initial SOC
 
         # -----------------------------------------------------------
         # 9.  DG and ESS installation parameters
@@ -516,19 +519,24 @@ def make_network(name: str) -> NetworkClass:
             for b in ncon.data.net.bus
         ]
 
-        # 9.2) DG-related parameters
-        ncon.data.net.dg_min_capacity = [0.0] * len(ncon.data.net.bus)  # MW
-        ncon.data.net.dg_max_capacity = [10.0] * len(ncon.data.net.bus)  # MW
+        # 9.2) DG installation capacity
+        ncon.data.net.dg_install_capacity_min = [0.0] * len(ncon.data.net.bus)  # MW
+        ncon.data.net.dg_install_capacity_max = [10.0] * len(ncon.data.net.bus)  # MW
 
-        # 9.3) ESS-related parameters
-        ncon.data.net.ess_min_power_capacity = [0.0] * len(ncon.data.net.bus)  # MW
-        ncon.data.net.ess_max_power_capacity = [10.0] * len(ncon.data.net.bus)  # MW
-        ncon.data.net.ess_power_energy_ratio = [0.25] * len(ncon.data.net.bus)  # assume 0.25
-        ncon.data.net.ess_charge_eff = [0.95] * len(ncon.data.net.bus)
-        ncon.data.net.ess_discharge_eff = [0.95] * len(ncon.data.net.bus)
-        ncon.data.net.ess_soc_min = [0.1] * len(ncon.data.net.bus)
-        ncon.data.net.ess_soc_max = [0.9] * len(ncon.data.net.bus)
-        ncon.data.net.ess_initial_soc = [1.0] * len(ncon.data.net.bus)  # assume 100% initial SOC
+        # 9.3) New DG operational parameters
+        ncon.data.net.new_dg_q_p_ratio = [0.75] * len(ncon.data.net.bus)  # Assumed 0.75
+
+        # 9.4) ESS installation capacity
+        ncon.data.net.ess_install_capacity_min = [0.0] * len(ncon.data.net.bus)  # MW
+        ncon.data.net.ess_install_capacity_max = [10.0] * len(ncon.data.net.bus)  # MW
+        
+        # 9.5) New ESS operational (technical) parameters
+        ncon.data.net.ess_power_energy_ratio_new = [0.25] * len(ncon.data.net.bus)  # assume 0.25
+        ncon.data.net.eff_ch_new = [0.95] * len(ncon.data.net.bus)
+        ncon.data.net.eff_dis_new = [0.95] * len(ncon.data.net.bus)
+        ncon.data.net.SOC_min_new = [0.1] * len(ncon.data.net.bus)
+        ncon.data.net.SOC_max_new = [0.9] * len(ncon.data.net.bus)
+        ncon.data.net.initial_SOC_new = [1.0] * len(ncon.data.net.bus)  # assume 100% initial SOC
 
         # -----------------------------------------------------------
         # 10.  Cost-related parameters
@@ -674,10 +682,10 @@ def make_network(name: str) -> NetworkClass:
 
         # 4.5) Append gen data
         ncon.data.net.gen.extend([_map_bus(b) for b in dn.gen])
-        ncon.data.net.Pg_max.extend(dn.Pg_max)
-        ncon.data.net.Pg_min.extend(dn.Pg_min)
-        ncon.data.net.Qg_max.extend(dn.Qg_max)
-        ncon.data.net.Qg_min.extend(dn.Qg_min)
+        ncon.data.net.Pg_max_exst.extend(dn.Pg_max_exst)
+        ncon.data.net.Pg_min_exst.extend(dn.Pg_min_exst)
+        ncon.data.net.Qg_max_exst.extend(dn.Qg_max_exst)
+        ncon.data.net.Qg_min_exst.extend(dn.Qg_min_exst)
         ncon.data.net.gen_cost_coef.extend(dn.gen_cost_coef)
 
         # 4.6) Merge the fragility data
@@ -838,10 +846,10 @@ def make_network(name: str) -> NetworkClass:
         # 6.  Generator data
         # -----------------------------------------------------------
         ncon.data.net.gen = df_gen["Bus ID"].astype(int).tolist()
-        ncon.data.net.Pg_max = df_gen["Pg_max"].astype(float).tolist()
-        ncon.data.net.Pg_min = df_gen["Pg_min"].astype(float).tolist()
-        ncon.data.net.Qg_max = df_gen["Qg_max"].astype(float).tolist()
-        ncon.data.net.Qg_min = df_gen["Qg_min"].astype(float).tolist()
+        ncon.data.net.Pg_max_exst = df_gen["Pg_max"].astype(float).tolist()
+        ncon.data.net.Pg_min_exst = df_gen["Pg_min"].astype(float).tolist()
+        ncon.data.net.Qg_max_exst = df_gen["Qg_max"].astype(float).tolist()
+        ncon.data.net.Qg_min_exst = df_gen["Qg_min"].astype(float).tolist()
 
         # cost coefficients  (quadratic  + linear)
         ncon.data.net.gen_cost_coef = (
@@ -850,29 +858,49 @@ def make_network(name: str) -> NetworkClass:
         )
 
         # -----------------------------------------------------------
-        # 7.  DG and ESS installation availability and capacity
+        # 7.  ESS data
         # -----------------------------------------------------------
-        # 7.1) Installation availability
+        # No existing ESS at transmission level
+        ncon.data.net.ess = []
+        ncon.data.net.Pess_max_exst = []
+        ncon.data.net.Pess_min_exst = []
+        ncon.data.net.Eess_max_exst = []
+        ncon.data.net.Eess_min_exst = []
+        ncon.data.net.eff_ch_exst = []
+        ncon.data.net.eff_dis_exst = []
+        ncon.data.net.SOC_min_exst = []
+        ncon.data.net.SOC_max_exst = []
+        ncon.data.net.initial_SOC_exst = []
+
+        # -----------------------------------------------------------
+        # 8.  DG and ESS installation availability and capacity
+        # -----------------------------------------------------------
+        # 8.1) Installation availability
         # Assume no installation availability at TN level for DG/ESS
         ncon.data.net.dg_installation_availability = [0] * len(ncon.data.net.bus)
         ncon.data.net.ess_installation_availability = [0] * len(ncon.data.net.bus)
 
-        # 7.2) DG-related parameters
-        ncon.data.net.dg_min_capacity = [0.0] * len(ncon.data.net.bus)  # MW
-        ncon.data.net.dg_max_capacity = [0.0] * len(ncon.data.net.bus)  # MW - 0 maximum value to ensure no installation
+        # 8.2) DG installation parameters
+        ncon.data.net.dg_install_capacity_min = [0.0] * len(ncon.data.net.bus)  # MW
+        ncon.data.net.dg_install_capacity_max = [0.0] * len(ncon.data.net.bus)  # MW - 0 value to ensure no installation
 
-        # 7.3) ESS-related parameters
-        ncon.data.net.ess_min_power_capacity = [0.0] * len(ncon.data.net.bus)  # MW
-        ncon.data.net.ess_max_power_capacity = [0.0] * len(ncon.data.net.bus)  # MW - 0 maximum value
-        ncon.data.net.ess_power_energy_ratio = [0.25] * len(ncon.data.net.bus)  # assume 0.25
-        ncon.data.net.ess_charge_eff = [0.95] * len(ncon.data.net.bus)
-        ncon.data.net.ess_discharge_eff = [0.95] * len(ncon.data.net.bus)
-        ncon.data.net.ess_soc_min = [0.1] * len(ncon.data.net.bus)
-        ncon.data.net.ess_soc_max = [0.9] * len(ncon.data.net.bus)
-        ncon.data.net.ess_initial_soc = [1.0] * len(ncon.data.net.bus)  # assume 100% initial SOC
+        # 8.3) New DG operational parameters
+        ncon.data.net.new_dg_q_p_ratio = [0.75] * len(ncon.data.net.bus)  # Assumed 0.75
+
+        # 8.4) ESS installation parameters
+        ncon.data.net.ess_install_capacity_min = [0.0] * len(ncon.data.net.bus)  # MW
+        ncon.data.net.ess_install_capacity_max = [0.0] * len(ncon.data.net.bus)  # MW - 0 maximum value
+
+        # 8.5) New ESS operational parameters
+        ncon.data.net.ess_power_energy_ratio_new = [0.25] * len(ncon.data.net.bus)  # assume 0.25
+        ncon.data.net.eff_ch_new = [0.95] * len(ncon.data.net.bus)
+        ncon.data.net.eff_dis_new = [0.95] * len(ncon.data.net.bus)
+        ncon.data.net.SOC_min_new = [0.1] * len(ncon.data.net.bus)
+        ncon.data.net.SOC_max_new = [0.9] * len(ncon.data.net.bus)
+        ncon.data.net.initial_SOC_new = [1.0] * len(ncon.data.net.bus)  # assume 100% initial SOC
 
         # -----------------------------------------------------------
-        # 8.  Cost-related parameters
+        # 9.  Cost-related parameters
         # -----------------------------------------------------------
         ncon.data.net.Pimp_cost = 50
         ncon.data.net.Pexp_cost = 0
@@ -893,7 +921,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.new_dg_gen_cost_coef = [[0, 70] for _ in range(len(ncon.data.net.bus))]
 
         # -----------------------------------------------------------
-        # 9.  Fragility data (uniform defaults)
+        # 10.  Fragility data (uniform defaults)
         # -----------------------------------------------------------
         num_bch = len(ncon.data.net.bch)
         ncon.data.frg.mu = [3.8] * num_bch
@@ -902,9 +930,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.frg.thrd_2 = [90] * num_bch
         ncon.data.frg.shift_f = [0.0] * num_bch
 
-        # -----------------------------------------------------------
-        # 10.  Instantiate & label the network
-        # -----------------------------------------------------------
+
         net = NetworkClass(ncon)
         net.name = name
         return net
@@ -1010,10 +1036,10 @@ def make_network(name: str) -> NetworkClass:
 
         # 4.6) Generators
         ncon.data.net.gen.extend([_map(b) for b in dn.gen])
-        ncon.data.net.Pg_max.extend(dn.Pg_max)
-        ncon.data.net.Pg_min.extend(dn.Pg_min)
-        ncon.data.net.Qg_max.extend(dn.Qg_max)
-        ncon.data.net.Qg_min.extend(dn.Qg_min)
+        ncon.data.net.Pg_max_exst.extend(dn.Pg_max_exst)
+        ncon.data.net.Pg_min_exst.extend(dn.Pg_min_exst)
+        ncon.data.net.Qg_max_exst.extend(dn.Qg_max_exst)
+        ncon.data.net.Qg_min_exst.extend(dn.Qg_min_exst)
         ncon.data.net.gen_cost_coef.extend(dn.gen_cost_coef)
 
         # Handle gen_type: Currently GB network doesn't have 'gen_type' attribute, so create default for GB generators
@@ -1037,12 +1063,15 @@ def make_network(name: str) -> NetworkClass:
             # Remap ESS bus indices
             ncon.data.net.ess = [_map(b) for b in dn.ess]
 
-            ncon.data.net.Pess_cap = dn.Pess_cap[:]
-            ncon.data.net.Eess_cap = dn.Eess_cap[:]
-            ncon.data.net.SOC_min = dn.SOC_min[:]
-            ncon.data.net.SOC_max = dn.SOC_max[:]
-            ncon.data.net.eta_ch = dn.eta_ch[:]
-            ncon.data.net.eta_dis = dn.eta_dis[:]
+            ncon.data.net.Pess_max_exst = dn.Pess_max_exst[:]
+            ncon.data.net.Pess_min_exst = dn.Pess_min_exst[:]
+            ncon.data.net.Eess_max_exst = dn.Eess_max_exst[:]
+            ncon.data.net.Eess_min_exst = dn.Eess_min_exst[:]
+            ncon.data.net.SOC_min_exst = dn.SOC_min_exst[:]
+            ncon.data.net.SOC_max_exst = dn.SOC_max_exst[:]
+            ncon.data.net.eff_ch_exst = dn.eff_ch_exst[:]
+            ncon.data.net.eff_dis_exst = dn.eff_dis_exst[:]
+            ncon.data.net.initial_SOC_exst = dn.initial_SOC_exst[:]
 
         # 4.8) DG/ESS installation parameters
         # - Installation availability
@@ -1050,18 +1079,20 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.ess_installation_availability.extend(dn.ess_installation_availability)
 
         # - Installation capacity limits
-        ncon.data.net.dg_min_capacity.extend(dn.dg_min_capacity)
-        ncon.data.net.dg_max_capacity.extend(dn.dg_max_capacity)
-        ncon.data.net.ess_min_power_capacity.extend(dn.ess_min_power_capacity)
-        ncon.data.net.ess_max_power_capacity.extend(dn.ess_min_power_capacity)
+        ncon.data.net.dg_install_capacity_min.extend(dn.dg_install_capacity_min)
+        ncon.data.net.dg_install_capacity_max.extend(dn.dg_install_capacity_max)
+        ncon.data.net.ess_install_capacity_min.extend(dn.ess_install_capacity_min)
+        ncon.data.net.ess_install_capacity_max.extend(dn.ess_install_capacity_max)
 
-        # - ESS technical parameters
-        ncon.data.net.ess_power_energy_ratio.extend(dn.ess_power_energy_ratio)
-        ncon.data.net.ess_charge_eff.extend(dn.ess_charge_eff)
-        ncon.data.net.ess_discharge_eff.extend(dn.ess_discharge_eff)
-        ncon.data.net.ess_soc_min.extend(dn.ess_soc_min)
-        ncon.data.net.ess_soc_max.extend(dn.ess_soc_max)
-        ncon.data.net.ess_initial_soc.extend(dn.ess_initial_soc)
+        # - DG/ESS technical parameters
+        ncon.data.net.new_dg_q_p_ratio.extend(dn.new_dg_q_p_ratio)
+
+        ncon.data.net.ess_power_energy_ratio_new.extend(dn.ess_power_energy_ratio_new)
+        ncon.data.net.eff_ch_new.extend(dn.eff_ch_new)
+        ncon.data.net.eff_dis_new.extend(dn.eff_dis_new)
+        ncon.data.net.SOC_min_new.extend(dn.SOC_min_new)
+        ncon.data.net.SOC_max_new.extend(dn.SOC_max_new)
+        ncon.data.net.initial_SOC_new.extend(dn.initial_SOC_new)
 
         # Generation cost for new DG
         ncon.data.net.new_dg_gen_cost_coef.extend(dn.new_dg_gen_cost_coef)
