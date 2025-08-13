@@ -1388,11 +1388,11 @@ class InvestmentClass():
         # - ESS SOC Limits
         def soc_min_exst_rule(model, sc, e, t):
             """SOC must stay above minimum for existing ESS"""
-            return model.SOC_exst[sc, e, t] >= model.Eess_max_exst[e] * model.SOC_min_exst[e]
+            return model.SOC_exst[sc, e, t] >= model.SOC_min_exst[e]
 
         def soc_max_exst_rule(model, sc, e, t):
             """SOC must stay below maximum for existing ESS"""
-            return model.SOC_exst[sc, e, t] <= model.Eess_max_exst[e] * model.SOC_max_exst[e]
+            return model.SOC_exst[sc, e, t] <= model.SOC_max_exst[e]
 
         model.Constraint_SOC_min_exst = pyo.Constraint(
             model.Set_set_exst,
@@ -1453,8 +1453,10 @@ class InvestmentClass():
             #     return model.SOC_new[sc, e, t] == 0
             # else:
             #     return model.SOC_new[sc, e, t] == model.Eess_new[sc, e, t] / energy_capacity
+
+            # this constraint is currently skipped as the expression to compute SOC_new introduces non-linearity
+            # (accordingly the below two constraints are skipped as well)
             return pyo.Constraint.Skip
-  # it is skipped as the expression to compute SOC_new is non-linear
 
         model.Constraint_SOC_definition_new = pyo.Constraint(model.Set_set_new, rule=soc_definition_new_rule)
 
@@ -1722,10 +1724,16 @@ class InvestmentClass():
         ----------
         mip_gap       : Absolute/relative MIP gap (default 0.5 %)
         time_limit    : Wall-clock limit in seconds
-        write_lp      : Dump the model to LP file *only when* write_lp is True **or** the solver fails
+        write_lp      : Dump the model to LP file (suggest doing this only for debugging)
         result_path   : If not specified, a unique file name will be assigned
         solver_options: Extra options forwarded to the solver
         """
+
+        # --- write LP file if requested ---------------------------------------
+        if write_lp:
+            write_lp_path = "Output_Results/LP_Models/debug_model.lp"
+            print(f"\nWriting model as a .lp file into: \"{write_lp_path}\" ...")
+            model.write(write_lp_path, io_options={"symbolic_solver_labels": True})
 
         print(f"\nSolving model with {solver_name} (time limit: {time_limit}s)...")
 
@@ -1776,11 +1784,6 @@ class InvestmentClass():
             print("No feasible solution found.")
             best_obj = None
             mip_gap_out = None
-
-        # --- write LP file if requested ---------------------------------------
-        if write_lp:
-            model.write("LP_Models/solved_model.lp",
-                        io_options={"symbolic_solver_labels": True})
 
         # --- write results if requested ---------------------------------------
         if write_result:
