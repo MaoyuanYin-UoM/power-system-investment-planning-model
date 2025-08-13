@@ -85,11 +85,9 @@ for resilience_metric_threshold in resilience_metric_thresholds:
                                        normal_scenario_prob=0.99,
                                        resilience_metric_threshold=resilience_metric_threshold
                                        )
-    results = inv.solve_investment_model(model, write_lp=False, write_result=True,
+    results = inv.solve_investment_model(model, write_lp=False, write_result=False,
                                          solver_name='gurobi',
                                          result_path=None,
                                          mip_gap=5e-8,
                                          time_limit=10800
                                          )
-
-# ToDo: resolve the (dynamic) set issue for installed DGs

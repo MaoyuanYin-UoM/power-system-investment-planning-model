@@ -1176,10 +1176,10 @@ class NetworkClass:
                 else:
                     # Default to constant profile if file reading fails
                     print("Using default constant wind profile")
-                    wind_profile_normalized = [0.3] * default_profile_length  # Default 30% capacity factor
+                    wind_profile_normalized = [0.3] * default_profile_length
             else:
                 # No profile path provided, use default
-                print("No wind profile path provided. Using default constant wind profile")
+                print("No wind profile path provided. Using default wind profile")
                 wind_profile_normalized = [0.3] * default_profile_length
 
         # Read PV profile if we have PV generators
@@ -1198,14 +1198,12 @@ class NetworkClass:
                     else:
                         pv_profile_normalized = pv_profile_full
                 else:
-                    # Default to a simple day-night profile if file reading fails
+                    # Default sinusoidal pattern
                     print("Using default PV profile")
-                    # Simple sinusoidal daily pattern (0 at night, peak at noon)
                     pv_profile_normalized = []
                     for hour in range(default_profile_length):
                         hour_of_day = hour % 24
                         if 6 <= hour_of_day <= 18:
-                            # Daylight hours: sinusoidal pattern
                             value = 0.2 * math.sin(math.pi * (hour_of_day - 6) / 12)
                         else:
                             value = 0
@@ -1213,7 +1211,6 @@ class NetworkClass:
             else:
                 # No profile path provided, use default
                 print("No PV profile path provided. Using default PV profile")
-                # Simple sinusoidal daily pattern
                 pv_profile_normalized = []
                 for hour in range(default_profile_length):
                     hour_of_day = hour % 24
@@ -1223,56 +1220,63 @@ class NetworkClass:
                         value = 0
                     pv_profile_normalized.append(value)
 
-        # Create scaled profiles for each generator
+        # Create scaled profiles for each generator - one profile per generator
         profile_Pg_wind = []
         profile_Pg_pv = []
         profile_Pg_gas = []
 
+        # Create a profile for EVERY generator based on its type
         for i, (gen_bus, gen_type, pg_max) in enumerate(zip(self.data.net.gen,
                                                             self.data.net.gen_type,
                                                             self.data.net.Pg_max)):
-            if gen_type == 'wind' and has_wind and wind_profile_normalized:
-                # Scale wind profile by generator capacity
-                scaled_profile = [v * pg_max for v in wind_profile_normalized]
-                profile_Pg_wind.append(scaled_profile)
-            elif gen_type == 'pv' and has_pv and pv_profile_normalized:
-                # Scale PV profile by generator capacity
-                scaled_profile = [v * pg_max for v in pv_profile_normalized]
-                profile_Pg_pv.append(scaled_profile)
-            elif gen_type == 'gas':
-                # Gas generators are dispatchable - no fixed profile
-                # Determine profile length based on what's available
+            if gen_type == 'wind':
                 if wind_profile_normalized:
-                    profile_length = len(wind_profile_normalized)
-                elif pv_profile_normalized:
-                    profile_length = len(pv_profile_normalized)
+                    scaled_profile = [v * pg_max for v in wind_profile_normalized]
                 else:
-                    profile_length = default_profile_length
-                profile_Pg_gas.append([pg_max] * profile_length)  # Always available at max capacity
+                    scaled_profile = [0.3 * pg_max] * default_profile_length
+                profile_Pg_wind.append(scaled_profile)
+
+            elif gen_type == 'pv':
+                if pv_profile_normalized:
+                    scaled_profile = [v * pg_max for v in pv_profile_normalized]
+                else:
+                    scaled_profile = [0.1 * pg_max] * default_profile_length
+                profile_Pg_pv.append(scaled_profile)
+
+            elif gen_type == 'gas':
+                profile_length = len(wind_profile_normalized) if wind_profile_normalized else \
+                    len(pv_profile_normalized) if pv_profile_normalized else \
+                        default_profile_length
+                profile_Pg_gas.append([pg_max] * profile_length)
 
         # Store profiles in data structure
         self.data.net.profile_Pg_wind = profile_Pg_wind if profile_Pg_wind else None
         self.data.net.profile_Pg_pv = profile_Pg_pv if profile_Pg_pv else None
         self.data.net.profile_Pg_gas = profile_Pg_gas if profile_Pg_gas else None
 
-        # Also create a combined renewable profile list aligned with generator indices
-        # This will be useful for optimization models
+        # Create a combined renewable profile list aligned with generator indices
         profile_Pg_renewable = []
         wind_idx = 0
         pv_idx = 0
         gas_idx = 0
 
         for gen_type in self.data.net.gen_type:
-            if gen_type == 'wind' and profile_Pg_wind:
-                profile_Pg_renewable.append(profile_Pg_wind[wind_idx])
-                wind_idx += 1
-            elif gen_type == 'pv' and profile_Pg_pv:
-                profile_Pg_renewable.append(profile_Pg_pv[pv_idx])
-                pv_idx += 1
-            elif gen_type == 'gas' and profile_Pg_gas:
-                # For gas, we could use None or the max capacity profile
-                profile_Pg_renewable.append(None)  # Gas is dispatchable, no fixed profile
-                gas_idx += 1
+            if gen_type == 'wind':
+                if profile_Pg_wind and wind_idx < len(profile_Pg_wind):
+                    profile_Pg_renewable.append(profile_Pg_wind[wind_idx])
+                    wind_idx += 1
+                else:
+                    profile_Pg_renewable.append(None)
+            elif gen_type == 'pv':
+                if profile_Pg_pv and pv_idx < len(profile_Pg_pv):
+                    profile_Pg_renewable.append(profile_Pg_pv[pv_idx])
+                    pv_idx += 1
+                else:
+                    profile_Pg_renewable.append(None)
+            elif gen_type == 'gas':
+                profile_Pg_renewable.append(None)  # Gas is dispatchable
+                if profile_Pg_gas:
+                    gas_idx += 1
             else:
                 profile_Pg_renewable.append(None)
 

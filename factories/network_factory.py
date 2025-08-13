@@ -299,7 +299,7 @@ def make_network(name: str) -> NetworkClass:
         print("Loading bus-specific demand profiles for Kearsley GSP group...")
 
         # Build path to the demand profile Excel file
-        profile_path = project_root / "Input_Data" / "bus_specific_hourly_demand_profiles_Kearsley_GSP_group_2024_01JanSorted_29Feb2024Removed.xlsx"
+        profile_path = project_root / "Input_Data" / "Demand_Profile" / "bus_specific_hourly_demand_profiles_Kearsley_GSP_group_2024_01JanSorted_29Feb2024Removed.xlsx"
 
         # Initialize profile lists for all buses
         profile_Pd = []
@@ -311,8 +311,8 @@ def make_network(name: str) -> NetworkClass:
         if profile_path.exists():
             # Read both sheets
             wb_profiles = pd.ExcelFile(profile_path)
-            df_bsp = wb_profiles.parse("BSP MW")
-            df_primary = wb_profiles.parse("Primary MW")
+            df_bsp = wb_profiles.parse("BSP MW", header=None)
+            df_primary = wb_profiles.parse("Primary MW", header=None)
 
             # Extract bus ID mappings from row 3 (index 2)
             bsp_bus_ids = df_bsp.iloc[2, 1:].dropna().astype(int).tolist()
@@ -322,37 +322,19 @@ def make_network(name: str) -> NetworkClass:
             bsp_names = df_bsp.iloc[3, 1:len(bsp_bus_ids) + 1].tolist()
             primary_names = df_primary.iloc[3, 1:len(primary_bus_ids) + 1].tolist()
 
-            # Process BSP profiles (starting from row 5, index 4)
+            # Process BSP profiles (data starts from row 5, index 4)
             bsp_data = df_bsp.iloc[4:, 1:len(bsp_bus_ids) + 1].values
             for idx, bus_id in enumerate(bsp_bus_ids):
-                half_hourly_profile = bsp_data[:, idx].astype(float)
-
-                # Convert half-hourly to hourly by averaging consecutive pairs
-                hourly_profile = []
-                for i in range(0, len(half_hourly_profile), 2):
-                    if i + 1 < len(half_hourly_profile):
-                        hourly_value = (half_hourly_profile[i] + half_hourly_profile[i + 1]) / 2.0
-                    else:
-                        hourly_value = half_hourly_profile[i]
-                    hourly_profile.append(hourly_value)
-
+                # Data is already hourly, use directly
+                hourly_profile = bsp_data[:, idx].astype(float).tolist()
                 bus_specific_profiles[bus_id] = hourly_profile
                 print(f"  Loaded profile for BSP bus {bus_id} ({bsp_names[idx]}): {len(hourly_profile)} hours")
 
-            # Process Primary substation profiles
+            # Process Primary substation profiles (data starts from row 5, index 4)
             primary_data = df_primary.iloc[4:, 1:len(primary_bus_ids) + 1].values
             for idx, bus_id in enumerate(primary_bus_ids):
-                half_hourly_profile = primary_data[:, idx].astype(float)
-
-                # Convert half-hourly to hourly
-                hourly_profile = []
-                for i in range(0, len(half_hourly_profile), 2):
-                    if i + 1 < len(half_hourly_profile):
-                        hourly_value = (half_hourly_profile[i] + half_hourly_profile[i + 1]) / 2.0
-                    else:
-                        hourly_value = half_hourly_profile[i]
-                    hourly_profile.append(hourly_value)
-
+                # Data is already hourly, use directly
+                hourly_profile = primary_data[:, idx].astype(float).tolist()
                 bus_specific_profiles[bus_id] = hourly_profile
                 print(f"  Loaded profile for Primary bus {bus_id} ({primary_names[idx]}): {len(hourly_profile)} hours")
 
@@ -495,7 +477,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Pess_max_exst = df_ess["Pess_cap"].astype(float).tolist()  # Max power (MW)
         ncon.data.net.Pess_min_exst = [0.0] * len(df_ess)  # Min power (MW) - typically 0
         ncon.data.net.Eess_max_exst = df_ess["Eess_cap"].astype(float).tolist()  # Max energy (MWh)
-        ncon.data.net.Eess_max_exst = [0.0] * len(df_ess)  # Min energy (MWh)
+        ncon.data.net.Eess_min_exst = [0.0] * len(df_ess)  # Min energy (MWh)
         ncon.data.net.eff_ch_exst = df_ess["eff_ch"].astype(float).tolist()  # Charging efficiency
         ncon.data.net.eff_dis_exst = df_ess["eff_dis"].astype(float).tolist()  # Discharging efficiency
         ncon.data.net.SOC_min_exst = df_ess["SOC_min"].astype(float).tolist()  # Minimum SOC
