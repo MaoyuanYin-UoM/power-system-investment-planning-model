@@ -1169,7 +1169,7 @@ def make_network(name: str) -> NetworkClass:
         # 7. Other scalar parameters for the entire composite network
         # ------------------------------------------------------------------
         ncon.data.bch_hrdn_limits = [0.0, 40.0]  # in m/s
-        ncon.data.budget_bch_hrdn = 1e10  # in £
+        ncon.data.investment_budget = 1e10  # in £
 
 
         net = NetworkClass(ncon)

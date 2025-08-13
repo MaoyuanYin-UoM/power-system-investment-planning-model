@@ -59,7 +59,7 @@ class NetworkClass:
         The model that calculates DC optimal power flow based on the pyomo optimisation package
         Note: Only static power flow, i.e., set of timesteps is not considered
         """
-
+        # todo: outdated version, to be updated
         # Define a concrete model
         model = pyo.ConcreteModel()
 
@@ -110,7 +110,7 @@ class NetworkClass:
 
         model.Pc = pyo.Var(
             model.Set_bus,
-            bounds=lambda m, b: (0, m.Pd[b])  # ensure load shedding value does not exceed the load value
+            bounds=lambda model, b: (0, model.Pd[b])  # ensure load shedding value does not exceed the load value
         )  # curtailed load (load shedding) at bus
 
         model.Pimp = pyo.Var(within=pyo.NonNegativeReals)  # cost of grid import/export
@@ -281,6 +281,7 @@ class NetworkClass:
         The model that calculates AC optimal power flow (LinDistFlow Model) based on the pyomo optimisation package
         Note: A set of timesteps - hourly resolution over a 1-year period - is considered
         """
+        # todo: outdated version, to be updated
         model = pyo.ConcreteModel()
 
         # 1) Sets
@@ -361,11 +362,11 @@ class NetworkClass:
         model.Qf = pyo.Var(model.Set_bch, model.Set_ts, within=pyo.Reals)  # reactive power flow
         model.Pc = pyo.Var(
             model.Set_bus, model.Set_ts,
-            bounds=lambda m, b, t: (0, m.Pd[b, t])  # ensure load shedding values do not exceed load values
+            bounds=lambda model, b, t: (0, model.Pd[b, t])  # ensure load shedding values do not exceed load values
         )  # curtailed active demand
         model.Qc = pyo.Var(
             model.Set_bus, model.Set_ts,
-            bounds=lambda m, b, t: (0, m.Qd[b, t])
+            bounds=lambda model, b, t: (0, model.Qd[b, t])
         )  # curtailed reactive demand
         model.V2 = pyo.Var(model.Set_bus, model.Set_ts, within=pyo.NonNegativeReals)  # squared voltage
 
@@ -539,77 +540,95 @@ class NetworkClass:
 
         return results
 
-    def build_combined_dc_linearized_ac_opf_model(self):
+    def build_combined_dc_linearized_ac_opf_model(self, timesteps=None):
         """
-        This method builds the model compatible with a composite network (including both transmission and distribution
-        level) and can perform both DC power flow (for transmission level network) and linearized AC power flow (for
-        distribution level network)
+        Build a combined DC (transmission) + linearized AC (distribution) OPF model.
+        Updated to match current network factory structure.
 
-        Note:
+        Args:
+            timesteps: List of timestep indices. If None, uses single timestep [0]
+
+        Returns:
+            Pyomo ConcreteModel
         """
-        # ------------------------------------------------------------------
-        # 1. Sets
-        # ------------------------------------------------------------------
-        Set_bus_tn = [b for b in self.data.net.bus if self.data.net.bus_level[b] == 'T']  # tn: transmission network
-        Set_bus_dn = [b for b in self.data.net.bus if self.data.net.bus_level[b] == 'D']  # dn: distribution network
-        Set_bch_tn = [i for i in range(1, len(self.data.net.bch) + 1)
-                      if self.data.net.branch_level[i] in ('T', 'T-D')]  # the tn-dn coupling branch is included
-        Set_bch_dn = [i for i in range(1, len(self.data.net.bch) + 1) if self.data.net.branch_level[i] == 'D']
-        Set_gen = list(range(1, len(self.data.net.gen) + 1))
-        Set_ts = list(range(1, 1 + 1))
 
+        # ------------------------------------------------------------------
+        # 0. Setup
+        # ------------------------------------------------------------------
         model = pyo.ConcreteModel()
 
+        # Handle timesteps
+        if timesteps is None:
+            timesteps = [0]  # Single timestep for testing
+
+        # ------------------------------------------------------------------
+        # 1. Index Sets
+        # ------------------------------------------------------------------
+        # Use dictionaries directly as in build_investment_model
+        Set_ts = timesteps
+        Set_bus = list(range(1, len(self.data.net.bus) + 1))
+        Set_bus_tn = [b for b in self.data.net.bus if self.data.net.bus_level[b] == 'T']
+        Set_bus_dn = [b for b in self.data.net.bus if self.data.net.bus_level[b] == 'D']
+        Set_bch = list(range(1, len(self.data.net.bch) + 1))
+        Set_bch_tn = [l for l in range(1, len(self.data.net.bch) + 1)
+                      if self.data.net.branch_level[l] in ['T', 'T-D']]
+        Set_bch_dn = [l for l in range(1, len(self.data.net.bch) + 1)
+                      if self.data.net.branch_level[l] == 'D']
+
+        # Generators - only existing
+        Set_gen_exst = list(range(1, len(self.data.net.gen) + 1))
+
+        # ESS - only existing (if any)
+        Set_ess_exst = list(range(1, len(self.data.net.ess) + 1)) if hasattr(self.data.net, 'ess') else []
+
+        # ------------------------------------------------------------------
+        # 2. Initialize Pyomo Sets
+        # ------------------------------------------------------------------
+        model.Set_ts = pyo.Set(initialize=Set_ts)
+        model.Set_bus = pyo.Set(initialize=Set_bus)
         model.Set_bus_tn = pyo.Set(initialize=Set_bus_tn)
         model.Set_bus_dn = pyo.Set(initialize=Set_bus_dn)
+        model.Set_bch = pyo.Set(initialize=Set_bch)
         model.Set_bch_tn = pyo.Set(initialize=Set_bch_tn)
         model.Set_bch_dn = pyo.Set(initialize=Set_bch_dn)
-        model.Set_gen = pyo.Set(initialize=Set_gen)
-        model.Set_ts = pyo.Set(initialize=Set_ts)
+        model.Set_gen_exst = pyo.Set(initialize=Set_gen_exst)
+        model.Set_ess_exst = pyo.Set(initialize=Set_ess_exst)
+
+        # Get slack bus
+        slack_bus = self.data.net.slack_bus
 
         # ------------------------------------------------------------------
-        # 2.  Parameters
+        # 3. Parameters
         # ------------------------------------------------------------------
-        # 2.0 Base value
+        # Network parameters
         model.base_MVA = pyo.Param(initialize=self.data.net.base_MVA)
 
-        # 2.1  Demand profiles (for both Pd and Qd) for every (bus, t)
-        Pd = {(b, t): self.data.net.profile_Pd[b - 1][t - 1]
-              for b in self.data.net.bus for t in Set_ts}
-        model.Pd = pyo.Param(model.Set_bus_tn | model.Set_bus_dn, model.Set_ts,
-                             initialize=Pd, mutable=False)
-
-        Qd_all = {(b, t): self.data.net.profile_Qd[b - 1][t - 1]
-                  for b in self.data.net.bus for t in Set_ts}
-        model.Qd = pyo.Param(model.Set_bus_dn, model.Set_ts,
-                             initialize={k: v for k, v in Qd_all.items() if k[0] in Set_bus_dn})  # Qd only for dn
-
-        # 2.2  Generator limits & costs
-        model.Pg_max = pyo.Param(model.Set_gen,
-                                 initialize={i + 1: v for i, v in enumerate(self.data.net.Pg_max)})
-        model.Pg_min = pyo.Param(model.Set_gen,
-                                 initialize={i + 1: v for i, v in enumerate(self.data.net.Pg_min)})
-        model.Qg_max = pyo.Param(model.Set_gen,
-                                 initialize={i + 1: v for i, v in enumerate(self.data.net.Qg_max)})
-        model.Qg_min = pyo.Param(model.Set_gen,
-                                 initialize={i + 1: v for i, v in enumerate(self.data.net.Qg_min)})
-
+        # Generator parameters (existing only)
+        coef_len = len(self.data.net.gen_cost_coef[0])
         model.gen_cost_coef = pyo.Param(
-            model.Set_gen, range(len(self.data.net.gen_cost_coef[0])),
+            model.Set_gen_exst, range(coef_len),
             initialize={(g, c): self.data.net.gen_cost_coef[g - 1][c]
-                        for g in model.Set_gen
-                        for c in range(len(self.data.net.gen_cost_coef[0]))}
+                        for g in model.Set_gen_exst for c in range(coef_len)}
         )
 
-        # 2.3  Branch data
-        # ––– TN  (DC → susceptance in p.u.)
+        model.Pg_max_exst = pyo.Param(model.Set_gen_exst,
+                                      initialize={g: self.data.net.Pg_max_exst[g - 1] for g in model.Set_gen_exst})
+        model.Pg_min_exst = pyo.Param(model.Set_gen_exst,
+                                      initialize={g: self.data.net.Pg_min_exst[g - 1] for g in model.Set_gen_exst})
+        model.Qg_max_exst = pyo.Param(model.Set_gen_exst,
+                                      initialize={g: self.data.net.Qg_max_exst[g - 1] for g in model.Set_gen_exst})
+        model.Qg_min_exst = pyo.Param(model.Set_gen_exst,
+                                      initialize={g: self.data.net.Qg_min_exst[g - 1] for g in model.Set_gen_exst})
+
+        # Branch parameters - TN (DC power flow)
         model.B_tn = pyo.Param(model.Set_bch_tn,
-                               initialize={l: 1.0 / self.data.net.bch_X[l - 1] for l in model.Set_bch_tn})
-
+                               initialize={l: 1.0 / self.data.net.bch_X[l - 1]
+                                           for l in model.Set_bch_tn})
         model.Pmax_tn = pyo.Param(model.Set_bch_tn,
-                                  initialize={l: self.data.net.bch_Pmax[l - 1] for l in model.Set_bch_tn})
+                                  initialize={l: self.data.net.bch_Pmax[l - 1]
+                                              for l in model.Set_bch_tn})
 
-        # ––– DN  (LinDistFlow → R/X + Smax)
+        # Branch parameters - DN (Linearized AC)
         model.R_dn = pyo.Param(model.Set_bch_dn,
                                initialize={l: self.data.net.bch_R[l - 1] for l in model.Set_bch_dn})
         model.X_dn = pyo.Param(model.Set_bch_dn,
@@ -617,245 +636,295 @@ class NetworkClass:
         model.Smax_dn = pyo.Param(model.Set_bch_dn,
                                   initialize={l: self.data.net.bch_Smax[l - 1] for l in model.Set_bch_dn})
 
-        # 2.4 Voltage limits
-        model.V2_min = pyo.Param(model.Set_bus_tn | model.Set_bus_dn,
-                                 initialize={bus: self.data.net.V_min[i] ** 2
-                                             for i, bus in enumerate(self.data.net.bus)})
-        model.V2_max = pyo.Param(model.Set_bus_tn | model.Set_bus_dn,
-                                 initialize={bus: self.data.net.V_max[i] ** 2
-                                             for i, bus in enumerate(self.data.net.bus)})
+        # Voltage limits (squared for linearized AC)
+        if hasattr(self.data.net, 'V2_max'):
+            model.V2_max = pyo.Param(model.Set_bus_dn,
+                                     initialize={b: self.data.net.V2_max[b - 1] for b in model.Set_bus_dn})
+            model.V2_min = pyo.Param(model.Set_bus_dn,
+                                     initialize={b: self.data.net.V2_min[b - 1] for b in model.Set_bus_dn})
+        else:
+            # Square V_max/V_min if only those exist
+            model.V2_max = pyo.Param(model.Set_bus_dn,
+                                     initialize={b: self.data.net.V_max[b - 1] ** 2 for b in model.Set_bus_dn})
+            model.V2_min = pyo.Param(model.Set_bus_dn,
+                                     initialize={b: self.data.net.V_min[b - 1] ** 2 for b in model.Set_bus_dn})
 
-        # 2.5  Cost of load shedding / external import
-        model.Pc_cost = pyo.Param(model.Set_bus_tn | model.Set_bus_dn,
-                                  initialize={b: self.data.net.Pc_cost[b - 1] for b in self.data.net.bus})
-        model.Qc_cost = pyo.Param(model.Set_bus_dn,
-                                  initialize={b: self.data.net.Qc_cost[self.data.net.bus.index(b)] for b in Set_bus_dn})
+        # Load data
+        model.Pd = pyo.Param(model.Set_bus, model.Set_ts,
+                             initialize={(b, t): self.data.net.profile_Pd[b - 1][t]
+                             if self.data.net.profile_Pd[b - 1] is not None else 0
+                                         for b in model.Set_bus for t in model.Set_ts})
 
+        model.Qd = pyo.Param(model.Set_bus_dn, model.Set_ts,
+                             initialize={(b, t): self.data.net.profile_Qd[b - 1][t]
+                             if b in model.Set_bus_dn and self.data.net.profile_Qd[b - 1] is not None else 0
+                                         for b in model.Set_bus_dn for t in model.Set_ts},
+                             default=0)
+
+        # Cost parameters
         model.Pimp_cost = pyo.Param(initialize=self.data.net.Pimp_cost)
         model.Pexp_cost = pyo.Param(initialize=self.data.net.Pexp_cost)
-        model.Qimp_cost = pyo.Param(initialize=self.data.net.Qimp_cost)
-        model.Qexp_cost = pyo.Param(initialize=self.data.net.Qexp_cost)
+        model.Pc_cost = pyo.Param(model.Set_bus,
+                                  initialize={b: self.data.net.Pc_cost[b - 1] for b in model.Set_bus})
+        model.Qc_cost = pyo.Param(model.Set_bus_dn,
+                                  initialize={b: self.data.net.Qc_cost[b - 1] for b in model.Set_bus_dn})
+
+        # ESS parameters
+        if Set_ess_exst:
+            model.Pess_max_exst = pyo.Param(model.Set_ess_exst,
+                                            initialize={e: self.data.net.Pess_max_exst[e - 1] for e in Set_ess_exst})
+            model.Pess_min_exst = pyo.Param(model.Set_ess_exst,
+                                            initialize={e: self.data.net.Pess_min_exst[e - 1] for e in Set_ess_exst})
+            model.Eess_max_exst = pyo.Param(model.Set_ess_exst,
+                                            initialize={e: self.data.net.Eess_max_exst[e - 1] for e in Set_ess_exst})
+            model.Eess_min_exst = pyo.Param(model.Set_ess_exst,
+                                            initialize={e: self.data.net.Eess_min_exst[e - 1] for e in Set_ess_exst})
+            model.SOC_max_exst = pyo.Param(model.Set_ess_exst,
+                                           initialize={e: self.data.net.SOC_max_exst[e - 1] for e in Set_ess_exst})
+            model.SOC_min_exst = pyo.Param(model.Set_ess_exst,
+                                           initialize={e: self.data.net.SOC_min_exst[e - 1] for e in Set_ess_exst})
+            model.eff_ch_exst = pyo.Param(model.Set_ess_exst,
+                                          initialize={e: self.data.net.eff_ch_exst[e - 1] for e in Set_ess_exst})
+            model.eff_dis_exst = pyo.Param(model.Set_ess_exst,
+                                           initialize={e: self.data.net.eff_dis_exst[e - 1] for e in Set_ess_exst})
+            model.initial_SOC_exst = pyo.Param(model.Set_ess_exst,
+                                               initialize={e: self.data.net.initial_SOC_exst[e - 1] for e in
+                                                           Set_ess_exst})
 
         # ------------------------------------------------------------------
-        # 3.  Decision variables
+        # 4. Variables
         # ------------------------------------------------------------------
-        # — generation
-        model.Pg = pyo.Var(model.Set_gen, model.Set_ts, within=pyo.NonNegativeReals)
-        model.Qg = pyo.Var(model.Set_gen, model.Set_ts, within=pyo.Reals)
+        # Generation (existing only)
+        model.Pg_exst = pyo.Var(model.Set_gen_exst, model.Set_ts,
+                                within=pyo.NonNegativeReals,
+                                bounds=lambda model, g, t: (model.Pg_min_exst[g], model.Pg_max_exst[g]))
 
-        # — bus quantities
-        model.theta = pyo.Var(model.Set_bus_tn, model.Set_ts, within=pyo.Reals)
-        model.V2_dn = pyo.Var(model.Set_bus_dn, model.Set_ts, within=pyo.NonNegativeReals)
+        # Check if reactive demand exists
+        has_reactive_demand = any(model.Qd[b, t] > 0 for b in model.Set_bus_dn for t in model.Set_ts)
 
-        # — line flows
-        model.Pf_tn = pyo.Var(model.Set_bch_tn, model.Set_ts, within=pyo.Reals)
-        model.Pf_dn = pyo.Var(model.Set_bch_dn, model.Set_ts, within=pyo.Reals)
-        model.Qf_dn = pyo.Var(model.Set_bch_dn, model.Set_ts, within=pyo.Reals)
+        if has_reactive_demand:
+            model.Qg_exst = pyo.Var(model.Set_gen_exst, model.Set_ts,
+                                    within=pyo.Reals,
+                                    bounds=lambda model, g, t: (model.Qg_min_exst[g], model.Qg_max_exst[g]))
+        else:
+            model.Qg_exst = pyo.Param(model.Set_gen_exst, model.Set_ts, default=0.0)
 
-        # — grid import / export
+        # Grid import/export
         model.Pimp = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)
         model.Pexp = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)
-        model.Qimp = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)
-        model.Qexp = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)
 
-        # — load shedding
-        model.Pc = pyo.Var(model.Set_bus_tn | model.Set_bus_dn, model.Set_ts,
-                           bounds=lambda m, b, t: (0, m.Pd[b, t]))  # ensure Pc does not exceed Pd
-        model.Qc = pyo.Var(model.Set_bus_dn, model.Set_ts,
-                           bounds=lambda m, b, t: (0, m.Qd[b, t]))
+        # Bus angles and voltages
+        model.theta = pyo.Var(model.Set_bus, model.Set_ts, within=pyo.Reals)
+        model.V2_dn = pyo.Var(model.Set_bus_dn, model.Set_ts,
+                              within=pyo.NonNegativeReals,
+                              bounds=lambda model, b, t: (model.V2_min[b], model.V2_max[b]))
+
+        # Power flows
+        model.Pf_tn = pyo.Var(model.Set_bch_tn, model.Set_ts, within=pyo.Reals)
+        model.Pf_dn = pyo.Var(model.Set_bch_dn, model.Set_ts, within=pyo.Reals)
+
+        if has_reactive_demand:
+            model.Qf_dn = pyo.Var(model.Set_bch_dn, model.Set_ts, within=pyo.Reals)
+        else:
+            model.Qf_dn = pyo.Param(model.Set_bch_dn, model.Set_ts, default=0.0)
+
+        # Load shedding
+        model.Pc = pyo.Var(model.Set_bus, model.Set_ts, within=pyo.NonNegativeReals,
+                           bounds=lambda model, b, t: (0, max(0.0, pyo.value(model.Pd[b, t])))
+                           )
+
+        if has_reactive_demand:
+            model.Qc = pyo.Var(model.Set_bus_dn, model.Set_ts,
+                               within=pyo.NonNegativeReals,
+                               bounds=lambda model, b, t: (0, model.Qd[b, t] if b in model.Set_bus_dn else 0))
+        else:
+            model.Qc = pyo.Param(model.Set_bus_dn, model.Set_ts, default=0.0)
+
+        # ESS variables
+        if Set_ess_exst:
+            model.Pess_charge_exst = pyo.Var(model.Set_ess_exst, model.Set_ts, within=pyo.NonNegativeReals)
+            model.Pess_discharge_exst = pyo.Var(model.Set_ess_exst, model.Set_ts, within=pyo.NonNegativeReals)
+            model.Eess_exst = pyo.Var(model.Set_ess_exst, model.Set_ts, within=pyo.NonNegativeReals)
+            model.SOC_exst = pyo.Var(model.Set_ess_exst, model.Set_ts, bounds=(0, 1))
+            model.ess_charge_binary_exst = pyo.Var(model.Set_ess_exst, model.Set_ts, within=pyo.Binary)
+            model.ess_discharge_binary_exst = pyo.Var(model.Set_ess_exst, model.Set_ts, within=pyo.Binary)
 
         # ------------------------------------------------------------------
-        # 4.  Constraints
+        # 5. Constraints
         # ------------------------------------------------------------------
-        slack = self.data.net.slack_bus
+        # DC Power flow (TN)
+        def dc_power_flow_rule(model, l, t):
+            fr_bus = self.data.net.bch[l - 1][0]
+            to_bus = self.data.net.bch[l - 1][1]
+            return model.Pf_tn[l, t] == model.B_tn[l] * (model.theta[fr_bus, t] - model.theta[to_bus, t])
 
-        # 4.1 Slack-bus reference (angle)
+        model.Constraint_DC_PowerFlow = pyo.Constraint(model.Set_bch_tn, model.Set_ts, rule=dc_power_flow_rule)
 
-        def slack_bus_rule(model, t):
-            return model.theta[slack, t] == 0
+        # Linearized DistFlow (DN)
+        def lindistflow_rule(model, l, t):
+            fr_bus = self.data.net.bch[l - 1][0]
+            to_bus = self.data.net.bch[l - 1][1]
+            return (model.V2_dn[to_bus, t] == model.V2_dn[fr_bus, t] -
+                    2 * (model.R_dn[l] * model.Pf_dn[l, t] + model.X_dn[l] * model.Qf_dn[l, t]))
 
-        model.Constraint_SlackBus = pyo.Constraint(model.Set_ts, rule=slack_bus_rule)
+        model.Constraint_LinDistFlow = pyo.Constraint(model.Set_bch_dn, model.Set_ts, rule=lindistflow_rule)
 
-        # 4.2 DC power flow on transmission branches
-        def DC_line_flow_tn_rule(model, l, t):
-            i, j = self.data.net.bch[l - 1]
+        # Power balance (TN)
+        def power_balance_tn_rule(model, b, t):
+            Pg = sum(model.Pg_exst[g, t] for g in model.Set_gen_exst
+                     if self.data.net.gen[g - 1] == b)
+            Pf_in = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn
+                        if self.data.net.bch[l - 1][1] == b)
+            Pf_out = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn
+                         if self.data.net.bch[l - 1][0] == b)
+            Pgrid = (model.Pimp[t] - model.Pexp[t]) if b == slack_bus else 0
 
-            # Check if both buses are in transmission set
-            if i in model.Set_bus_tn and j in model.Set_bus_tn:
-                return model.Pf_tn[l, t] == model.base_MVA * model.B_tn[l] * (model.theta[i, t] - model.theta[j, t])
-            else:
-                # Skip if either end is a distribution bus (T-D branch)
-                return pyo.Constraint.Skip
+            Pess_net = 0.0
+            if len(model.Set_ess_exst):
+                Pess_net = sum(
+                    model.Pess_discharge_exst[e, t] - model.Pess_charge_exst[e, t]
+                    for e in model.Set_ess_exst if self.data.net.ess[e - 1] == b
+                )
 
-        model.Constraint_FlowDef_TN = pyo.Constraint(model.Set_bch_tn, model.Set_ts,
-                                                     rule=DC_line_flow_tn_rule)
+            return Pg + Pgrid + Pess_net + Pf_in - Pf_out == model.Pd[b, t] - model.Pc[b, t]
 
-        # 4.3 Angle-difference at lines
-        ang_diff_max = (self.data.net.theta_limits[1] -
-                        self.data.net.theta_limits[0])  # maximum allowable angle difference (rad)
-        def line_angle_difference_upper_rule(m, l, t):
-            i, j = self.data.net.bch[l - 1]
-            if self.data.net.branch_level[l] == 'T':
-                return m.theta[i, t] - m.theta[j, t] <= ang_diff_max
-            return pyo.Constraint.Skip
+        model.Constraint_PowerBalance_TN = pyo.Constraint(model.Set_bus_tn, model.Set_ts, rule=power_balance_tn_rule)
 
-        def line_angle_difference_lower_rule(m, l, t):
-            i, j = self.data.net.bch[l - 1]
-            if self.data.net.branch_level[l] == 'T':
-                return m.theta[i, t] - m.theta[j, t] >= -ang_diff_max
-            return pyo.Constraint.Skip
+        # Power balance (DN)
+        def power_balance_dn_rule(model, b, t):
+            Pg = sum(model.Pg_exst[g, t] for g in model.Set_gen_exst
+                     if self.data.net.gen[g - 1] == b)
+            Pf_in_dn = sum(model.Pf_dn[l, t] for l in model.Set_bch_dn
+                           if self.data.net.bch[l - 1][1] == b)
+            Pf_out_dn = sum(model.Pf_dn[l, t] for l in model.Set_bch_dn
+                            if self.data.net.bch[l - 1][0] == b)
 
-        model.Constraint_AngleDiffUpperLimit = pyo.Constraint(model.Set_bch_tn, model.Set_ts,
-                                                      rule=line_angle_difference_upper_rule)
-        model.Constraint_AngleDiffLowerLimit = pyo.Constraint(model.Set_bch_tn, model.Set_ts,
-                                                      rule=line_angle_difference_lower_rule)
-
-        # 4.4 transmission branches thermal limits
-        def line_flow_upper_limit_tn_rule(model, l, t):
-            return model.Pf_tn[l, t] <= model.Pmax_tn[l]
-
-        def line_flow_lower_limit_tn_rule(model, l, t):
-            return model.Pf_tn[l, t] >= -model.Pmax_tn[l]
-
-        model.Constraint_TN_LimitU = pyo.Constraint(model.Set_bch_tn, model.Set_ts,
-                                                    rule=line_flow_upper_limit_tn_rule)
-        model.Constraint_TN_LimitL = pyo.Constraint(model.Set_bch_tn, model.Set_ts,
-                                                    rule=line_flow_lower_limit_tn_rule)
-
-        # 4.5 Linearized AC power flow on distributed branches (quadratic losses ignored)
-        def voltage_drop_dn_rule(model, l, t):
-            i, j = self.data.net.bch[l - 1]
-            return model.V2_dn[i, t] - model.V2_dn[j, t] == \
-                2 * (model.R_dn[l] * model.Pf_dn[l, t] + model.X_dn[l] * model.Qf_dn[l, t])
-
-        model.Constraint_VDrop_DN = pyo.Constraint(model.Set_bch_dn, model.Set_ts,
-                                                   rule=voltage_drop_dn_rule)
-
-        # 4.6 distribution branches apparent-power (thermal) limits (|P|,|Q| ≤ Smax)
-        # 1) |P| ≤ Smax
-        def S1_dn_rule(model, l, t):
-            return model.Pf_dn[l, t] <= model.Smax_dn[l]
-
-        def S2_dn_rule(model, l, t):
-            return model.Pf_dn[l, t] >= -model.Smax_dn[l]
-
-        # 2) |Q| ≤ Smax
-        def S3_dn_rule(model, l, t):
-            return model.Qf_dn[l, t] <= model.Smax_dn[l]
-
-        def S4_dn_rule(model, l, t):
-            return model.Qf_dn[l, t] >= -model.Smax_dn[l]
-
-        # 3) ±45°‐cuts: |P ± Q| ≤ √2Smax
-        _diag = math.sqrt(2)
-
-        def S5_dn_rule(model, l, t):
-            return model.Pf_dn[l, t] + model.Qf_dn[l, t] <= _diag * model.Smax_dn[l]
-
-        def S6_dn_rule(model, l, t):
-            return model.Pf_dn[l, t] + model.Qf_dn[l, t] >= -_diag * model.Smax_dn[l]
-
-        def S7_dn_rule(model, l, t):
-            return model.Pf_dn[l, t] - model.Qf_dn[l, t] <= _diag * model.Smax_dn[l]
-
-        def S8_dn_rule(model, l, t):
-            return model.Pf_dn[l, t] - model.Qf_dn[l, t] >= -_diag * model.Smax_dn[l]
-
-        model.Constraint_PowerFlowLimit_1 = pyo.Constraint(model.Set_bch_dn, model.Set_ts, rule=S1_dn_rule)
-        model.Constraint_PowerFlowLimit_2 = pyo.Constraint(model.Set_bch_dn, model.Set_ts, rule=S2_dn_rule)
-        model.Constraint_PowerFlowLimit_3 = pyo.Constraint(model.Set_bch_dn, model.Set_ts, rule=S3_dn_rule)
-        model.Constraint_PowerFlowLimit_4 = pyo.Constraint(model.Set_bch_dn, model.Set_ts, rule=S4_dn_rule)
-        model.Constraint_PowerFlowLimit_5 = pyo.Constraint(model.Set_bch_dn, model.Set_ts, rule=S5_dn_rule)
-        model.Constraint_PowerFlowLimit_6 = pyo.Constraint(model.Set_bch_dn, model.Set_ts, rule=S6_dn_rule)
-        model.Constraint_PowerFlowLimit_7 = pyo.Constraint(model.Set_bch_dn, model.Set_ts, rule=S7_dn_rule)
-        model.Constraint_PowerFlowLimit_8 = pyo.Constraint(model.Set_bch_dn, model.Set_ts, rule=S8_dn_rule)
-
-        # 4.7  Power-balance at TN buses (active only)
-        def P_balance_at_bus_tn(model, b, t):
-            Pg_sum = sum(model.Pg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)
-            Pf_in_sum = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn if self.data.net.bch[l - 1][1] == b)
-            Pf_out_sum = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn if self.data.net.bch[l - 1][0] == b)
-            slack = self.data.net.slack_bus
-            Pgrid = model.Pimp[t] - model.Pexp[t] if b == slack else 0
-            return Pg_sum + Pgrid + Pf_in_sum - Pf_out_sum == model.Pd[b, t] - model.Pc[b, t]
-
-        model.Constraint_ActivePowerBalance_TN = pyo.Constraint(model.Set_bus_tn, model.Set_ts,
-                                                                rule=P_balance_at_bus_tn)
-
-        # 4.8  Power-balance at DN buses (active + reactive)
-        def P_balance_at_bus_dn(model, b, t):
-            Pg_sum = sum(model.Pg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)
-            Pf_in_sum = sum(model.Pf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][1] == b)
-            Pf_out_sum = sum(model.Pf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][0] == b)
             Pf_cpl_in = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn
-                         if self.data.net.branch_level[l] == 'T-D'
-                         and self.data.net.bch[l - 1][1] == b)
+                            if self.data.net.branch_level[l] == 'T-D' and self.data.net.bch[l - 1][1] == b)
             Pf_cpl_out = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn
-                            if self.data.net.branch_level[l] == 'T-D'
-                            and self.data.net.bch[l - 1][0] == b)
-            return Pg_sum + Pf_in_sum - Pf_out_sum + Pf_cpl_in - Pf_cpl_out == model.Pd[b, t] - model.Pc[b, t]
+                             if self.data.net.branch_level[l] == 'T-D' and self.data.net.bch[l - 1][0] == b)
 
-        def Q_balance_at_bus_dn(model, b, t):
-            Qg_sum = sum(model.Qg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)
-            Qf_in_sum = sum(model.Qf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][1] == b)
-            Qf_out_sum = sum(model.Qf_dn[l, t] for l in model.Set_bch_dn if self.data.net.bch[l - 1][0] == b)
-            return Qg_sum + Qf_in_sum - Qf_out_sum == model.Qd[b, t] - model.Qc[b, t]
+            # NEW: ESS net injection at this DN bus
+            Pess_net = 0.0
+            if len(model.Set_ess_exst):
+                Pess_net = sum(
+                    model.Pess_discharge_exst[e, t] - model.Pess_charge_exst[e, t]
+                    for e in model.Set_ess_exst if self.data.net.ess[e - 1] == b
+                )
 
-        model.Constraint_ActivePowerBalance_DN = pyo.Constraint(model.Set_bus_dn, model.Set_ts,
-                                                                rule=P_balance_at_bus_dn)
-        model.Constraint_ReactivePowerBalance_DN = pyo.Constraint(model.Set_bus_dn, model.Set_ts,
-                                                                  rule=Q_balance_at_bus_dn)
+            return Pg + Pess_net + Pf_in_dn - Pf_out_dn + Pf_cpl_in - Pf_cpl_out == model.Pd[b, t] - model.Pc[b, t]
 
-        # 4.9  Generator & voltage limits (same style as other build_* methods)
-        def Pg_upper_limit_rule(model, g, t):
-            return model.Pg[g, t] <= model.Pg_max[g]
+        model.Constraint_PowerBalance_DN = pyo.Constraint(model.Set_bus_dn, model.Set_ts, rule=power_balance_dn_rule)
 
-        def Pg_lower_limit_rule(model, g, t):
-            return model.Pg[g, t] >= model.Pg_min[g]
+        # Reactive power balance (DN) if needed
+        if has_reactive_demand:
+            def reactive_balance_dn_rule(model, b, t):
+                Qg = sum(model.Qg_exst[g, t] for g in model.Set_gen_exst
+                         if self.data.net.gen[g - 1] == b)
+                Qf_in = sum(model.Qf_dn[l, t] for l in model.Set_bch_dn
+                            if self.data.net.bch[l - 1][1] == b)
+                Qf_out = sum(model.Qf_dn[l, t] for l in model.Set_bch_dn
+                             if self.data.net.bch[l - 1][0] == b)
+                return Qg + Qf_in - Qf_out == model.Qd[b, t] - model.Qc[b, t]
 
-        def Qg_upper_limit_rule(model, g, t):
-            return model.Qg[g, t] <= model.Qg_max[g]
+            model.Constraint_ReactiveBalance_DN = pyo.Constraint(model.Set_bus_dn, model.Set_ts,
+                                                                 rule=reactive_balance_dn_rule)
 
-        def Qg_lower_limit_rule(model, g, t):
-            return model.Qg[g, t] >= model.Qg_min[g]
+        # Branch flow limits
+        model.Constraint_Pf_tn_upper = pyo.Constraint(model.Set_bch_tn, model.Set_ts,
+                                                      rule=lambda model, l, t: model.Pf_tn[l, t] <= model.Pmax_tn[l])
+        model.Constraint_Pf_tn_lower = pyo.Constraint(model.Set_bch_tn, model.Set_ts,
+                                                      rule=lambda model, l, t: model.Pf_tn[l, t] >= -model.Pmax_tn[l])
 
-        model.Constraint_PgUpperLimit = pyo.Constraint(model.Set_gen, model.Set_ts, rule=Pg_upper_limit_rule)
-        model.Constraint_PgLowerLimit = pyo.Constraint(model.Set_gen, model.Set_ts, rule=Pg_lower_limit_rule)
-        model.Constraint_QgUpperLimit = pyo.Constraint(model.Set_gen, model.Set_ts, rule=Qg_upper_limit_rule)
-        model.Constraint_QgLowerLimit = pyo.Constraint(model.Set_gen, model.Set_ts, rule=Qg_lower_limit_rule)
+        # Apparent power limit for DN
+        if has_reactive_demand:
+            def apparent_power_dn_rule(model, l, t):
+                return model.Pf_dn[l, t] ** 2 + model.Qf_dn[l, t] ** 2 <= model.Smax_dn[l] ** 2
+        else:
+            def apparent_power_dn_rule(model, l, t):
+                return model.Pf_dn[l, t] ** 2 <= model.Smax_dn[l] ** 2
 
-        # 4.10 voltage magnitude limits (DN only, values are V²)
-        def voltage_squared_lower_limit_rule(model, b, t):
-            return model.V2_dn[b, t] >= model.V2_min[b]
+        model.Constraint_Smax_dn = pyo.Constraint(model.Set_bch_dn, model.Set_ts, rule=apparent_power_dn_rule)
 
-        def voltage_squared_upper_limit_rule(model, b, t):
-            return model.V2_dn[b, t] <= model.V2_max[b]
+        # Slack bus constraint
+        model.Constraint_Slack = pyo.Constraint(model.Set_ts,
+                                                rule=lambda model, t: model.theta[slack_bus, t] == 0)
 
-        model.Constraint_V2min = pyo.Constraint(model.Set_bus_dn, model.Set_ts,
-                                                rule=voltage_squared_lower_limit_rule)
-        model.Constraint_V2max = pyo.Constraint(model.Set_bus_dn, model.Set_ts,
-                                                rule=voltage_squared_upper_limit_rule)
+        if Set_ess_exst:
+            # Charge/discharge power limits
+            def ess_charge_ub_rule(model, e, t):
+                return model.Pess_charge_exst[e, t] <= model.Pess_max_exst[e] * model.ess_charge_binary_exst[e, t]
+
+            model.ESS_ChargeUB = pyo.Constraint(model.Set_ess_exst, model.Set_ts, rule=ess_charge_ub_rule)
+
+            def ess_discharge_ub_rule(model, e, t):
+                return model.Pess_discharge_exst[e, t] <= model.Pess_max_exst[e] * model.ess_discharge_binary_exst[e, t]
+
+            model.ESS_DischargeUB = pyo.Constraint(model.Set_ess_exst, model.Set_ts, rule=ess_discharge_ub_rule)
+
+            # Charge/discharge exclusivity
+            def ess_exclusivity_rule(model, e, t):
+                return model.ess_charge_binary_exst[e, t] + model.ess_discharge_binary_exst[e, t] <= 1
+
+            model.ESS_Exclusivity = pyo.Constraint(model.Set_ess_exst, model.Set_ts, rule=ess_exclusivity_rule)
+
+            def ess_e_bounds_rule(model, e, t):
+                return pyo.inequality(model.Eess_min_exst[e], model.Eess_exst[e, t], model.Eess_max_exst[e])
+
+            model.ESS_Energy_Bounds = pyo.Constraint(model.Set_ess_exst, model.Set_ts, rule=ess_e_bounds_rule)
+            
+            # SOC limits
+            def ess_soc_bounds_rule(model, e, t):
+                return pyo.inequality(model.SOC_min_exst[e], model.SOC_exst[e, t], model.SOC_max_exst[e])
+
+            model.ESS_SOC_Bounds = pyo.Constraint(model.Set_ess_exst, model.Set_ts, rule=ess_soc_bounds_rule)
+
+            # Link battery energy with SOC
+            def ess_e_soc_link_rule(model, e, t):
+                return model.Eess_exst[e, t] == model.SOC_exst[e, t] * model.Eess_max_exst[e]
+
+            model.ESS_E_SOC_Link = pyo.Constraint(model.Set_ess_exst, model.Set_ts, rule=ess_e_soc_link_rule)
+
+            ts_sorted = sorted(list(model.Set_ts.data()))
+
+            # Inter-temporal energy balance (i.e., ESS dynamics)
+            def ess_dyn_rule(model, e, t):
+                idx = ts_sorted.index(t)
+                E_prev = model.initial_SOC_exst[e] * model.Eess_max_exst[e] if idx == 0 else model.Eess_exst[e, ts_sorted[idx - 1]]
+                return model.Eess_exst[e, t] == E_prev + model.eff_ch_exst[e] * model.Pess_charge_exst[e, t] - (
+                        1 / model.eff_dis_exst[e]) * model.Pess_discharge_exst[e, t]
+
+            model.ESS_Dynamics = pyo.Constraint(model.Set_ess_exst, model.Set_ts, rule=ess_dyn_rule)
 
         # ------------------------------------------------------------------
-        # 5.  Objective – minimizing total cost (generation + import + load shed)
+        # 6. Objective
         # ------------------------------------------------------------------
         def objective_rule(model):
-            gen_cost = sum(model.gen_cost_coef[g, 0] +
-                           model.gen_cost_coef[g, 1] * model.Pg[g, t]
-                           for g in model.Set_gen for t in model.Set_ts)
+            # Generation cost
+            gen_cost = sum(
+                model.gen_cost_coef[g, 0] + model.gen_cost_coef[g, 1] * model.Pg_exst[g, t]
+                for g in model.Set_gen_exst for t in model.Set_ts
+            )
 
-            grid_cost = sum(model.Pimp_cost * model.Pimp[t] + model.Pexp_cost * model.Pexp[t]
-                            for t in model.Set_ts)
+            # Grid import/export cost
+            grid_cost = sum(
+                model.Pimp_cost * model.Pimp[t] + model.Pexp_cost * model.Pexp[t]
+                for t in model.Set_ts
+            )
 
-            ls_dn_cost = sum(model.Pc_cost[b] * model.Pc[b, t] for b in model.Set_bus_dn for t in model.Set_ts) + \
-                        sum(model.Qc_cost[b] * model.Qc[b, t] for b in model.Set_bus_dn for t in model.Set_ts)
+            # Load shedding cost
+            ls_cost = sum(
+                model.Pc_cost[b] * model.Pc[b, t]
+                for b in model.Set_bus for t in model.Set_ts
+            )
 
-            ls_tn_cost = sum(model.Pc_cost[b] * model.Pc[b, t] for b in model.Set_bus_tn for t in model.Set_ts)
+            if has_reactive_demand:
+                ls_cost += sum(
+                    model.Qc_cost[b] * model.Qc[b, t]
+                    for b in model.Set_bus_dn for t in model.Set_ts
+                )
 
-            return (gen_cost + grid_cost + ls_dn_cost
-                    + ls_tn_cost
-                    )
-
+            return gen_cost + grid_cost + ls_cost
 
         model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
