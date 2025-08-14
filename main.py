@@ -53,24 +53,25 @@ path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Filtered_Scena
 # ]
 
 resilience_metric_thresholds = [
-    None,
+    # None,
+    # 1.5e4,
     # 1.4e4,
     # 1.3e4,
-    # 1.2e4,
+    1.2e4,
     # 1.1e4,
-    # 1e4,
+    1e4,
     # 9e3,
-    # 8e3,
+    8e3,
     # 7e3,
-    # 6e3,
+    6e3,
     # 5e3,
-    # 4e3,
+    4e3,
     # 3e3,
-    # 2e3,
+    2e3,
     # 1e3,
-    # 8e2,
+    8e2,
     # 6e2,
-    # 4e2,
+    4e2,
     # 3e2,
     # 2.8e2,
     # 2.6e2,
@@ -82,12 +83,14 @@ resilience_metric_thresholds = [
 for resilience_metric_threshold in resilience_metric_thresholds:
     inv = InvestmentClass()
     model = inv.build_investment_model(path_ws_scenario_library=path_ws_scenario_library,
+                                       include_normal_scenario=True,
                                        normal_scenario_prob=0.99,
                                        resilience_metric_threshold=resilience_metric_threshold
                                        )
-    results = inv.solve_investment_model(model, write_lp=False, write_result=False,
+    results = inv.solve_investment_model(model, write_lp=False, write_result=True,
                                          solver_name='gurobi',
                                          result_path=None,
-                                         mip_gap=5e-8,
+                                         mip_gap=1e-7,
+                                         mip_gap_abs=1e4,
                                          time_limit=10800
                                          )

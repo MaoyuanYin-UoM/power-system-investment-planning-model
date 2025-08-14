@@ -38,7 +38,7 @@ class InvestmentClass():
                                use_representative_days: bool = True,
                                representative_days: list = None,
                                resilience_metric_threshold: float = None,
-                               invetment_budget: float = None,
+                               investment_budget: float = None,
                                solver_for_normal_opf: str = 'gurobi'):
         """
         Build a Pyomo MILP model for resilience enhancement investment planning (line hardening)
@@ -1587,7 +1587,7 @@ class InvestmentClass():
 
         model.total_inv_cost_expr = pyo.Expression(rule=total_inv_cost_rule)
 
-        def expected_total_op_cost_rule(model):
+        def expected_total_op_cost_ws_rule(model):
             # 1) Generation cost from EXISTING generators
             gen_cost_exst = sum(
                 model.scn_prob[sc] * (
@@ -1644,7 +1644,7 @@ class InvestmentClass():
             else:
                 return ws_window_cost
 
-        model.exp_total_op_cost_expr = pyo.Expression(rule=expected_total_op_cost_rule)
+        model.exp_total_op_cost_ws_expr = pyo.Expression(rule=expected_total_op_cost_ws_rule)
 
         # def objective_rule(model):
         #     # First-stage: Investment cost
@@ -1655,12 +1655,13 @@ class InvestmentClass():
         #         # Normal scenario (full year) + Windstorm scenarios (window + full year)
         #         normal_contribution = normal_scenario_prob * normal_operation_opf_results["total_cost"]
         #
-        #         ws_contribution = model.exp_total_op_cost_expr  # Already includes annual normal costs
+        #         ws_contribution = model.exp_total_op_cost_ws_expr  # Already includes annual normal costs
         #         return inv_cost + normal_contribution + ws_contribution
         #     else:
         #         # Only windstorm scenarios (without annual normalization)
-        #         return inv_cost + model.exp_total_op_cost_expr
+        #         return inv_cost + model.exp_total_op_cost_ws_expr
 
+        print(model.scn_prob[sc] for sc in model.Set_scn)
         def objective_rule(model):
             # First-stage: Investment cost
             inv_cost = model.total_inv_cost_expr
@@ -1675,22 +1676,21 @@ class InvestmentClass():
 
             # Second-stage: Expected operational cost
             if include_normal_scenario and normal_operation_opf_results:
-                # Normal scenario (full year) + Windstorm scenarios (window + full year)
-                normal_contribution = normal_scenario_prob * normal_operation_opf_results["total_cost"]
-                ws_contribution = model.exp_total_op_cost_expr  # Already includes annual normal costs
+                normal_annual = normal_scenario_prob * normal_operation_opf_results["total_cost"]
+                ws_annual = ws_total_prob * model.exp_total_op_cost_ws_expr  # WS-only expr
 
                 # Apply PV factor to total annual operational cost
-                annual_op_cost = normal_contribution + ws_contribution
+                annual_op_cost = normal_annual + ws_annual
                 return inv_cost + pv_factor * annual_op_cost
             else:
                 # Only windstorm scenarios (without annual normalization)
-                return inv_cost + pv_factor * model.exp_total_op_cost_expr
+                return inv_cost + pv_factor * model.exp_total_op_cost_ws_expr
 
         model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
         # Add parameter to track normal cost contribution
         if include_normal_scenario and normal_operation_opf_results:
-            model.normal_cost_contribution = pyo.Param(
+            model.normal_annual = pyo.Param(
                 initialize=normal_scenario_prob * normal_operation_opf_results["total_cost"],
                 mutable=False
             )
@@ -1701,6 +1701,30 @@ class InvestmentClass():
                 mutable=False
             )
 
+        # ------------------------------------------------------------------
+        # 7. Additional expressions (i.e., for future data post-processing)
+        # ------------------------------------------------------------------
+        print("Defining additional expressions...")
+
+        def total_inv_cost_line_hrdn_rule(model):
+            return sum(model.line_hrdn_cost[l] * model.line_hrdn[l]
+                       for l in model.Set_bch_hrdn_lines)
+
+        model.total_inv_cost_line_hrdn_expr = pyo.Expression(rule=total_inv_cost_line_hrdn_rule)
+
+        def total_inv_cost_dg_rule(model):
+            return sum(model.dg_install_cost[g] * model.dg_install_capacity[g]
+                       for g in model.Set_gen_new_nren)
+
+        model.total_inv_cost_dg_expr = pyo.Expression(rule=total_inv_cost_dg_rule)
+
+        def total_inv_cost_ess_rule(model):
+            return sum(model.ess_install_cost[e] * model.ess_install_capacity[e]
+                       for e in model.Set_ess_new)
+
+        model.total_inv_cost_ess_expr = pyo.Expression(rule=total_inv_cost_ess_rule)
+
+
         print("\nModel building completed.")
         print("=" * 60)
 
@@ -1710,7 +1734,8 @@ class InvestmentClass():
             self,
             model,
             solver_name: str = "gurobi",
-            mip_gap: float = 5e-3,
+            mip_gap: float = 1e-3,
+            mip_gap_abs: float = 1e5,
             time_limit: int = 60,
             write_lp: bool = False,
             write_result: bool = False,
@@ -1741,7 +1766,10 @@ class InvestmentClass():
 
         # --- solver-specific options -------------------------------------------------
         if solver_name.lower() == "gurobi":
-            default_opts = {"MIPGap": mip_gap, "TimeLimit": time_limit}
+            default_opts = {"MIPGap": mip_gap,
+                            "MIPGapAbs": mip_gap_abs,
+                            "TimeLimit": time_limit
+                            }
         elif solver_name.lower() == "cbc":
             default_opts = {
                 "ratioGap": mip_gap,
@@ -1858,6 +1886,9 @@ class InvestmentClass():
         """
         important = (
             "line_hrdn",
+            "dg_install_capacity",
+            "ess_install_capacity",
+
             "Pg", "Qg", "Pc", "Qc",
             "Pf_tn", "Pf_dn",
             "rand_num", "shifted_gust_speed", "branch_status", "fail_prob", "fail_condition",
@@ -1880,14 +1911,17 @@ class InvestmentClass():
                 "resilience_metric_threshold": float(pyo.value(model.resilience_metric_threshold)),
                 "objective_value": float(pyo.value(model.Objective)),
                 "total_investment_cost": float(pyo.value(model.total_inv_cost_expr)),
-                "expected_total_operational_cost": float(pyo.value(model.exp_total_op_cost_expr)),
+                "investment_cost_line_hardening": float(pyo.value(model.total_inv_cost_line_hrdn_expr)),
+                "investment_cost_dg": float(pyo.value(model.total_inv_cost_dg_expr)),
+                "investment_cost_ess": float(pyo.value(model.total_inv_cost_ess_expr)),
+                "expected_total_operational_cost": float(pyo.value(model.exp_total_op_cost_ws_expr)),
                 "ws_expected_total_operational_cost_dn": float(pyo.value(model.exp_total_op_cost_dn_ws_expr)),
                 "ws_exp_total_eens_dn": float(pyo.value(model.exp_total_eens_dn_ws_expr)),
             }
 
             # Add normal scenario costs if included
-            if hasattr(model, 'normal_cost_contribution'):
-                meta["normal_operation_cost_contribution"] = float(pyo.value(model.normal_cost_contribution))
+            if hasattr(model, 'normal_annual'):
+                meta["normal_operation_cost_contribution"] = float(pyo.value(model.normal_annual))
 
                 # Also add the DN generation cost from normal scenario if available
                 if hasattr(model, 'normal_gen_cost_dn'):
@@ -1897,8 +1931,8 @@ class InvestmentClass():
                 # The windstorm operational cost is already weighted by (1 - normal_prob) in the objective
                 # So the total is just the objective value
                 meta["total_expected_operational_cost_with_normal"] = (
-                        float(pyo.value(model.exp_total_op_cost_expr)) +
-                        float(pyo.value(model.normal_cost_contribution))
+                        float(pyo.value(model.exp_total_op_cost_ws_expr)) +
+                        float(pyo.value(model.normal_annual))
                 )
 
             # Add detailed normal operation info if available
@@ -1959,6 +1993,7 @@ class InvestmentClass():
                 df = pd.DataFrame(rows)
                 sheet = name[:29]
                 df.to_excel(xl, sheet_name=sheet, index=False)
+
 
     def piecewise_linearize_fragility(self, net, line_idx, num_pieces):
 

@@ -931,7 +931,11 @@ class NetworkClass:
         return model
 
 
-    def solve_combined_dc_linearized_ac_opf(self, model, solver='gurobi',
+    def solve_combined_dc_linearized_ac_opf(self,
+                                            model,
+                                            solver='gurobi',
+                                            mip_gap: float = 1e-3,
+                                            mip_gap_abs: float = 1e5,
                                             write_xlsx: bool = False,
                                             out_dir: str = "Optimization_Results/Combined_DC_and_Linearized_AC"):
         """
@@ -941,10 +945,15 @@ class NetworkClass:
         opt = SolverFactory(solver)
 
         # Add solver-specific options
-        if solver.lower() == 'cbc':
+        if solver.lower() == 'gurobi':
+            opt.options['MIPGap'] = mip_gap
+            opt.options['MIPGapAbs'] = mip_gap_abs
+
+        elif solver.lower() == 'cbc':
             opt.options['threads'] = 0
             opt.options['presolve'] = 'on'
             opt.options['cuts'] = 'on'
+
         elif solver.lower() == 'glpk':
             opt.options['tmlim'] = 3600
             opt.options['msg_lev'] = 'GLP_MSG_ON'

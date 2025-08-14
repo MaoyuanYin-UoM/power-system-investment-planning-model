@@ -528,7 +528,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Qimp_cost = 50  # reactive power importing cost
         ncon.data.net.Qexp_cost = 0  # reactive power exporting remuneration
 
-        ncon.data.net.Pc_cost = [5000] * len(ncon.data.net.bus)  # active load shedding cost
+        ncon.data.net.Pc_cost = [2e4] * len(ncon.data.net.bus)  # active load shedding cost
         ncon.data.net.Qc_cost = [0] * len(ncon.data.net.bus)  # reactive load shedding cost
 
         # line hardening cost is modelled as:
@@ -537,8 +537,8 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.repair_cost = [5e3] * len(ncon.data.net.bch)  # £5k/repair for DN lines
 
         # DG/ESS installation costs (note the power-to-energy ratio for each installation is fixed)
-        ncon.data.net.dg_install_cost = [5e4] * len(ncon.data.net.bus)  # £50k per MW installed
-        ncon.data.net.ess_install_cost = [1e5] * len(ncon.data.net.bus)  # £100k per MW power capacity
+        ncon.data.net.dg_install_cost = [5e5] * len(ncon.data.net.bus)  # £50k per MW installed
+        ncon.data.net.ess_install_cost = [5e5] * len(ncon.data.net.bus)  # £10k per MW power capacity
 
         # Generation cost of installed DGs
         ncon.data.net.new_dg_gen_cost_coef = [[0, 70] for _ in range(len(ncon.data.net.bus))]
@@ -889,7 +889,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Qimp_cost = 50
         ncon.data.net.Qexp_cost = 0
 
-        ncon.data.net.Pc_cost = [1000] * len(ncon.data.net.bus)
+        ncon.data.net.Pc_cost = [2e3] * len(ncon.data.net.bus)
         ncon.data.net.Qc_cost = [0] * len(ncon.data.net.bus)
 
         ncon.data.net.hrdn_cost = [5e4] * len(ncon.data.net.bch)  # £50k/km/(m/s) for TN lines

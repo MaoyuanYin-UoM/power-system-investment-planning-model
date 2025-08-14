@@ -457,7 +457,7 @@ if __name__ == "__main__":
     
     # Screen the library
     results = screen_scenarios(
-        library_path="../Scenario_Database/Scenarios_Libraries/Original_Scenario_Libraries/windstorm_library_29BusGB-KearsleyGSP_GB_100scenarios_seed10000.json",
+        library_path="../Scenario_Database/Scenarios_Libraries/Original_Scenario_Libraries/windstorm_library_29BusGB-KearsleyGSP_GB_20scenarios_seed10000.json",
         output_dir="../Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries",
         buffer_km=15,
         min_impacted_branches=10,
