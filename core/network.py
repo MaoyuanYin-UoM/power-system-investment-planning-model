@@ -936,6 +936,7 @@ class NetworkClass:
                                             solver='gurobi',
                                             mip_gap: float = 1e-3,
                                             mip_gap_abs: float = 1e5,
+                                            time_limit: float = 3600,
                                             write_xlsx: bool = False,
                                             out_dir: str = "Optimization_Results/Combined_DC_and_Linearized_AC"):
         """
@@ -948,6 +949,7 @@ class NetworkClass:
         if solver.lower() == 'gurobi':
             opt.options['MIPGap'] = mip_gap
             opt.options['MIPGapAbs'] = mip_gap_abs
+            opt.options['TimeLimit'] = time_limit
 
         elif solver.lower() == 'cbc':
             opt.options['threads'] = 0

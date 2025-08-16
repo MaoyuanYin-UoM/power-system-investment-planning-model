@@ -1,5 +1,4 @@
-from visualization import *
-from data_processing.ws_scenario_generation import *
+from visualizations.visualization import *
 
 # wcon = WindConfig()
 # ws = WindClass(wcon)
@@ -352,22 +351,22 @@ from data_processing.ws_scenario_generation import *
 
 # visualize_network_bch(network_name="29_bus_GB_transmission_network_with_Kearsley_GSP_group")
 
-visualize_bch_and_ws_contour(network_name="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
-                             windstorm_name="windstorm_GB_transmission_network",
-                             show_windstorm_contours=False,
-                             label_buses=False,
-                             zoomed_distribution=True,
-                             zoom_border=0.1,
-                             tn_linewidth=2,
-                             dn_linewidth=2.8,
-                             title="Topology for Kearsley GSP Group",
-                             title_fontsize=20,
-                             xlabel_fontsize=16,
-                             ylabel_fontsize=16,
-                             tick_fontsize=14,
-                             legend_fontsize=14,
-                             legend_loc='upper left',
-                             )
+# visualize_bch_and_ws_contour(network_name="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
+#                              windstorm_name="windstorm_GB_transmission_network",
+#                              show_windstorm_contours=False,
+#                              label_buses=False,
+#                              zoomed_distribution=True,
+#                              zoom_border=0.1,
+#                              tn_linewidth=2,
+#                              dn_linewidth=2.8,
+#                              title="Topology for Kearsley GSP Group",
+#                              title_fontsize=20,
+#                              xlabel_fontsize=16,
+#                              ylabel_fontsize=16,
+#                              tick_fontsize=14,
+#                              legend_fontsize=14,
+#                              legend_loc='upper left',
+#                              )
 
 
 # wcon = make_windstorm("windstorm_GB_transmission_network")

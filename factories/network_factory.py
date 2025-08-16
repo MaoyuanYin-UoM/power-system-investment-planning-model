@@ -523,6 +523,10 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         # 10.  Cost-related parameters
         # -----------------------------------------------------------
+        # 1) operational costs
+
+        # Note: gen_cost has been defined in '6.  Generator data'
+
         ncon.data.net.Pimp_cost = 50  # active power importing cost
         ncon.data.net.Pexp_cost = 0  # active power exporting remuneration
         ncon.data.net.Qimp_cost = 50  # reactive power importing cost
@@ -531,17 +535,41 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Pc_cost = [2e4] * len(ncon.data.net.bus)  # active load shedding cost
         ncon.data.net.Qc_cost = [0] * len(ncon.data.net.bus)  # reactive load shedding cost
 
-        # line hardening cost is modelled as:
-        # (£) per unit line length (km) and per unit amount fragility curve shift (m/s)
-        ncon.data.net.hrdn_cost = [2e4] * len(ncon.data.net.bch)  # £20k/km/(m/s) for DN lines
-        ncon.data.net.repair_cost = [5e3] * len(ncon.data.net.bch)  # £5k/repair for DN lines
+        # Generation cost of installed DGs
+        ncon.data.net.new_dg_gen_cost_coef = [[0, 70] for _ in range(len(ncon.data.net.bus))]
+        
+        # Repair cost
+        ncon.data.net.repair_cost_rate = [5e4] * len(ncon.data.net.bch)  # £50k/km for each DN-line repair
+        ncon.data.net.cost_bch_repair = []
+        for i, length in enumerate(ncon.data.net.bch_length_km):
+            ncon.data.net.cost_bch_repair.append(
+                ncon.data.net.repair_cost_rate[i] * length
+            )
 
-        # DG/ESS installation costs (note the power-to-energy ratio for each installation is fixed)
+        # (DEPRECATED) line hardening cost is modelled as:
+        # (£) per unit line length (km) and per unit amount fragility curve shift (m/s)
+        
+        # 2) Line hardening cost
+        # (line hardening is modelled as a fixed fragility rightward shift, with cost proportional to the line length)
+        ncon.data.net.fixed_hrdn_shift = [30.0] * len(ncon.data.net.bch)
+        # Hardening cost rate
+        ncon.data.net.hrdn_cost_rate = [5e4] * len(ncon.data.net.bch)  # £50k/km for DN lines
+        # Compute hardening cost
+        ncon.data.net.cost_bch_hrdn_fixed = []
+        for i, length in enumerate(ncon.data.net.bch_length_km):
+            is_line = ncon.data.net.bch_type[i] == 1  # 1=line, 0=transformer
+            if is_line:
+                # (Fixed) hardening cost = cost_rate * length for each (hardenable) branch
+                ncon.data.net.cost_bch_hrdn_fixed.append(
+                    ncon.data.net.hrdn_cost_rate[i] * length
+                )
+            else:
+                ncon.data.net.cost_bch_hrdn_fixed.append(1e9)  # a large placeholder value
+
+        # 3) DG/ESS installation costs (note the power-to-energy ratio for each installation is fixed)
         ncon.data.net.dg_install_cost = [5e5] * len(ncon.data.net.bus)  # £50k per MW installed
         ncon.data.net.ess_install_cost = [5e5] * len(ncon.data.net.bus)  # £10k per MW power capacity
 
-        # Generation cost of installed DGs
-        ncon.data.net.new_dg_gen_cost_coef = [[0, 70] for _ in range(len(ncon.data.net.bus))]
 
         # -----------------------------------------------------------
         # 11.  Fragility data
@@ -884,6 +912,10 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         # 9.  Cost-related parameters
         # -----------------------------------------------------------
+        # 1) Operational costs:
+        
+        # Note: generation cost of existing DGs already defined in "# 6. Generation Data"
+        
         ncon.data.net.Pimp_cost = 50
         ncon.data.net.Pexp_cost = 0
         ncon.data.net.Qimp_cost = 50
@@ -892,15 +924,39 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Pc_cost = [2e3] * len(ncon.data.net.bus)
         ncon.data.net.Qc_cost = [0] * len(ncon.data.net.bus)
 
-        ncon.data.net.hrdn_cost = [5e4] * len(ncon.data.net.bch)  # £50k/km/(m/s) for TN lines
-        ncon.data.net.repair_cost = [1e4] * len(ncon.data.net.bch)  # £10k/repair for TN lines
-
-        # DG/ESS installation costs
-        ncon.data.net.dg_install_cost = [1e9] * len(ncon.data.net.bus)  # £/MW - unusable, set a large placeholder value
-        ncon.data.net.ess_install_cost = [1e9] * len(ncon.data.net.bus)  # £/MW - unusable, set a large value
-
         # Generation cost of installed DGs
         ncon.data.net.new_dg_gen_cost_coef = [[0, 70] for _ in range(len(ncon.data.net.bus))]
+
+        # Repair cost
+        ncon.data.net.repair_cost_rate = [2e5] * len(ncon.data.net.bch)  # £200k/km for each TN-line repair
+        ncon.data.net.cost_bch_repair = []
+        for i, length in enumerate(ncon.data.net.bch_length_km):
+            ncon.data.net.cost_bch_repair.append(
+                ncon.data.net.repair_cost_rate[i] * length
+            )
+        
+        # (DEPRECATED) Line hardening is modelled as continuous variable
+
+        # 2) Line hardening cost
+        # (line hardening is modelled as a fixed fragility rightward shift, with cost proportional to the line length)
+        ncon.data.net.fixed_hrdn_shift = [20.0] * len(ncon.data.net.bch)
+        # Hardening cost rate
+        ncon.data.net.hrdn_cost_rate = [2e5] * len(ncon.data.net.bch)  # £500k/km for TN lines
+        # Compute hardening cost
+        ncon.data.net.cost_bch_hrdn_fixed = []
+        for i, length in enumerate(ncon.data.net.bch_length_km):
+            is_line = ncon.data.net.bch_type[i] == 1  # 1=line, 0=transformer
+            if is_line:
+                # (Fixed) hardening cost = cost_rate * length for each (hardenable) branch
+                ncon.data.net.cost_bch_hrdn_fixed.append(
+                    ncon.data.net.hrdn_cost_rate[i] * length
+                )
+            else:
+                ncon.data.net.cost_bch_hrdn_fixed.append(1e9)  # a large placeholder value
+
+        # 3) DG/ESS installation costs
+        ncon.data.net.dg_install_cost = [1e9] * len(ncon.data.net.bus)  # £/MW - unusable, set a large placeholder value
+        ncon.data.net.ess_install_cost = [1e9] * len(ncon.data.net.bus)  # £/MW - unusable, set a large value
 
         # -----------------------------------------------------------
         # 10.  Fragility data (uniform defaults)
@@ -1105,11 +1161,15 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_X.extend(dn.bch_X)
         ncon.data.net.bch_Smax.extend(dn.bch_Smax)
         ncon.data.net.bch_Pmax.extend(dn.bch_Pmax)
+        # - repair cost
+        ncon.data.net.repair_cost_rate.extend(dn.repair_cost_rate)
+        ncon.data.net.cost_bch_repair.extend(dn.cost_bch_repair)
         # - hardening-related parameters
         ncon.data.net.bch_length_km.extend(dn.bch_length_km)
         ncon.data.net.bch_hardenable.extend(dn.bch_hardenable)
-        ncon.data.net.hrdn_cost.extend(dn.hrdn_cost)
-        ncon.data.net.repair_cost.extend(dn.repair_cost)
+        ncon.data.net.hrdn_cost_rate.extend(dn.hrdn_cost_rate)
+        ncon.data.net.fixed_hrdn_shift.extend(dn.fixed_hrdn_shift)
+        ncon.data.net.cost_bch_hrdn_fixed.extend(dn.cost_bch_hrdn_fixed)
 
         # 5.2) Insert the TN–DN coupling branch (after the TN list)
         idx_cpl = len(gb.bch)  # position in the master list
@@ -1119,10 +1179,14 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.bch_X.insert(idx_cpl, 0.0001)
         ncon.data.net.bch_Smax.insert(idx_cpl, 1e6)
         ncon.data.net.bch_Pmax.insert(idx_cpl, 1e6)
+        ncon.data.net.repair_cost_rate.insert(idx_cpl, 0)
+        ncon.data.net.cost_bch_repair.insert(idx_cpl, 0)
         ncon.data.net.bch_length_km.insert(idx_cpl, 0)
         ncon.data.net.bch_hardenable.insert(idx_cpl, 0)
-        ncon.data.net.hrdn_cost.insert(idx_cpl, 0)
-        ncon.data.net.repair_cost.insert(idx_cpl, 0)
+        ncon.data.net.hrdn_cost_rate.insert(idx_cpl, 1e9)
+        ncon.data.net.fixed_hrdn_shift.insert(idx_cpl, 0)
+        ncon.data.net.cost_bch_hrdn_fixed.insert(idx_cpl, 1e9)
+
 
         # 5.3) Re-build branch-level tags
         num_tn = len(gb.bch)

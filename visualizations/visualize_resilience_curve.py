@@ -278,11 +278,11 @@ def create_resilience_curve_from_results(results_file_path, scenario_indices=Non
 # Example usage
 if __name__ == "__main__":
     # Specify your results file path
-    results_file = 'Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_2.00e3_20250624_142239.xlsx'
+    results_file = '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_4_ws_seed_[112, 152, 166, 198]_resilience_threshold_2.00e3_20250624_142239.xlsx'
 
     # Create resilience curve
     create_resilience_curve_from_results(
         results_file_path=results_file,
         scenario_indices=[1, 2, 3, 4],  # Adjust based on your scenario numbering
-        output_dir='Resilience_Analysis'
+        output_dir='../Resilience_Analysis'
     )

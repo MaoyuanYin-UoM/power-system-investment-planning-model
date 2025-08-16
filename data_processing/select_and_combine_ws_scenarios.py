@@ -1,5 +1,4 @@
-from ws_scenario_generation import *
-from visualization import *
+from visualizations.visualization import *
 
 
 # ========================================

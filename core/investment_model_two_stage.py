@@ -119,6 +119,10 @@ class InvestmentClass():
         else:
             raise ValueError("JSON does not contain 'metadata'")
 
+        # store windstorm library info
+        self.ws_library_path = path_ws_scenario_library  # Store the library path
+        # self.ws_library_total_num_scenarios =   # todo: to be added
+
         # Handle both old and new format
         if "scenarios" in data:
             # New library format: convert dictionary to list
@@ -605,13 +609,13 @@ class InvestmentClass():
         model.Pexp_cost = pyo.Param(initialize=net.data.net.Pexp_cost)
 
         model.rep_cost = pyo.Param(model.Set_bch_tn | model.Set_bch_dn,
-                                   initialize={l: net.data.net.repair_cost[l - 1]
+                                   initialize={l: net.data.net.cost_bch_repair[l - 1]
                                                for l in range(1, len(net.data.net.bch) + 1)},
                                    within=pyo.NonNegativeReals)
-        model.line_hrdn_cost = pyo.Param(model.Set_bch_tn | model.Set_bch_dn,
-                                         initialize={l: net.data.net.hrdn_cost[l - 1]
-                                                     for l in range(1, len(net.data.net.bch) + 1)},
-                                         within=pyo.NonNegativeReals)
+        model.line_hrdn_cost_fixed = pyo.Param(model.Set_bch_hrdn_lines,
+                                               initialize={l: net.data.net.cost_bch_hrdn_fixed[l - 1]
+                                                           for l in model.Set_bch_hrdn_lines},
+                                               within=pyo.NonNegativeReals)
         model.dg_install_cost = pyo.Param(model.Set_gen_new_nren,
                                           initialize={g: net.data.net.dg_install_cost[new_gen_to_bus_map[g] - 1]
                                                       for g in Set_gen_new_nren})
@@ -621,7 +625,14 @@ class InvestmentClass():
         model.investment_budget = pyo.Param(initialize=net.data.investment_budget
                                                        if net.data.investment_budget else 1e10)
 
-        # 3.12) Other parameters
+        # 3.12) Line hardening related parameters
+        model.fixed_hrdn_shift = pyo.Param(
+            model.Set_bch_hrdn_lines,
+            initialize={l: net.data.net.fixed_hrdn_shift[l - 1] for l in model.Set_bch_hrdn_lines},
+            within=pyo.NonNegativeReals
+        )
+
+        # 3.13) Other parameters
         # Asset lifetime (the number of years that operational cost will be computed based on)
         model.asset_lifetime = pyo.Param(
             initialize=25,  # Adjust as needed
@@ -717,9 +728,7 @@ class InvestmentClass():
 
         # 4.1) First-stage decision variables:
         # - Line hardening (continuous, m/s)
-        model.line_hrdn = pyo.Var(model.Set_bch_hrdn_lines,
-                                  bounds=(net.data.bch_hrdn_limits[0], net.data.bch_hrdn_limits[1]),
-                                  within=pyo.NonNegativeReals)
+        model.line_hrdn_binary = pyo.Var(model.Set_bch_hrdn_lines, within=pyo.Binary)
 
         # - (Gas) DG installation capacity (continuous, MW)
         model.dg_install_capacity = pyo.Var(
@@ -734,9 +743,7 @@ class InvestmentClass():
         model.ess_install_capacity = pyo.Var(
             model.Set_ess_new,
             within=pyo.NonNegativeReals,
-            bounds=lambda model, e: (model.ess_install_capacity_min[e],
-                                     model.ess_install_capacity_max[e])
-        )
+            bounds=lambda model, e: (model.ess_install_capacity_min[e], model.ess_install_capacity_max[e]))
 
         # 4.2) Second-stage recourse variables  (indexed by scenario)
         # Before defining variables, first check if the model include reactive power demand
@@ -861,7 +868,8 @@ class InvestmentClass():
         # 5.1) Budget
         def investment_budget_rule(model):
             """Total investment cost must not exceed budget"""
-            total_line_hrdn_cost = sum(model.line_hrdn[l] * model.line_hrdn_cost[l] for l in model.Set_bch_hrdn_lines)
+            total_line_hrdn_cost = sum(model.line_hrdn_binary[l] * model.line_hrdn_cost_fixed[l]
+                                       for l in model.Set_bch_hrdn_lines)
 
             total_dg_install_cost = sum(model.dg_install_capacity[g] * model.dg_install_cost[g]
                                         for g in model.Set_gen_new_nren)
@@ -875,8 +883,11 @@ class InvestmentClass():
 
         # 5.2) Shifted gust speed (i.e. Line hardening) -- Note: only dn lines hardening are considered
         def shifted_gust_rule(model, sc, l, t):
-            # line hardening amount can be non-zero for only lines
-            hrdn = model.line_hrdn[l] if l in model.Set_bch_hrdn_lines else 0
+            # Binary hardening with branch-specific fixed shift
+            if l in model.Set_bch_hrdn_lines:
+                hrdn = model.fixed_hrdn_shift[l] * model.line_hrdn_binary[l]
+            else:
+                hrdn = 0
             return model.shifted_gust_speed[sc, l, t] >= model.gust_speed[sc, t] - hrdn
 
         model.Constraint_ShiftedGust = pyo.Constraint(model.Set_slt_lines, rule=shifted_gust_rule)
@@ -1572,7 +1583,7 @@ class InvestmentClass():
         # Code total investment cost as an expression
         def total_inv_cost_rule(model):
             # Line hardening cost
-            line_hrdn_cost = sum(model.line_hrdn_cost[l] * model.line_hrdn[l]
+            line_hrdn_cost = sum(model.line_hrdn_cost_fixed[l] * model.line_hrdn_binary[l]
                                  for l in model.Set_bch_hrdn_lines)
 
             # New DG installation cost
@@ -1707,7 +1718,7 @@ class InvestmentClass():
         print("Defining additional expressions...")
 
         def total_inv_cost_line_hrdn_rule(model):
-            return sum(model.line_hrdn_cost[l] * model.line_hrdn[l]
+            return sum(model.line_hrdn_cost_fixed[l] * model.line_hrdn_binary[l]
                        for l in model.Set_bch_hrdn_lines)
 
         model.total_inv_cost_line_hrdn_expr = pyo.Expression(rule=total_inv_cost_line_hrdn_rule)
@@ -1736,7 +1747,7 @@ class InvestmentClass():
             solver_name: str = "gurobi",
             mip_gap: float = 1e-3,
             mip_gap_abs: float = 1e5,
-            time_limit: int = 60,
+            time_limit: int = 3600,
             write_lp: bool = False,
             write_result: bool = False,
             result_path: str = None,
@@ -1885,7 +1896,7 @@ class InvestmentClass():
         Export selected variables and key parameters to a multi-sheet .xlsx workbook.
         """
         important = (
-            "line_hrdn",
+            "line_hrdn_binary",
             "dg_install_capacity",
             "ess_install_capacity",
 
@@ -1904,16 +1915,24 @@ class InvestmentClass():
                 "written_at": datetime.now().isoformat(timespec="seconds"),
                 "network_name": self.network_name,
                 "windstorm_name": self.windstorm_name,
+
+                "ws_library_path": getattr(self, 'ws_library_path', 'Not available'),
+                "ws_library_total_num_scenarios": getattr(self, 'ws_library_total_num_scenarios', 'Not available'),
+                "ws_scenarios_used": getattr(self.meta, 'n_ws_scenarios', 0),
+
                 "windstorm_random_seed": getattr(self.meta, 'ws_seed', None),
                 "number_of_ws_scenarios": getattr(self.meta, 'n_ws_scenarios', 0),
                 "normal_scenario_included": getattr(self.meta, 'normal_scenario_included', False),
                 "normal_scenario_probability": getattr(self.meta, 'normal_scenario_prob', 0),
+
                 "resilience_metric_threshold": float(pyo.value(model.resilience_metric_threshold)),
                 "objective_value": float(pyo.value(model.Objective)),
+
                 "total_investment_cost": float(pyo.value(model.total_inv_cost_expr)),
                 "investment_cost_line_hardening": float(pyo.value(model.total_inv_cost_line_hrdn_expr)),
                 "investment_cost_dg": float(pyo.value(model.total_inv_cost_dg_expr)),
                 "investment_cost_ess": float(pyo.value(model.total_inv_cost_ess_expr)),
+
                 "expected_total_operational_cost": float(pyo.value(model.exp_total_op_cost_ws_expr)),
                 "ws_expected_total_operational_cost_dn": float(pyo.value(model.exp_total_op_cost_dn_ws_expr)),
                 "ws_exp_total_eens_dn": float(pyo.value(model.exp_total_eens_dn_ws_expr)),

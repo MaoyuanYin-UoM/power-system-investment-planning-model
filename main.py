@@ -35,7 +35,7 @@ from core.investment_model_two_stage import *
 # Seeds with windstorms passing the Kearsley group:
 # --> for 1-ws scenarios, seed=112
 # --> for 5-ws scenarios, seed=104
-path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_GB_100scn_s10000_filt_b10_h2_buf15.json"
+path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_GB_20scn_s10000_filt_b10_h2_buf15.json"
 # path_normal_scenario = "Scenario_Database/Scenarios_for_Old_Two_Stage_Model/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json"
 
 # resilience_thresholds = [
@@ -53,30 +53,38 @@ path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Filtered_Scena
 # ]
 
 resilience_metric_thresholds = [
-    # None,
-    # 1.5e4,
+    None,
+    1.5e4,
     # 1.4e4,
+    1.25e4,
     # 1.3e4,
-    1.2e4,
+    # 1.2e4,
     # 1.1e4,
     1e4,
     # 9e3,
-    8e3,
+    # 8e3,
+    7.5e3,
     # 7e3,
-    6e3,
-    # 5e3,
-    4e3,
+    # 6e3,
+    5e3,
+    # 4e3,
+    # 3.5e3,
     # 3e3,
-    2e3,
-    # 1e3,
-    8e2,
-    # 6e2,
-    4e2,
-    # 3e2,
+    2.5e3,
+    # 2e3,
+    # 1.5e3,
+    # 1.2e3,
+    1e3,
+    # 8e2,
+    6e2,
+    # 4e2,
+    3e2,
     # 2.8e2,
-    # 2.6e2,
-    # 2.5e2,
+    2.6e2,
+    # 2.4e2,
+    2.2e2,
     # 2e2,
+    # 1e2,
     # 0
 ]
 
