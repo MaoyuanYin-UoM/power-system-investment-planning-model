@@ -832,9 +832,11 @@ class InvestmentClass():
             model.Qf_dn = pyo.Param(model.Set_slt_dn, default=0.0)
 
         # - Load sheddings (curtailed load)
-        model.Pc = pyo.Var(model.Set_sbt, within=pyo.NonNegativeReals)
+        model.Pc = pyo.Var(model.Set_sbt, within=pyo.NonNegativeReals,
+                           bounds=lambda model, b, t: (0, max(0.0, pyo.value(model.Pd[b, t]))))
         if has_reactive_demand:
-            model.Qc = pyo.Var(model.Set_sbt_dn, within=pyo.NonNegativeReals)
+            model.Qc = pyo.Var(model.Set_sbt_dn, within=pyo.NonNegativeReals,
+                               bounds=lambda model, b, t: (0, max(0.0, pyo.value(model.Qd[b, t]))))
         else:
             model.Qc = pyo.Param(model.Set_sbt_dn, default=0.0)
 

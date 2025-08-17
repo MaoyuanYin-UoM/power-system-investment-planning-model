@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import cmath, math
 import scipy.sparse
+from scipy.stats import lognorm
 import pyomo.environ as pyo
 from pyomo.contrib.mpc.examples.cstr.model import initialize_model
 from pyomo.opt import SolverFactory
@@ -987,6 +988,819 @@ class NetworkClass:
             print("Solver failed to find an optimal solution.")
         return results
 
+    def build_combined_opf_model_under_ws_scenarios(self,
+                                                    single_ws_scenario: dict,
+                                                    scenario_probability: float = 1.0,
+                                                    ):
+        """
+        Build a simplified OPF model for a single windstorm scenario without investment decisions.
+
+        Args:
+            single_ws_scenario: Single windstorm scenario dictionary with events data
+            scenario_probability: Probability of this scenario (default 1.0 for single scenario)
+
+        Returns:
+            Pyomo ConcreteModel for the windstorm scenario OPF
+        """
+
+        # todo: the model built by this method seems be infeasible under the scenarios 'ws_0278', 'ws_0644', 'ws_0403'
+        #  in 'ws_library_29BusGB-KearsleyGSP_GB_1000scn_s10000_filt_b1_h1_buf15.json' --> to be debugged
+
+        # ------------------------------------------------------------------
+        # 0. Preliminaries
+        # ------------------------------------------------------------------
+
+        # Store metadata for single scenario
+        self.meta = Object()
+        self.meta.n_ws_scenarios = 1
+        self.meta.period_type = "year"  # Assuming year period
+
+        # Process single scenario
+        ws_scenarios = {"scenario_1": single_ws_scenario}
+
+        # Extract timesteps from events
+        all_timesteps = set()
+        for event in single_ws_scenario.get("events", []):
+            bgn_hr = event["bgn_hr"]
+            duration = event["duration"]
+            for t in range(bgn_hr, bgn_hr + duration):
+                all_timesteps.add(t + 1)  # 1-indexed
+
+        # Add repair hours if needed
+        ttr_max = max(single_ws_scenario.get("bch_ttr", [0]))
+        if ttr_max > 0:
+            max_timestep = max(all_timesteps) if all_timesteps else 0
+            for t in range(max_timestep + 1, min(max_timestep + ttr_max + 1, 8761)):
+                all_timesteps.add(t)
+
+        # ------------------------------------------------------------------
+        # 1. Indexing sets
+        # ------------------------------------------------------------------
+        num_bus = len(self.data.net.bus)
+        num_bch = len(self.data.net.bch)
+        num_gen = len(self.data.net.gen)
+
+        Set_bus = list(range(1, num_bus + 1))
+        Set_bch = list(range(1, num_bch + 1))
+        Set_gen = list(range(1, num_gen + 1))
+
+        # Level-specific sets
+        Set_bus_tn = [b for b in Set_bus if self.data.net.bus_level[b] == 'T']
+        Set_bus_dn = [b for b in Set_bus if self.data.net.bus_level[b] == 'D']
+
+        Set_bch_tn = [l for l in Set_bch if self.data.net.branch_level[l] == 'T']
+        Set_bch_dn = [l for l in Set_bch if self.data.net.branch_level[l] == 'D']
+        Set_bch_td = [l for l in Set_bch if self.data.net.branch_level[l] == 'T-D']
+
+        # Line types
+        Set_bch_tn_lines = [l for l in Set_bch_tn if self.data.net.bch_type[l - 1] == 'Line']
+        Set_bch_dn_lines = [l for l in Set_bch_dn if self.data.net.bch_type[l - 1] == 'Line']
+        Set_bch_lines = Set_bch_tn_lines + Set_bch_dn_lines
+
+        # Check for renewable generators
+        has_renewables = hasattr(self.data.net, 'profile_Pg_renewable') and \
+                         any(profile is not None for profile in self.data.net.profile_Pg_renewable)
+
+        Set_gen_ren = [g for g in Set_gen
+                       if has_renewables and self.data.net.profile_Pg_renewable[g - 1] is not None]
+        Set_gen_nren = [g for g in Set_gen if g not in Set_gen_ren]
+
+        Set_ts = sorted(list(all_timesteps))
+
+        # Combined index sets
+        Set_bt = [(b, t) for b in Set_bus for t in Set_ts]
+        Set_bt_dn = [(b, t) for b in Set_bus_dn for t in Set_ts]
+        Set_bt_tn = [(b, t) for b in Set_bus_tn for t in Set_ts]
+
+        Set_lt = [(l, t) for l in Set_bch_lines for t in Set_ts]
+        Set_lt_tn_lines = [(l, t) for l in Set_bch_tn_lines for t in Set_ts]
+        Set_lt_dn_lines = [(l, t) for l in Set_bch_dn_lines for t in Set_ts]
+        Set_lt_lines = Set_lt_tn_lines + Set_lt_dn_lines  # Union of both
+
+        Set_gt = [(g, t) for g in Set_gen for t in Set_ts]
+        Set_gt_ren = [(g, t) for g in Set_gen_ren for t in Set_ts]
+        Set_gt_nren = [(g, t) for g in Set_gen_nren for t in Set_ts]
+        Set_gt_dn = [(g, t) for g in Set_gen for t in Set_ts
+                     if self.data.net.bus_level[self.data.net.gen[g - 1]] == 'D']
+
+        Set_ess = [e for e in range(1, len(self.data.net.ess) + 1)]
+
+        # Check if we have non-zero reactive demand values in this model
+        def _has_Qd():
+            TOL = 1e-9
+            if not hasattr(self.data.net, 'profile_Qd') or self.data.net.profile_Qd is None:
+                return False
+            for b in Set_bus_dn:
+                prof = self.data.net.profile_Qd[b - 1]
+                if prof is None:
+                    continue
+                # Set_ts are absolute indices; adjust if your profiles are 0-based
+                if any(abs(prof[t - 1]) > TOL for t in Set_ts):
+                    return True
+            return False
+
+        has_reactive_demand = _has_Qd()
+
+        print("has_reactive_demand:")
+        print(has_reactive_demand)
+
+        # ------------------------------------------------------------------
+        # 2. Initialize Pyomo model and sets
+        # ------------------------------------------------------------------
+        print("Building OPF model for single windstorm scenario...")
+
+        model = pyo.ConcreteModel()
+
+        model.Set_bus = pyo.Set(initialize=Set_bus)
+        model.Set_bus_tn = pyo.Set(initialize=Set_bus_tn)
+        model.Set_bus_dn = pyo.Set(initialize=Set_bus_dn)
+        model.Set_bch = pyo.Set(initialize=Set_bch)
+        model.Set_bch_tn = pyo.Set(initialize=Set_bch_tn)
+        model.Set_bch_dn = pyo.Set(initialize=Set_bch_dn)
+        model.Set_bch_tn_lines = pyo.Set(initialize=Set_bch_tn_lines)
+        model.Set_bch_dn_lines = pyo.Set(initialize=Set_bch_dn_lines)
+        model.Set_bch_lines = pyo.Set(initialize=Set_bch_lines)
+        model.Set_gen = pyo.Set(initialize=Set_gen)
+        model.Set_gen_ren = pyo.Set(initialize=Set_gen_ren)
+        model.Set_gen_nren = pyo.Set(initialize=Set_gen_nren)
+        model.Set_ess = pyo.Set(initialize=Set_ess)
+
+        model.Set_ts = pyo.Set(initialize=Set_ts)
+
+        model.Set_bt = pyo.Set(initialize=Set_bt, dimen=2)
+        model.Set_bt_dn = pyo.Set(initialize=Set_bt_dn, dimen=2)
+        model.Set_bt_tn = pyo.Set(initialize=Set_bt_tn, dimen=2)
+        model.Set_lt_tn_lines = pyo.Set(initialize=Set_lt_tn_lines, dimen=2)
+        model.Set_lt_dn_lines = pyo.Set(initialize=Set_lt_dn_lines, dimen=2)
+        model.Set_lt_lines = pyo.Set(initialize=Set_lt_lines, dimen=2)
+        model.Set_gt = pyo.Set(initialize=Set_gt, dimen=2)
+        model.Set_gt_ren = pyo.Set(initialize=Set_gt_ren, dimen=2)
+        model.Set_gt_nren = pyo.Set(initialize=Set_gt_nren, dimen=2)
+        model.Set_gt_dn = pyo.Set(initialize=Set_gt_dn, dimen=2)
+        model.Set_et = pyo.Set(initialize=[(e, t) for e in Set_ess for t in model.Set_ts])
+
+        # ------------------------------------------------------------------
+        # 3. Parameters
+        # ------------------------------------------------------------------
+        # 3.1) Base & slack
+        model.base_MVA = pyo.Param(initialize=self.data.net.base_MVA)
+        slack_bus = self.data.net.slack_bus
+
+        # 3.2) Branch parameters - TN (DC) and DN (LinAC)
+        model.B_tn = pyo.Param(model.Set_bch_tn,
+                               initialize={l: 1.0 / self.data.net.bch_X[l - 1] for l in model.Set_bch_tn})
+        model.Pmax_tn = pyo.Param(model.Set_bch_tn,
+                                  initialize={l: self.data.net.bch_Smax[l - 1] for l in model.Set_bch_tn})
+        model.R_dn = pyo.Param(model.Set_bch_dn,
+                               initialize={l: self.data.net.bch_R[l - 1] for l in model.Set_bch_dn})
+        model.X_dn = pyo.Param(model.Set_bch_dn,
+                               initialize={l: self.data.net.bch_X[l - 1] for l in model.Set_bch_dn})
+        model.Smax_dn = pyo.Param(model.Set_bch_dn,
+                                  initialize={l: self.data.net.bch_Smax[l - 1] for l in model.Set_bch_dn})
+
+        # 3.3) Demand profiles
+        demand_data = {}
+        reactive_demand_data = {} if has_reactive_demand else None
+
+        for b in Set_bus:
+            bus_idx = b - 1
+            profile = self.data.net.profile_Pd[bus_idx]
+            max_demand = self.data.net.Pd_max[bus_idx]
+
+            for t in Set_ts:
+                demand_data[(b, t)] = profile[t - 1] * max_demand if profile else max_demand
+
+                if has_reactive_demand:
+                    q_profile = self.data.net.profile_Qd[bus_idx]
+                    max_q_demand = self.data.net.Qd_max[bus_idx]
+                    reactive_demand_data[(b, t)] = q_profile[t - 1] * max_q_demand if q_profile else max_q_demand
+
+        model.Pd = pyo.Param(model.Set_bt, initialize=demand_data)
+        if has_reactive_demand:
+            model.Qd = pyo.Param(model.Set_bt, initialize=reactive_demand_data)
+
+        # 3.4) Generator parameters (existing only)
+        coef_len = len(self.data.net.gen_cost_coef[0])
+        model.gen_cost_coef = pyo.Param(
+            model.Set_gen, range(coef_len),
+            initialize={(g, c): self.data.net.gen_cost_coef[g - 1][c]
+                        for g in model.Set_gen for c in range(coef_len)}
+        )
+        model.Pg_max = pyo.Param(model.Set_gen,
+                                 initialize={g: self.data.net.Pg_max_exst[g - 1] for g in model.Set_gen})
+        model.Pg_min = pyo.Param(model.Set_gen,
+                                 initialize={g: self.data.net.Pg_min_exst[g - 1] for g in model.Set_gen})
+        model.Qg_max = pyo.Param(model.Set_gen,
+                                 initialize={g: self.data.net.Qg_max_exst[g - 1] for g in model.Set_gen})
+        model.Qg_min = pyo.Param(model.Set_gen,
+                                 initialize={g: self.data.net.Qg_min_exst[g - 1] for g in model.Set_gen})
+
+        # Renewable generation availability
+        if has_renewables and model.Set_gen_ren:
+            renewable_availability = {}
+            for g in model.Set_gen_ren:
+                gen_idx = g - 1
+                profile = self.data.net.profile_Pg_renewable[gen_idx]
+                for hr in Set_ts:
+                    renewable_availability[(g, hr)] = \
+                        profile[hr - 1] if profile else self.data.net.Pg_max_exst[gen_idx]
+
+            model.Pg_renewable_avail = pyo.Param(
+                model.Set_gen_ren,
+                model.Set_ts,
+                initialize=renewable_availability
+            )
+
+        # 3.5) ESS parameters
+        if Set_ess:
+            model.Pess_max = pyo.Param(model.Set_ess,
+                                       initialize={e: self.data.net.Pess_max_exst[e - 1] for e in Set_ess})
+            model.Eess_max = pyo.Param(model.Set_ess,
+                                       initialize={e: self.data.net.Eess_max_exst[e - 1] for e in Set_ess})
+            model.Eess_min = pyo.Param(model.Set_ess,
+                                       initialize={e: self.data.net.Eess_min_exst[e - 1] for e in Set_ess})
+            model.SOC_max = pyo.Param(model.Set_ess,
+                                      initialize={e: self.data.net.SOC_max_exst[e - 1] for e in Set_ess})
+            model.SOC_min = pyo.Param(model.Set_ess,
+                                      initialize={e: self.data.net.SOC_min_exst[e - 1] for e in Set_ess})
+            model.eff_ch = pyo.Param(model.Set_ess,
+                                     initialize={e: self.data.net.eff_ch_exst[e - 1] for e in Set_ess})
+            model.eff_dis = pyo.Param(model.Set_ess,
+                                      initialize={e: self.data.net.eff_dis_exst[e - 1] for e in Set_ess})
+            model.initial_SOC = pyo.Param(model.Set_ess,
+                                          initialize={e: self.data.net.initial_SOC_exst[e - 1] for e in Set_ess})
+
+        # 3.6) Load shedding costs
+        model.Pc_cost = pyo.Param(model.Set_bus,
+                                  initialize={b: self.data.net.Pc_cost[b - 1] for b in model.Set_bus})
+        model.Qc_cost = pyo.Param(model.Set_bus,
+                                  initialize={b: self.data.net.Qc_cost[b - 1] for b in model.Set_bus})
+
+        # 3.7) Repair costs
+        model.rep_cost = pyo.Param(model.Set_bch_lines,
+                                   initialize={l: self.data.net.cost_bch_rep[l - 1] for l in model.Set_bch_lines})
+
+        # 3.8) Scenario probability
+        model.prob_factor = pyo.Param(initialize=scenario_probability)
+
+        # 3.9) Windstorm parameters
+        # Process windstorm spatial-temporal data
+        windstorm_params = {}
+        impact_flags = {}
+
+        # Initialize all timesteps with no wind
+        for t in Set_ts:
+            windstorm_params[t] = 0.0
+            for l in Set_bch_lines:
+                impact_flags[(l, t)] = 0
+
+        # Process each event (directly from single_ws_scenario)
+        for event in single_ws_scenario.get("events", []):
+            bgn_hr = event["bgn_hr"]
+            gust_speeds = event["gust_speed"]
+
+            # Get impact flags from event
+            event_impact_flags = np.array(event.get("flgs_impacted_bch", []))
+
+            for idx, speed in enumerate(gust_speeds):
+                t = bgn_hr + idx + 1  # 1-indexed
+                if t in Set_ts:
+                    windstorm_params[t] = speed
+
+                    # Set impact flags for this timestep
+                    if len(event_impact_flags) > 0:
+                        for l in Set_bch_lines:
+                            l_idx = l - 1
+                            if l_idx < len(event_impact_flags) and len(event_impact_flags[l_idx]) > idx:
+                                impact_flags[(l, t)] = int(event_impact_flags[l_idx][idx])
+
+        model.wind_gust_speed = pyo.Param(model.Set_ts, initialize=windstorm_params)
+        model.impact_flag = pyo.Param(model.Set_lt_lines, initialize=impact_flags, mutable=False)
+
+        # Random numbers for failure probability
+        rand_nums_data = {}
+        bch_rand_nums = single_ws_scenario.get("bch_rand_nums", [])
+
+        for l in Set_bch_lines:
+            l_idx = l - 1
+            for t in Set_ts:
+                if l_idx < len(bch_rand_nums) and (t - 1) < len(bch_rand_nums[l_idx]):
+                    rand_nums_data[(l, t)] = bch_rand_nums[l_idx][t - 1]
+                else:
+                    rand_nums_data[(l, t)] = 1.0  # No failure if no random number
+
+        model.rand_num = pyo.Param(model.Set_lt_lines, initialize=rand_nums_data)
+
+        # Time to repair
+        ttr_data = {}
+        bch_ttr = single_ws_scenario.get("bch_ttr", [])
+
+        for l in Set_bch_lines:
+            l_idx = l - 1
+            if l_idx < len(bch_ttr):
+                ttr_data[l] = bch_ttr[l_idx]
+            else:
+                ttr_data[l] = 24  # Default TTR
+
+        model.ttr = pyo.Param(model.Set_bch_lines, initialize=ttr_data)
+
+        # Fragility curve parameters
+        model.frg_mu = pyo.Param(model.Set_bch_lines,
+                                 initialize={l: self.data.frg.mu[l - 1] for l in model.Set_bch_lines})
+        model.frg_sigma = pyo.Param(model.Set_bch_lines,
+                                    initialize={l: self.data.frg.sigma[l - 1] for l in model.Set_bch_lines})
+        model.frg_thrd_1 = pyo.Param(model.Set_bch_lines,
+                                     initialize={l: self.data.frg.thrd_1[l - 1] for l in model.Set_bch_lines})
+        model.frg_thrd_2 = pyo.Param(model.Set_bch_lines,
+                                     initialize={l: self.data.frg.thrd_2[l - 1] for l in model.Set_bch_lines})
+
+        # Number of timesteps in each scenario (for easy access)
+        model.num_timesteps = len(Set_ts)
+
+        # ------------------------------------------------------------------
+        # 4. Variables
+        # ------------------------------------------------------------------
+        # 4.1) Voltage angles (TN)
+        model.theta = pyo.Var(model.Set_bt_tn, within=pyo.Reals)
+
+        # 4.2) Voltage magnitude squared (DN)
+        model.V2 = pyo.Var(model.Set_bt_dn,
+                           bounds=lambda model, b, t: (0.9 ** 2, 1.1 ** 2))
+
+        # 4.3) Power flows
+        model.Pf_tn = pyo.Var([(l, t) for l in Set_bch_tn + Set_bch_td
+                               for t in Set_ts], within=pyo.Reals)
+        model.Pf_dn = pyo.Var([(l, t) for l in Set_bch_dn
+                               for t in Set_ts], within=pyo.Reals)
+        if has_reactive_demand:
+            model.Qf_dn = pyo.Var([(l, t) for l in Set_bch_dn
+                                   for t in Set_ts], within=pyo.Reals)
+
+        # 4.4) Grid electricity import/export
+        model.Pimp = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)
+        model.Pexp = pyo.Var(model.Set_ts, within=pyo.NonNegativeReals)
+
+        # 4.5) Generation variables
+        model.Pg = pyo.Var(model.Set_gt, within=pyo.Reals)
+        if has_reactive_demand:
+            model.Qg = pyo.Var(model.Set_gt, within=pyo.Reals)
+
+        # 4.6) ESS variables
+        if Set_ess:
+            model.Pess_charge = pyo.Var(
+                model.Set_et,
+                within=pyo.NonNegativeReals,
+                bounds=lambda model, e, t: (0, model.Pess_max[e])
+            )
+            model.Pess_discharge = pyo.Var(
+                model.Set_et,
+                within=pyo.NonNegativeReals,
+                bounds=lambda model, e, t: (0, model.Pess_max[e])
+            )
+            model.Eess = pyo.Var(
+                model.Set_et,
+                within=pyo.NonNegativeReals,
+                bounds=lambda model, e, t: (model.Eess_min[e], model.Eess_max[e])
+            )
+            model.SOC = pyo.Var(
+                model.Set_et,
+                within=pyo.NonNegativeReals,
+                bounds=lambda model, e, t: (model.SOC_min[e], model.SOC_max[e])
+            )
+            model.ess_charge_binary = pyo.Var(model.Set_et, within=pyo.Binary)
+            model.ess_discharge_binary = pyo.Var(model.Set_et, within=pyo.Binary)
+
+        # 4.7) Load shedding
+        model.Pc = pyo.Var(model.Set_bt, within=pyo.NonNegativeReals,
+                           bounds=lambda model, b, t: (0, max(0.0, pyo.value(model.Pd[b, t]))))
+        if has_reactive_demand:
+            model.Qc = pyo.Var(model.Set_bt_dn, within=pyo.NonNegativeReals,
+                               bounds=lambda model, b, t: (0, max(0.0, pyo.value(model.Qd[b, t]))))
+
+        # 4.8) Line status and failure variables
+        model.bch_status = pyo.Var(model.Set_lt_lines, within=pyo.Binary)
+        model.fail_prob = pyo.Var(model.Set_lt_lines, within=pyo.NonNegativeReals, bounds=(0, 1))
+        model.alpha = pyo.Var(model.Set_lt_lines, within=pyo.Binary)
+        model.beta = pyo.Var(model.Set_lt_lines, within=pyo.Binary)
+        model.fail_occurs = pyo.Var(model.Set_lt_lines, within=pyo.Binary)
+        model.repair_applies = pyo.Var(model.Set_lt_lines, within=pyo.Binary)
+
+        # ------------------------------------------------------------------
+        # 5. Constraints
+        # ------------------------------------------------------------------
+        # 5.1) Power flow constraints - TN (DC)
+        def dc_power_flow_rule(model, l, t):  
+            fr_bus = self.data.net.bch[l - 1][0]
+            to_bus = self.data.net.bch[l - 1][1]
+
+            if fr_bus in Set_bus_tn and to_bus in Set_bus_tn:
+                return model.Pf_tn[l, t] == model.B_tn[l] * (
+                        model.theta[fr_bus, t] - model.theta[to_bus, t])  
+            else:
+                return pyo.Constraint.Skip
+
+        model.Constraint_DCPowerFlow = pyo.Constraint(
+            [(l, t) for l in Set_bch_tn for t in Set_ts],
+            rule=dc_power_flow_rule
+        )
+
+        # 5.2) Power balance - TN
+        def power_balance_tn_rule(model, b, t):
+            Pg = sum(model.Pg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)
+
+            Pgrid = (model.Pimp[t] - model.Pexp[t]) if b == slack_bus else 0
+
+            Pf_in = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn if self.data.net.bch[l - 1][1] == b)
+            Pf_out = sum(model.Pf_tn[l, t] for l in model.Set_bch_tn if self.data.net.bch[l - 1][0] == b)
+
+            Pess = 0
+            if Set_ess:
+                Pess = sum(model.Pess_discharge[e, t] - model.Pess_charge[e, t]
+                           for e in model.Set_ess if self.data.net.ess[e - 1] == b)
+
+            return Pg + Pgrid + Pess + Pf_in - Pf_out == model.Pd[b, t] - model.Pc[b, t]
+
+        model.Constraint_PowerBalance_TN = pyo.Constraint(model.Set_bt_tn, rule=power_balance_tn_rule)
+
+        # 5.3) LinDistFlow - DN
+        def lindistflow_P_rule(model, l, t):  
+            fr_bus = self.data.net.bch[l - 1][0]
+            to_bus = self.data.net.bch[l - 1][1]
+
+            return model.V2[fr_bus, t] - model.V2[to_bus, t] == \
+                2 * model.R_dn[l] * model.Pf_dn[l, t] + \
+                (2 * model.X_dn[l] * model.Qf_dn[l, t] if has_reactive_demand else 0)  
+
+        model.Constraint_LinDistFlow = pyo.Constraint(
+            [(l, t) for l in Set_bch_dn for t in Set_ts],  # SIMPLIFIED
+            rule=lindistflow_P_rule
+        )
+
+        # 5.4) Power balance - DN (active)
+        def power_balance_dn_P_rule(model, b, t):  
+            Pg = sum(model.Pg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)  
+
+            Pf_tn_in = sum(model.Pf_tn[l, t] for l in Set_bch_td  
+                           if self.data.net.bch[l - 1][1] == b)
+            Pf_dn_in = sum(model.Pf_dn[l, t] for l in Set_bch_dn  
+                           if self.data.net.bch[l - 1][1] == b)
+            Pf_dn_out = sum(model.Pf_dn[l, t] for l in Set_bch_dn  
+                            if self.data.net.bch[l - 1][0] == b)
+
+            Pess = 0
+            if Set_ess:
+                Pess = sum(model.Pess_discharge[e, t] - model.Pess_charge[e, t]
+                           for e in model.Set_ess if self.data.net.ess[e - 1] == b)
+
+            return Pg + Pess + Pf_tn_in + Pf_dn_in - Pf_dn_out == model.Pd[b, t] - model.Pc[b, t]
+
+        model.Constraint_PowerBalance_DN_P = pyo.Constraint(model.Set_bt_dn, rule=power_balance_dn_P_rule)
+
+        # 5.5) Power balance - DN (reactive)
+        if has_reactive_demand:
+            def power_balance_dn_Q_rule(model, b, t):  
+                Qg = sum(model.Qg[g, t] for g in model.Set_gen if self.data.net.gen[g - 1] == b)
+                Qf_in = sum(model.Qf_dn[l, t] for l in Set_bch_dn
+                            if self.data.net.bch[l - 1][1] == b)
+                Qf_out = sum(model.Qf_dn[l, t] for l in Set_bch_dn
+                             if self.data.net.bch[l - 1][0] == b)
+
+                return Qg + Qf_in - Qf_out == model.Qd[b, t] - model.Qc[b, t]
+
+            model.Constraint_PowerBalance_DN_Q = pyo.Constraint(model.Set_bt_dn, rule=power_balance_dn_Q_rule)
+
+        # 5.6) Thermal limits with line status - TN
+        def thermal_limit_tn_pos_rule(model, l, t):
+            return model.Pf_tn[l, t] <= model.Pmax_tn[l] * model.bch_status[l, t]
+
+        def thermal_limit_tn_neg_rule(model, l, t):
+            return model.Pf_tn[l, t] >= -model.Pmax_tn[l] * model.bch_status[l, t]
+
+        model.Constraint_ThermalLimit_TN_pos = pyo.Constraint(model.Set_lt_tn_lines, rule=thermal_limit_tn_pos_rule)
+        model.Constraint_ThermalLimit_TN_neg = pyo.Constraint(model.Set_lt_tn_lines, rule=thermal_limit_tn_neg_rule)
+
+        # 5.7) Thermal limits - DN (linearized)
+        def thermal_limit_dn_pos_rule(model, l, t):
+            return model.Pf_dn[l, t] <= model.Pmax_dn[l] * model.bch_status[l, t]
+
+        def thermal_limit_dn_neg_rule(model, l, t):
+            return model.Pf_dn[l, t] >= -model.Pmax_dn[l] * model.bch_status[l, t]
+
+        model.Constraint_ThermalLimit_DN_pos = pyo.Constraint(model.Set_lt_tn_lines, rule=thermal_limit_dn_pos_rule)
+        model.Constraint_ThermalLimit_DN_neg = pyo.Constraint(model.Set_lt_tn_lines, rule=thermal_limit_dn_neg_rule)
+
+        if has_reactive_demand:
+            def thermal_limit_dn_Q_pos_rule(model, l, t):  
+                return model.Qf_dn[l, t] <= model.Smax_dn[l] * model.bch_status[l, t]  
+
+            def thermal_limit_dn_Q_neg_rule(model, l, t):  
+                return model.Qf_dn[l, t] >= -model.Smax_dn[l] * model.bch_status[l, t]  
+
+            def thermal_limit_dn_PQ_sum_rule(model, l, t):  
+                return model.Pf_dn[l, t] + model.Qf_dn[l, t] <= np.sqrt(2) * model.Smax_dn[l] * model.bch_status[
+                    l, t]  
+
+            def thermal_limit_dn_PQ_diff_rule(model, l, t):  
+                return model.Pf_dn[l, t] - model.Qf_dn[l, t] <= np.sqrt(2) * model.Smax_dn[l] * model.bch_status[
+                    l, t]  
+
+            model.Constraint_ThermalLimit_DN_Q_pos = pyo.Constraint(model.Set_lt_dn_lines,
+                                                                    rule=thermal_limit_dn_Q_pos_rule)
+            model.Constraint_ThermalLimit_DN_Q_neg = pyo.Constraint(model.Set_lt_dn_lines,
+                                                                    rule=thermal_limit_dn_Q_neg_rule)
+            model.Constraint_ThermalLimit_DN_PQ_sum = pyo.Constraint(model.Set_lt_dn_lines,
+                                                                     rule=thermal_limit_dn_PQ_sum_rule)
+            model.Constraint_ThermalLimit_DN_PQ_diff = pyo.Constraint(model.Set_lt_dn_lines,
+                                                                      rule=thermal_limit_dn_PQ_diff_rule)
+
+        # 5.8) Generation limits
+        def Pg_upper_limit_rule(model, g, t):  
+            if has_renewables and g in model.Set_gen_ren:
+                return model.Pg[g, t] <= model.Pg_renewable_avail[g, t]  
+            else:
+                return model.Pg[g, t] <= model.Pg_max[g]  
+
+        def Pg_lower_limit_rule(model, g, t):  
+            return model.Pg[g, t] >= model.Pg_min[g]  
+
+        model.Constraint_Pg_upper = pyo.Constraint(model.Set_gt, rule=Pg_upper_limit_rule)
+        model.Constraint_Pg_lower = pyo.Constraint(model.Set_gt, rule=Pg_lower_limit_rule)
+
+        if has_reactive_demand:
+            def Qg_upper_limit_rule(model, g, t):  
+                return model.Qg[g, t] <= model.Qg_max[g]  
+
+            def Qg_lower_limit_rule(model, g, t):  
+                return model.Qg[g, t] >= model.Qg_min[g]  
+
+            model.Constraint_Qg_upper = pyo.Constraint(model.Set_gt, rule=Qg_upper_limit_rule)
+            model.Constraint_Qg_lower = pyo.Constraint(model.Set_gt, rule=Qg_lower_limit_rule)
+
+        # 5.9) ESS operation constraints
+        if Set_ess:
+            # Charge/discharge power limits with binary variables
+            def ess_charge_limit_rule(model, e, t):
+                return model.Pess_charge[e, t] <= model.Pess_max[e] * model.ess_charge_binary[e, t]
+
+            def ess_discharge_limit_rule(model, e, t):
+                return model.Pess_discharge[e, t] <= model.Pess_max[e] * model.ess_discharge_binary[e, t]
+
+            model.Constraint_ESS_charge_limit = pyo.Constraint(model.Set_et, rule=ess_charge_limit_rule)
+            model.Constraint_ESS_discharge_limit = pyo.Constraint(model.Set_et, rule=ess_discharge_limit_rule)
+
+            # Charge/discharge exclusivity
+            def ess_exclusivity_rule(model, e, t):
+                return model.ess_charge_binary[e, t] + model.ess_discharge_binary[e, t] <= 1
+
+            model.Constraint_ESS_exclusivity = pyo.Constraint(model.Set_et, rule=ess_exclusivity_rule)
+
+            # SOC dynamics
+            def ess_dynamics_rule(model, e, t):
+                ts_list = sorted(list(model.Set_ts))
+
+                if t == ts_list[0]:  # First timestep
+                    E_prev = model.Eess_max[e] * model.initial_SOC[e]
+                else:
+                    prev_t = ts_list[ts_list.index(t) - 1]
+                    E_prev = model.Eess[e, prev_t]
+
+                # Assuming dt = 1 hour for simplicity
+                dt = 1.0
+                return model.Eess[e, t] == E_prev + dt * (
+                        model.Pess_charge[e, t] * model.eff_ch[e] -
+                        model.Pess_discharge[e, t] / model.eff_dis[e]
+                )
+
+            model.Constraint_ESS_dynamics = pyo.Constraint(model.Set_et, rule=ess_dynamics_rule)
+
+            # SOC definition
+            def soc_definition_rule(model, e, t):
+                return model.SOC[e, t] == model.Eess[e, t] / model.Eess_max[e]
+
+            model.Constraint_SOC_definition = pyo.Constraint(model.Set_et, rule=soc_definition_rule)
+
+            # SOC limits
+            def soc_min_rule(model, e, t):
+                return model.SOC[e, t] >= model.SOC_min[e]
+
+            def soc_max_rule(model, e, t):
+                return model.SOC[e, t] <= model.SOC_max[e]
+
+            model.Constraint_SOC_min = pyo.Constraint(model.Set_et, rule=soc_min_rule)
+            model.Constraint_SOC_max = pyo.Constraint(model.Set_et, rule=soc_max_rule)
+
+        # 5.10) Line failure and repair constraints
+        # Fragility curve (piecewise linear)
+        def fragility_curve_rule(model, l, t):  
+            v = model.wind_gust_speed[t]  
+            mu = model.frg_mu[l]
+            sigma = model.frg_sigma[l]
+            thrd_1 = model.frg_thrd_1[l]
+            thrd_2 = model.frg_thrd_2[l]
+
+            if v <= thrd_1:
+                return model.fail_prob[l, t] == 0  
+            elif v >= thrd_2:
+                return model.fail_prob[l, t] == 1  
+            else:
+                # Linear interpolation between thresholds
+                p1 = lognorm.cdf(thrd_1, s=sigma, scale=mu)
+                p2 = lognorm.cdf(thrd_2, s=sigma, scale=mu)
+                slope = (p2 - p1) / (thrd_2 - thrd_1)
+                return model.fail_prob[l, t] == p1 + slope * (v - thrd_1)  
+
+        model.Constraint_FragilityCurve = pyo.Constraint(model.Set_lt_lines, rule=fragility_curve_rule)
+
+        # Failure conditions
+        def fail_condition_1_rule(model, l, t):  
+            return model.fail_prob[l, t] - model.rand_num[l, t] <= model.alpha[l, t]  
+
+        def fail_condition_2_rule(model, l, t):  
+            return model.fail_prob[l, t] - model.rand_num[l, t] >= -1 + model.alpha[l, t]  
+
+        model.Constraint_FailCondition1 = pyo.Constraint(model.Set_lt_lines, rule=fail_condition_1_rule)
+        model.Constraint_FailCondition2 = pyo.Constraint(model.Set_lt_lines, rule=fail_condition_2_rule)
+
+        # Beta indicator (failure + impact)
+        def beta_indicator_1_rule(model, l, t):  
+            return model.beta[l, t] <= model.alpha[l, t]  
+
+        def beta_indicator_2_rule(model, l, t):  
+            return model.beta[l, t] <= model.impact_flag[l, t]  
+
+        def beta_indicator_3_rule(model, l, t):  
+            return model.beta[l, t] >= model.alpha[l, t] + model.impact_flag[l, t] - 1  
+
+        model.Constraint_BetaIndicator1 = pyo.Constraint(model.Set_lt_lines, rule=beta_indicator_1_rule)
+        model.Constraint_BetaIndicator2 = pyo.Constraint(model.Set_lt_lines, rule=beta_indicator_2_rule)
+        model.Constraint_BetaIndicator3 = pyo.Constraint(model.Set_lt_lines, rule=beta_indicator_3_rule)
+
+        # Failure occurrence
+        def fail_occurs_1_rule(model, l, t):
+            t_idx = Set_ts.index(t)
+            if t_idx == 0:
+                return model.fail_occurs[l, t] <= model.beta[l, t]
+            else:
+                t_prev = Set_ts[t_idx - 1]
+                return model.fail_occurs[l, t] <= model.beta[l, t]
+
+        def fail_occurs_2_rule(model, l, t):
+            t_idx = Set_ts.index(t)
+            if t_idx == 0:
+                return model.fail_occurs[l, t] <= 1  # Line starts operational
+            else:
+                t_prev = Set_ts[t_idx - 1]
+                return model.fail_occurs[l, t] <= model.bch_status[l, t_prev]
+
+        def fail_occurs_3_rule(model, l, t):
+            t_idx = Set_ts.index(t)
+            if t_idx == 0:
+                return model.fail_occurs[l, t] >= model.beta[l, t] + 1 - 1
+            else:
+                t_prev = Set_ts[t_idx - 1]
+                return model.fail_occurs[l, t] >= model.beta[l, t] + model.bch_status[l, t_prev] - 1
+
+        model.Constraint_FailOccurs1 = pyo.Constraint(model.Set_lt_lines, rule=fail_occurs_1_rule)
+        model.Constraint_FailOccurs2 = pyo.Constraint(model.Set_lt_lines, rule=fail_occurs_2_rule)
+        model.Constraint_FailOccurs3 = pyo.Constraint(model.Set_lt_lines, rule=fail_occurs_3_rule)
+
+        # Line status and repair
+        def line_status_rule(model, l, t):  
+            return model.bch_status[l, t] <= 1 - model.fail_occurs[l, t]  
+
+        model.Constraint_LineStatus = pyo.Constraint(model.Set_lt_lines, rule=line_status_rule)
+
+        def line_repair_rule(model, l, t):
+            # Find if repair should occur (TTR timesteps after failure)
+            t_idx = Set_ts.index(t)
+            ttr_hours = model.ttr[l]
+
+            # Look back TTR hours for a failure
+            repair_sum = 0
+            for i in range(max(0, t_idx - ttr_hours + 1), t_idx + 1):
+                if i <= t_idx - ttr_hours:
+                    continue
+                t_fail = Set_ts[i]
+                if (t - t_fail) == ttr_hours:
+                    repair_sum = model.fail_occurs[l, t_fail]
+                    break
+
+            return model.repair_applies[l, t] == repair_sum
+
+        model.Constraint_LineRepair = pyo.Constraint(model.Set_lt_lines, rule=line_repair_rule)
+
+        # ------------------------------------------------------------------
+        # 6. Objective
+        # ------------------------------------------------------------------
+        def objective_rule(model):
+            # Minimize operational costs (mainly load shedding)
+            gen_cost = sum(
+                (model.gen_cost_coef[g, 0] + model.gen_cost_coef[g, 1] * model.Pg[g, t])  
+                for (g, t) in model.Set_gt  # USE Set_gt
+            )
+
+            ls_cost = sum(
+                model.Pc_cost[b] * model.Pc[b, t]  
+                for (b, t) in model.Set_bt  # USE Set_bt
+            )
+
+            if has_reactive_demand:
+                ls_cost += sum(
+                    model.Qc_cost[b] * model.Qc[b, t]  
+                    for (b, t) in model.Set_bt_dn  # USE Set_bt_dn
+                )
+
+            rep_cost = sum(
+                model.rep_cost[l] * model.repair_applies[l, t]  
+                for (l, t) in model.Set_lt_lines  # USE Set_lt_lines
+            )
+
+            return gen_cost + ls_cost + rep_cost
+
+        model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
+
+        # Add expression for EENS calculation
+        def eens_dn_rule(model):
+            return sum(model.Pc[b, t] for (b, t) in model.Set_bt_dn)
+
+        model.eens_dn_expr = pyo.Expression(rule=eens_dn_rule)
+
+        return model
+
+    def solve_combined_opf_model_under_ws_scenarios(self,
+                                                    model,
+                                                    solver_name: str = "gurobi",
+                                                    mip_gap: float = 1e-3,
+                                                    time_limit: int = 60):
+        """
+        Solve the OPF model and return total EENS at DN level.
+
+        Args:
+            model: Pyomo model from build_combined_opf_model_under_ws_scenarios
+            solver_name: Solver to use
+            mip_gap: MIP gap tolerance
+            time_limit: Time limit in seconds
+
+        Returns:
+            float: Total EENS at DN level (MWh)
+        """
+
+        print(f"Solving OPF model with {solver_name}...")
+
+        # Configure solver
+        solver = SolverFactory(solver_name)
+
+        if solver_name == "gurobi":
+            solver.options['MIPGap'] = mip_gap
+            solver.options['TimeLimit'] = time_limit
+            solver.options['OutputFlag'] = 0  # Suppress output
+        elif solver_name == "cplex":
+            solver.options['mipgap'] = mip_gap
+            solver.options['timelimit'] = time_limit
+
+        # Solve
+        results = solver.solve(model, tee=False)
+
+        # Check solution status
+        if results.solver.termination_condition != pyo.TerminationCondition.optimal:
+            print(f"Warning: Solver terminated with status {results.solver.termination_condition}")
+            if results.solver.termination_condition == pyo.TerminationCondition.infeasibleOrUnbounded:
+                print("Model is infeasible or unbounded - writing LP file for debugging")
+
+                # Write LP file for debugging
+                model.write("debug_infeasible_model.lp", io_options={'symbolic_solver_labels': True})
+                print("Model written to: debug_infeasible_model.lp")
+
+                # Also compute IIS if using Gurobi
+                if solver_name == "gurobi":
+                    print("Computing IIS (Irreducible Infeasible Subset)...")
+                    import gurobipy as gp
+
+                    # Read the LP file with Gurobi directly
+                    m = gp.read("debug_infeasible_model.lp")
+                    m.computeIIS()
+                    m.write("debug_infeasible_model.ilp")
+                    print("IIS written to: debug_infeasible_model.ilp")
+
+                    # Print IIS summary
+                    print("\nConstraints in IIS:")
+                    for c in m.getConstrs():
+                        if c.IISConstr:
+                            print(f"  {c.ConstrName}")
+
+                    print("\nVariable bounds in IIS:")
+                    for v in m.getVars():
+                        if v.IISLB > 0:
+                            print(f"  {v.VarName} lower bound")
+                        if v.IISUB > 0:
+                            print(f"  {v.VarName} upper bound")
+
+        # Extract EENS at DN level
+        total_eens_dn = pyo.value(model.eens_dn_expr)
+
+        print(f"Total EENS at DN level: {total_eens_dn:.4f} MWh")
+
+        return total_eens_dn
 
     def _write_results_to_excel(self, model, results, book_path: str):
         """
