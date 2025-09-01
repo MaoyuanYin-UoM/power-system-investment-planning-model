@@ -291,8 +291,8 @@ def main():
     """
 
     # Step 1: Compute EENS for filtered scenarios
-    filtered_path = "../Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_GB_1000scn_s10000_filt_b1_h1_buf15.json"
-    enhanced_path = "../Scenario_Database/Scenarios_Libraries/EENS_Enhanced_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_GB_1000scn_s10000_filt_b1_h1_buf15_eens.json"
+    filtered_path = "../Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_GB_1000scn_s20000_filt_b1_h1_buf15.json"
+    enhanced_path = "../Scenario_Database/Scenarios_Libraries/EENS_Enhanced_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_GB_1000scn_s20000_filt_b1_h1_buf15_eens.json"
 
     # print("STEP 1: Computing EENS for scenarios...")
     # enhanced_path = compute_eens_for_scenarios(
@@ -305,7 +305,7 @@ def main():
     print("\nSTEP 2: Clustering scenarios...")
     selected_scenarios, probabilities = cluster_scenarios_by_eens(
         eens_enhanced_library_path=enhanced_path,
-        n_clusters=1
+        n_clusters=4
     )
 
     print(f"\n{'=' * 60}")

@@ -35,7 +35,7 @@ from core.investment_model_two_stage import *
 # Seeds with windstorms passing the Kearsley group:
 # --> for 1-ws scenarios, seed=112
 # --> for 5-ws scenarios, seed=104
-path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Clustered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_GB_1000scn_s10000_filt_b1_h1_buf15_eens_k1.json"
+path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_GB_20scn_s10000_filt_b10_h2_buf15.json"
 # path_normal_scenario = "Scenario_Database/Scenarios_for_Old_Two_Stage_Model/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json"
 
 # resilience_thresholds = [
@@ -53,10 +53,7 @@ path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Clustered_Scen
 # ]
 
 resilience_metric_thresholds = [
-    None,
-    # 1.75e4,
-    # 1.7e4,
-    # 1.6e4,
+    # None,
     # 1.5e4,
     # 1.4e4,
     # 1.25e4,
@@ -71,26 +68,18 @@ resilience_metric_thresholds = [
     # 6e3,
     # 5e3,
     # 4e3,
-    # 3.8e3,
-    # 3.6e3,
-    # 3.4e3,
-    # 3.2e3,
+    # 3.5e3,
     # 3e3,
     # 2.5e3,
     # 2e3,
     # 1.5e3,
-    # 1.2e3,
     # 1e3,
-    # 9e2,
     # 8e2,
-    # 7e2,
     # 6e2,
-    # 5e2,
     # 4e2,
     # 3e2,
     # 2.8e2,
     # 2.6e2,
-    # 2.5e2,
     # 2.4e2,
     # 2.2e2,
     # 2e2,
@@ -102,47 +91,13 @@ for resilience_metric_threshold in resilience_metric_thresholds:
     inv = InvestmentClass()
     model = inv.build_investment_model(path_ws_scenario_library=path_ws_scenario_library,
                                        include_normal_scenario=True,
-                                       normal_scenario_prob=0.999,
+                                       normal_scenario_prob=0.99,
                                        resilience_metric_threshold=resilience_metric_threshold
                                        )
     results = inv.solve_investment_model(model, write_lp=False, write_result=True,
                                          solver_name='gurobi',
                                          result_path=None,
-                                         mip_gap=1e-9,
+                                         mip_gap=1e-7,
                                          mip_gap_abs=1e4,
-                                         time_limit=10800,
-                                         numeric_focus=2,
+                                         time_limit=10800
                                          )
-
-
-# path_ws_scenario_library_2 = "Scenario_Database/Scenarios_Libraries/Clustered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_GB_1000scn_s10000_filt_b1_h1_buf15_eens_k1.json"
-# resilience_metric_thresholds_2 = [
-#     None,
-#     # 8e2,
-#     7e2,
-#     6e2,
-#     5e2,
-#     4e2,
-#     3e2,
-#     2.8e2,
-#     2.6e2,
-#     # 2.5e2,
-#     2.4e2,
-#     2.2e2,
-#     # 2e2,
-# ]
-#
-# for resilience_metric_threshold in resilience_metric_thresholds_2:
-#     inv = InvestmentClass()
-#     model = inv.build_investment_model(path_ws_scenario_library=path_ws_scenario_library_2,
-#                                        include_normal_scenario=True,
-#                                        normal_scenario_prob=0.999,
-#                                        resilience_metric_threshold=resilience_metric_threshold
-#                                        )
-#     results_2 = inv.solve_investment_model(model, write_lp=False, write_result=True,
-#                                          solver_name='gurobi',
-#                                          result_path=None,
-#                                          mip_gap=1e-9,
-#                                          mip_gap_abs=1e4,
-#                                          time_limit=10800
-#                                          )

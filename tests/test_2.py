@@ -80,18 +80,18 @@ def extract_data_from_excel_files(file_paths: List[str],
 def test_extract_data_function():
     """Test function to demonstrate usage."""
     # Example test (uncomment and modify for actual testing)
-    file_paths = ['../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_inf_20250814_193137.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_1.50e4_20250814_193254.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_1.25e4_20250814_193541.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_1.00e4_20250814_193915.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_7.50e3_20250814_194329.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_5.00e3_20250814_194730.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_2.50e3_20250814_195056.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_1.00e3_20250814_195354.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_6.00e2_20250814_195640.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_3.00e2_20250814_200003.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_2.60e2_20250814_200348.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_2.20e2_20250814_200742.xlsx',
+    file_paths = ['../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_inf_20250817_235918.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_1.30e4_20250818_012101.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_1.20e4_20250818_013045.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_1.10e4_20250818_014455.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_1.00e4_20250818_020041.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_9.00e3_20250818_021111.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_8.00e3_20250818_022519.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_6.00e3_20250818_024231.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_4.00e3_20250818_030211.xlsx',
+                  # '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_3.00e2_20250814_200003.xlsx',
+                  # '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_2.60e2_20250814_200348.xlsx',
+                  # '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_20_ws_seed_10000_resilience_threshold_2.20e2_20250814_200742.xlsx',
                   ]
 
     sheet_name = 'Meta'

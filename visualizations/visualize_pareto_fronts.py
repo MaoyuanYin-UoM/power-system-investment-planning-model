@@ -139,7 +139,7 @@ def plot_pareto_front_from_excel(
         raise FileNotFoundError(error_msg)
 
     # Read Excel data (skip first row, use second row as header)
-    df = pd.read_excel(full_path, skiprows=1)
+    df = pd.read_excel(full_path, skiprows=2)
 
     # Clean column names (remove any leading/trailing spaces)
     df.columns = df.columns.str.strip()

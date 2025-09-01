@@ -405,7 +405,7 @@ if __name__ == "__main__":
         network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
         windstorm_preset="windstorm_GB_transmission_network",
         num_scenarios=1000,
-        base_seed=10000,
+        base_seed=30000,
         output_dir="../Scenario_Database/Scenarios_Libraries/Original_Scenario_Libraries",
     )
 
