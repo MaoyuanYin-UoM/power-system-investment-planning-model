@@ -142,15 +142,67 @@ def visualize_ws_contour(windstorm_name: str = "default"):
     plt.show()
 
 
-def visualize_fragility_curve(WindConfig):
-    wcon = WindConfig
+def visualize_fragility_curve(WindConfig=None,
+                              mu=None,
+                              sigma=None,
+                              thrd_1=None,
+                              thrd_2=None,
+                              shift_f=None,
+                              title='Fragility Curve',
+                              figsize=(8, 6),
+                              save_path=None):
+    """
+    Visualize the fragility curve either from WindConfig or manual parameters.
 
-    # Get parameters from config
-    mu = wcon.data.frg.mu
-    sigma = wcon.data.frg.sigma
-    thrd_1 = wcon.data.frg.thrd_1
-    thrd_2 = wcon.data.frg.thrd_2
-    shift_f = wcon.data.frg.shift_f
+    Parameters:
+    -----------
+    WindConfig : WindConfig object, optional
+        The wind configuration containing fragility parameters. If None,
+        all manual parameters must be provided.
+    mu : float, optional
+        Logarithmic mean parameter of the lognormal distribution.
+        Overrides WindConfig value if provided.
+    sigma : float, optional
+        Logarithmic standard deviation parameter of the lognormal distribution.
+        Overrides WindConfig value if provided.
+    thrd_1 : float, optional
+        Lower threshold - below this value, PoF = 0.
+        Overrides WindConfig value if provided.
+    thrd_2 : float, optional
+        Upper threshold - above this value, PoF = 1.
+        Overrides WindConfig value if provided.
+    shift_f : float, optional
+        Shift factor for hazard intensity.
+        Overrides WindConfig value if provided.
+    title : str, optional
+        Plot title. Default: 'Fragility Curve'
+    figsize : tuple, optional
+        Figure size as (width, height). Default: (8, 6)
+    save_path : str or None, optional
+        If provided, saves the figure to the specified path.
+
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axis objects
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from scipy.stats import lognorm
+
+    # Get parameters from WindConfig or manual input
+    if WindConfig is not None:
+        wcon = WindConfig
+        # Use WindConfig values as defaults, override with manual parameters if provided
+        mu = mu if mu is not None else wcon.data.frg.mu
+        sigma = sigma if sigma is not None else wcon.data.frg.sigma
+        thrd_1 = thrd_1 if thrd_1 is not None else wcon.data.frg.thrd_1
+        thrd_2 = thrd_2 if thrd_2 is not None else wcon.data.frg.thrd_2
+        shift_f = shift_f if shift_f is not None else wcon.data.frg.shift_f
+    else:
+        # All manual parameters must be provided if WindConfig is None
+        if any(param is None for param in [mu, sigma, thrd_1, thrd_2, shift_f]):
+            raise ValueError("When WindConfig is None, all fragility parameters "
+                             "(mu, sigma, thrd_1, thrd_2, shift_f) must be provided.")
 
     # Generate hazard intensities
     hzd_int_range = np.linspace(0, 120, 500)  # Hazard intensity from 0 to 120
@@ -170,19 +222,27 @@ def visualize_fragility_curve(WindConfig):
         pof_values.append(pof)
 
     # Plot the fragility curve
-    plt.figure(figsize=(8, 6))
-    plt.plot(hzd_int_range, pof_values, label='Fragility Curve')
-    plt.axvline(thrd_1, color='green', linestyle='--', label=f'Threshold 1 ({thrd_1})')
-    plt.axvline(thrd_2, color='red', linestyle='--', label=f'Threshold 2 ({thrd_2})')
-    plt.xlabel('Wind Speed')
-    plt.ylabel('Failure Probability')
-    plt.title('Fragility Curve')
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot(hzd_int_range, pof_values, label='Fragility Curve', linewidth=2)
+    ax.axvline(thrd_1 + shift_f, color='green', linestyle='--',
+               label=f'Threshold 1 ({thrd_1 + shift_f:.1f})')
+    ax.axvline(thrd_2 + shift_f, color='red', linestyle='--',
+               label=f'Threshold 2 ({thrd_2 + shift_f:.1f})')
+    ax.set_xlabel('Wind Speed (mph)')
+    ax.set_ylabel('Failure Probability')
+    ax.set_title(title)
 
     # Move legend to top right corner
-    plt.legend(loc='upper left', frameon=True, shadow=True)
+    ax.legend(loc='upper left', frameon=True, shadow=True)
 
-    plt.grid()
+    ax.grid(True, alpha=0.3)
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
     plt.show()
+
+    return fig, ax
 
 
 def visualize_fragility_curve_shift(WindConfig,

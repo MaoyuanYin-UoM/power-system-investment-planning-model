@@ -576,7 +576,7 @@ def make_network(name: str) -> NetworkClass:
         # -----------------------------------------------------------
         num_bch = len(ncon.data.net.bch)
         ncon.data.frg.mu = [3.8] * num_bch
-        ncon.data.frg.sigma = [0.122] * num_bch
+        ncon.data.frg.sigma = [0.12] * num_bch
         ncon.data.frg.thrd_1 = [20] * num_bch
         ncon.data.frg.thrd_2 = [90] * num_bch
         ncon.data.frg.shift_f = [0.0] * num_bch
@@ -962,10 +962,10 @@ def make_network(name: str) -> NetworkClass:
         # 10.  Fragility data (uniform defaults)
         # -----------------------------------------------------------
         num_bch = len(ncon.data.net.bch)
-        ncon.data.frg.mu = [3.8] * num_bch
-        ncon.data.frg.sigma = [0.122] * num_bch
-        ncon.data.frg.thrd_1 = [20] * num_bch
-        ncon.data.frg.thrd_2 = [90] * num_bch
+        ncon.data.frg.mu = [4.2] * num_bch
+        ncon.data.frg.sigma = [0.15] * num_bch
+        ncon.data.frg.thrd_1 = [40] * num_bch
+        ncon.data.frg.thrd_2 = [110] * num_bch
         ncon.data.frg.shift_f = [0.0] * num_bch
 
 

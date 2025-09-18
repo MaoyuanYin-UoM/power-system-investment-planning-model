@@ -256,31 +256,49 @@ def plot_pareto_front_from_excel(
         else:
             raise ValueError("overlay_line_styles must be a string, list, or None")
 
-        # Create legend elements list
-        legend_elements = []
+            # Create legend elements list
+            legend_elements = []
 
-        # Plot all types on the same axes
-        for idx, ptype in enumerate(plot_types):
-            config = plot_configs[ptype]
-            y_col_millions = f"{config['y_col']}_millions"
+            # Define marker styles for different plots
+            marker_styles = ['o', 's', '^', 'D', 'v', 'p', 'h']
 
-            # Use different marker and line styles for each plot type
-            current_marker = marker_styles[idx % len(marker_styles)]
-            current_line = line_styles[idx % len(line_styles)]
+            # Plot all types on the same axes
+            for idx, ptype in enumerate(plot_types):
+                config = plot_configs[ptype]
+                y_col_millions = f"{config['y_col']}_millions"
 
-            # Plot the Pareto front
-            line_handle = ax.plot(df['eens_gwh'], df[y_col_millions],
-                                  current_line, linewidth=line_width,
-                                  color=config['color'], alpha=0.7,
-                                  label=config.get('ylabel', ptype).replace(' (£ Million)', ''))[0]
+                # Use different marker and line styles for each plot type
+                current_marker = marker_styles[idx % len(marker_styles)]
+                current_line = line_styles[idx % len(line_styles)]
 
-            # Add markers
-            ax.scatter(df['eens_gwh'], df[y_col_millions],
-                       s=marker_size, marker=current_marker,
-                       color=config['color'], edgecolors='black',
-                       linewidth=1.5, zorder=5)
+                # Plot the Pareto front
+                line_handle = ax.plot(df['eens_gwh'], df[y_col_millions],
+                                      current_line, linewidth=line_width,
+                                      color=config['color'], alpha=0.7)[0]
 
-            legend_elements.append(line_handle)
+                # Add markers
+                ax.scatter(df['eens_gwh'],
+                           df[y_col_millions],
+                           s=marker_size,
+                           marker=current_marker,
+                           color=config['color'],
+                           edgecolors='white',
+                           linewidth=1,
+                           zorder=5)
+
+                # Add to legend elements with both line and marker
+                legend_label = config.get('ylabel', ptype).replace(' (£ Million)', '')
+                legend_elements.append(
+                    Line2D([0], [0],
+                           color=config['color'],
+                           linestyle=current_line,
+                           linewidth=line_width,
+                           marker=current_marker,
+                           markersize=8,
+                           markerfacecolor=config['color'],
+                           markeredgecolor=config['color'],
+                           label=legend_label)
+                )
 
             # Add threshold labels only for the first plot type to avoid clutter
             if show_threshold_labels and idx == 0:
