@@ -22,21 +22,29 @@ def make_windstorm(name: str) -> WindClass:
         wcon.data.MC.num_prds = 3  # number of periods (i.e., simulations)
         wcon.data.WS.event.max_num_ws_prd = 1  # maximum number of windstorms per period
 
-        # wcon.data.WS.event.max_v = [40, 60]  # upper and lower bounds for initial gust speed
-        # wcon.data.WS.event.min_v = [25, 35]  # upper and lower bounds for final gust speed
+        # wcon.data.WS.event.max_v = [30, 50]  # upper and lower bounds for initial gust speed (m/s)
+        # wcon.data.WS.event.min_v = [10, 30]  # upper and lower bounds for final gust speed (m/s)
 
-        wcon.data.WS.event.max_v = [70, 110]  # upper and lower bounds for initial gust speed
-        wcon.data.WS.event.min_v = [20, 60]  # upper and lower bounds for final gust speed
+        # wcon.data.WS.event.max_v = [70, 110]  # upper and lower bounds for initial gust speed (mph)
+        # wcon.data.WS.event.min_v = [20, 60]  # upper and lower bounds for final gust speed (mph)
 
-        # wcon.data.WS.event.max_v = [70, 90]  # upper and lower bounds for initial gust speed
-        # wcon.data.WS.event.min_v = [45, 55]  # upper and lower bounds for final gust speed
+        wcon.data.WS.event.max_v = [40, 50]  # upper and lower bounds for initial gust speed (m/s)
+        wcon.data.WS.event.min_v = [30, 40]  # upper and lower bounds for final gust speed (m/s)
 
-        wcon.data.WS.event.max_r = [20, 25]  # upper and lower bounds for initial radius
-        wcon.data.WS.event.min_r = [15, 10]  # upper and lower bounds for final radius
-        wcon.data.WS.event.max_prop_v = [22, 26]  # upper and lower bounds for initial windstorm propagation speed
-        wcon.data.WS.event.min_prop_v = [8, 10]  # upper and lower bounds for final windstorm propagation speed
-        wcon.data.WS.event.lng = [12, 48]  # lower and upper bounds for windstorm duration
-        wcon.data.WS.event.ttr = [24, 120]  # lower and upper bounds for line repair (time to restoration)
+        # wcon.data.WS.event.max_r = [20, 25]  # upper and lower bounds for initial radius (km)
+        # wcon.data.WS.event.min_r = [15, 10]  # upper and lower bounds for final radius (km)
+
+        wcon.data.WS.event.max_r = [25, 25]  # upper and lower bounds for initial radius (km)
+        wcon.data.WS.event.min_r = [25, 25]  # upper and lower bounds for final radius (km)
+
+        # wcon.data.WS.event.max_prop_v = [20, 25]  # upper and lower bounds for initial windstorm propagation speed (km/h)
+        # wcon.data.WS.event.min_prop_v = [15, 20]  # upper and lower bounds for final windstorm propagation speed (km/h)
+
+        wcon.data.WS.event.max_prop_v = [25, 25]  # upper and lower bounds for initial windstorm propagation speed (km/h)
+        wcon.data.WS.event.min_prop_v = [25, 25]  # upper and lower bounds for final windstorm propagation speed (km/h)
+
+        wcon.data.WS.event.lng = [12, 48]  # lower and upper bounds for windstorm duration (h)
+        wcon.data.WS.event.ttr = [24, 120]  # lower and upper bounds for line repair (time to restoration) (h)
 
         # fragility modelling:  (deprecated) (fragility data moved to NetConfig)
         wcon.data.frg = Object()
