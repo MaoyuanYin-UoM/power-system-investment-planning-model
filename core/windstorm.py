@@ -433,10 +433,158 @@ class WindClass:
 
         return Flgs
 
+    def _km_to_deg_lat(self, km: float) -> float:
+        """Approx: 1 degree latitude ≈ 111 km."""
+        return km / 111.0
 
-    # def compute_wind_speed(self):
-    #     """Compute the wind speed values at the lines"""
+    @staticmethod
+    def _seg_intersect(p1, p2, q1, q2):
+        """Segment intersection (2D, robust enough for plotting scale)."""
+        def orient(a, b, c):
+            return (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0])
 
+        def on_seg(a, b, c):
+            return (min(a[0], b[0]) <= c[0] <= max(a[0], b[0]) and
+                    min(a[1], b[1]) <= c[1] <= max(a[1], b[1]))
+
+        o1 = orient(p1, p2, q1)
+        o2 = orient(p1, p2, q2)
+        o3 = orient(q1, q2, p1)
+        o4 = orient(q1, q2, p2)
+
+        # General case
+        if (o1*o2 < 0) and (o3*o4 < 0):
+            return True
+
+        # Collinear cases
+        if o1 == 0 and on_seg(p1, p2, q1): return True
+        if o2 == 0 and on_seg(p1, p2, q2): return True
+        if o3 == 0 and on_seg(q1, q2, p1): return True
+        if o4 == 0 and on_seg(q1, q2, p2): return True
+        return False
+
+    @staticmethod
+    def _point_in_poly(pt, poly):
+        """Ray casting point in polygon (poly = list[(x,y)])."""
+        x, y = pt
+        inside = False
+        n = len(poly)
+        for i in range(n):
+            x1, y1 = poly[i]
+            x2, y2 = poly[(i + 1) % n]
+            if ((y1 > y) != (y2 > y)) and (x < (x2 - x1) * (y - y1) / (y2 - y1 + 1e-15) + x1):
+                inside = not inside
+        return inside
+
+    @staticmethod
+    def _unit_perp(p1, p2):
+        """Unit normal of segment p1->p2 in degree space."""
+        vx = p2[0] - p1[0]
+        vy = p2[1] - p1[1]
+        nx, ny = -vy, vx
+        nrm = math.hypot(nx, ny)
+        if nrm == 0:
+            return (0.0, 0.0)
+        return (nx / nrm, ny / nrm)
+
+    def compare_capsule_series(self,
+                               epicentres,
+                               # sequence of (lon, lat), length = duration (+1 if your radius array includes the end)
+                               radii_km,  # sequence of radius values (km), same indexing as epicentres
+                               gis_bgn, gis_end,
+                               num_bch,
+                               radius_mode: str = "t"):
+        """
+        Compute branch impact flags for each hour using a swept-band (capsule) per hour.
+
+        For hour t (0..T-2):
+          - Build oriented rectangle that covers the segment E_t -> E_{t+1}
+            with half-width = r_deg where r is:
+              radius_mode == 't'   -> r_t
+              radius_mode == 'min' -> min(r_t, r_{t+1})
+              radius_mode == 'max' -> max(r_t, r_{t+1})  [conservative]
+          - Add a circle at E_t as an end-cap (full circle is ok & simple).
+
+        For the final hour (t == T-1):
+          - Circle only at E_{T-1}.
+
+        Returns:
+            flgs_impacted_bch : np.ndarray shape [num_bch, T] of 0/1.
+        """
+        import numpy as np
+
+        # Accept both length T and T+1 epicentres; unify to T = duration
+        T = len(epicentres)
+        # If caller passes radius for T+1 points (as returned by crt_ws_radius), drop the extra tail.
+        if len(radii_km) == T + 1:
+            radii_km = radii_km[:T]
+        elif len(radii_km) != T:
+            raise ValueError("radii_km must have length T or T+1 to match epicentres.")
+
+        epic = list(map(tuple, epicentres))
+        flgs = np.zeros((num_bch, T), dtype=int)
+
+        # Helper: test circle (reuse existing logic) → returns [num_bch] 0/1
+        def circle_flags(center, r_km):
+            return np.array(self.compare_circle(center, r_km, gis_bgn, gis_end, num_bch), dtype=int)
+
+        # Loop hours
+        for t in range(T):
+            # Always include circle at E_t
+            r_t = radii_km[t]
+            hour_flags = circle_flags(epic[t], r_t)
+
+            # For swept band between E_t and E_{t+1}
+            if t < T - 1:
+                # pick radius for this hour's band
+                if radius_mode == "min":
+                    r_use = min(radii_km[t], radii_km[t + 1])
+                elif radius_mode == "max":
+                    r_use = max(radii_km[t], radii_km[t + 1])
+                else:  # "t"
+                    r_use = radii_km[t]
+
+                r_deg = self._km_to_deg_lat(r_use)
+
+                p1 = epic[t]
+                p2 = epic[t + 1]
+
+                nx, ny = self._unit_perp(p1, p2)
+                if not (nx == 0.0 and ny == 0.0):
+                    # Build oriented rectangle of width 2*r_deg around the segment
+                    c1 = (p1[0] + nx * r_deg, p1[1] + ny * r_deg)
+                    c2 = (p2[0] + nx * r_deg, p2[1] + ny * r_deg)
+                    c3 = (p2[0] - nx * r_deg, p2[1] - ny * r_deg)
+                    c4 = (p1[0] - nx * r_deg, p1[1] - ny * r_deg)
+                    rect = [c1, c2, c3, c4]
+
+                    # For each branch, set impact if:
+                    #   - either endpoint of the branch is inside the rect, OR
+                    #   - the branch segment intersects any rect edge.
+                    for b in range(num_bch):
+                        a1 = gis_bgn[b]
+                        a2 = gis_end[b]
+
+                        # Fast inside check
+                        inside = self._point_in_poly(a1, rect) or self._point_in_poly(a2, rect)
+                        if inside:
+                            hour_flags[b] = 1
+                            continue
+
+                        # Edge intersections
+                        hit = False
+                        for i in range(4):
+                            e1 = rect[i]
+                            e2 = rect[(i + 1) % 4]
+                            if self._seg_intersect(a1, a2, e1, e2):
+                                hit = True
+                                break
+                        if hit:
+                            hour_flags[b] = 1
+
+            flgs[:, t] = hour_flags
+
+        return flgs
 
     def _fragility_curve(self, hzd_int):
         """Calculate the asset's probability of failure based on a fragility curve"""

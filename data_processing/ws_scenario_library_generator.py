@@ -209,15 +209,15 @@ def generate_windstorm_library(
             # Generate random numbers ONLY for event duration
             bch_rand_nums = np.random.rand(num_bch, lng_ws)
 
-            # Calculate branch impacts ONLY during windstorm duration
-            flgs_impacted_bch = np.zeros((num_bch, lng_ws), dtype=int)
-
-            for t in range(lng_ws):
-                epicentre = path_ws[t]
-                flgs_impacted_bch[:, t] = np.array(
-                    ws.compare_circle(epicentre, radius_ws[t], bch_gis_bgn, bch_gis_end, num_bch),
-                    dtype=int
-                )
+            # Calculate branch impacts during the windstorm duration (NEW APPROACH)
+            flgs_impacted_bch = ws.compare_capsule_series(
+                epicentres=path_ws[:lng_ws],  # use exactly duration positions
+                radii_km=radius_ws[:lng_ws + 1],  # allow T+1; API trims appropriately
+                gis_bgn=bch_gis_bgn,
+                gis_end=bch_gis_end,
+                num_bch=num_bch,
+                radius_mode="t"  # or "min"/"max" if you prefer
+            )
 
                 # Store all event data in one place
             event_data = {
@@ -455,7 +455,7 @@ if __name__ == "__main__":
         network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
         windstorm_preset="windstorm_29_bus_GB_transmission_network",
         num_scenarios=10,
-        base_seed=50000,
+        base_seed=60000,
         output_dir="../Scenario_Database/Scenarios_Libraries/Original_Scenario_Libraries",
     )
 
