@@ -22,26 +22,37 @@ def make_windstorm(name: str) -> WindClass:
         wcon.data.MC.num_prds = 3  # number of periods (i.e., simulations)
         wcon.data.WS.event.max_num_ws_prd = 1  # maximum number of windstorms per period
 
-        # wcon.data.WS.event.max_v = [30, 50]  # upper and lower bounds for initial gust speed (m/s)
-        # wcon.data.WS.event.min_v = [10, 30]  # upper and lower bounds for final gust speed (m/s)
+        # 1) Gust speed
+        # - the old log-linear-decrease gust speed model
+        # wcon.data.WS.event.gust_model = 'log_linear_decrease'
+        # wcon.data.WS.event.max_v = [40, 50]  # upper and lower bounds for initial gust speed (m/s)
+        # wcon.data.WS.event.min_v = [30, 40]  # upper and lower bounds for final gust speed (m/s)
 
-        # wcon.data.WS.event.max_v = [70, 110]  # upper and lower bounds for initial gust speed (mph)
-        # wcon.data.WS.event.min_v = [20, 60]  # upper and lower bounds for final gust speed (mph)
+        # - the new constant Weibull model (i.e., assuming a constant gust speed across the duration sampled once from a
+        #                                 Weibull distribution)
+        wcon.data.WS.event.gust_model = 'constant_weibull'
+        wcon.data.WS.event.gust_weibull_shape = 2.0  # k
+        wcon.data.WS.event.gust_weibull_scale = 30.0  # λ (m/s)
 
-        wcon.data.WS.event.max_v = [40, 50]  # upper and lower bounds for initial gust speed (m/s)
-        wcon.data.WS.event.min_v = [30, 40]  # upper and lower bounds for final gust speed (m/s)
-
+        # 2) Radius
+        # - the old linear-decrease model
+        # wcon.data.WS.event.r_model = 'linear_decrease'
         # wcon.data.WS.event.max_r = [20, 25]  # upper and lower bounds for initial radius (km)
         # wcon.data.WS.event.min_r = [15, 10]  # upper and lower bounds for final radius (km)
 
-        wcon.data.WS.event.max_r = [25, 25]  # upper and lower bounds for initial radius (km)
-        wcon.data.WS.event.min_r = [25, 25]  # upper and lower bounds for final radius (km)
+        # - the new constant Uniform model (i.e., assuming a constant radius across the duration sampled once from a
+        #                                   Uniform distribution)
+        wcon.data.WS.event.r_model = 'constant_uniform'
+        wcon.data.WS.event.r_uniform_bounds = [30, 75]  # (km)
 
+        # 3) Translation speed
+        # wcon.data.WS.event.prop_model = 'linear_decrease'
         # wcon.data.WS.event.max_prop_v = [20, 25]  # upper and lower bounds for initial windstorm propagation speed (km/h)
         # wcon.data.WS.event.min_prop_v = [15, 20]  # upper and lower bounds for final windstorm propagation speed (km/h)
 
-        wcon.data.WS.event.max_prop_v = [25, 25]  # upper and lower bounds for initial windstorm propagation speed (km/h)
-        wcon.data.WS.event.min_prop_v = [25, 25]  # upper and lower bounds for final windstorm propagation speed (km/h)
+        # - the new constant Uniform model
+        wcon.data.WS.event.prop_model = 'constant_uniform'
+        wcon.data.WS.event.prop_uniform_bounds = [30, 60]  # (km/h)
 
         wcon.data.WS.event.lng = [12, 48]  # lower and upper bounds for windstorm duration (h)
         wcon.data.WS.event.ttr = [24, 120]  # lower and upper bounds for line repair (time to restoration) (h)
@@ -57,8 +68,8 @@ def make_windstorm(name: str) -> WindClass:
 
     elif name == 'windstorm_29_bus_GB_transmission_network':
         # starting-point contour:
-        wcon.data.WS.contour.start_lon = [-5.643, -7.281, -6.588, -5.486, -5.076, -6.604, 0.120]
-        wcon.data.WS.contour.start_lat = [58.445, 56.637, 55.450, 54.956, 53.893, 49.660, 50.443]
+        wcon.data.WS.contour.start_lon = [-5.643, -7.281, -6.588, -5.486, -5.076, -6.604, -2.198]
+        wcon.data.WS.contour.start_lat = [58.445, 56.637, 55.450, 54.956, 53.893, 49.660, 49.673]
         wcon.data.WS.contour.start_connectivity = \
             [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7]]
 
@@ -70,19 +81,38 @@ def make_windstorm(name: str) -> WindClass:
         wcon.data.MC.num_prds = 3  # number of periods (i.e., simulations)
         wcon.data.WS.event.max_num_ws_prd = 1  # maximum number of windstorms per period
 
-        # wcon.data.WS.event.max_v = [40, 60]  # upper and lower bounds for initial gust speed
-        # wcon.data.WS.event.min_v = [25, 35]  # upper and lower bounds for final gust speed
+        # 1) Gust speed
+        # - the old log-linear-decrease gust speed model
+        # wcon.data.WS.event.gust_model = 'log_linear_decrease'
+        # wcon.data.WS.event.max_v = [40, 50]  # upper and lower bounds for initial gust speed (m/s)
+        # wcon.data.WS.event.min_v = [30, 40]  # upper and lower bounds for final gust speed (m/s)
 
-        wcon.data.WS.event.max_v = [55, 75]  # upper and lower bounds for initial gust speed
-        wcon.data.WS.event.min_v = [35, 45]  # upper and lower bounds for final gust speed
+        # - the new constant Weibull model (i.e., assuming a constant gust speed across the duration sampled once from a
+        #                                 Weibull distribution)
+        wcon.data.WS.event.gust_model = 'constant_weibull'
+        wcon.data.WS.event.gust_weibull_shape = 2.0  # k
+        wcon.data.WS.event.gust_weibull_scale = 30.0  # λ (m/s)
 
-        # wcon.data.WS.event.max_v = [70, 90]  # upper and lower bounds for initial gust speed
-        # wcon.data.WS.event.min_v = [45, 55]  # upper and lower bounds for final gust speed
+        # 2) Radius
+        # - the old linear-decrease model
+        # wcon.data.WS.event.r_model = 'linear_decrease'
+        # wcon.data.WS.event.max_r = [20, 25]  # upper and lower bounds for initial radius (km)
+        # wcon.data.WS.event.min_r = [15, 10]  # upper and lower bounds for final radius (km)
 
-        wcon.data.WS.event.max_r = [20, 25]  # upper and lower bounds for initial radius
-        wcon.data.WS.event.min_r = [15, 10]  # upper and lower bounds for final radius
-        wcon.data.WS.event.max_prop_v = [22, 26]  # upper and lower bounds for initial windstorm propagation speed
-        wcon.data.WS.event.min_prop_v = [8, 10]  # upper and lower bounds for final windstorm propagation speed
+        # - the new constant Uniform model (i.e., assuming a constant radius across the duration sampled once from a
+        #                                   Uniform distribution)
+        wcon.data.WS.event.r_model = 'constant_uniform'
+        wcon.data.WS.event.r_uniform_bounds = [20, 40]  # (km)
+
+        # 3) Translation speed
+        # wcon.data.WS.event.prop_model = 'linear_decrease'
+        # wcon.data.WS.event.max_prop_v = [20, 25]  # upper and lower bounds for initial windstorm propagation speed (km/h)
+        # wcon.data.WS.event.min_prop_v = [15, 20]  # upper and lower bounds for final windstorm propagation speed (km/h)
+
+        # - the new constant Uniform model
+        wcon.data.WS.event.prop_model = 'constant_uniform'
+        wcon.data.WS.event.prop_uniform_bounds = [30, 60]  # (km/h)
+
         wcon.data.WS.event.lng = [12, 48]  # lower and upper bounds for windstorm duration
         wcon.data.WS.event.ttr = [24, 120]  # lower and upper bounds for line repair (time to restoration)
 

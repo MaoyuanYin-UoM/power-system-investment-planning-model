@@ -66,7 +66,7 @@ def generate_windstorm_library(
             "network_info": {
                 "num_buses": num_bus,
                 "num_branches": num_bch
-            }
+            },
         },
         "scenarios": {}
     }
@@ -85,11 +85,61 @@ def generate_windstorm_library(
         # Create a fresh WindClass instance for this scenario
         ws = make_windstorm(windstorm_preset)
 
+        # Record key windstorm parameters into metadata
+        windstorm_info = library["metadata"].setdefault("windstorm_info", {})
+
+        # - Duration:
+        num_hrs_prd = ws._get_num_hrs_prd()
+        windstorm_info.setdefault("num_hours", num_hrs_prd)
+
+        # - Gust speed:
+        gust_model = getattr(ws.data.WS.event, "gust_model", None)
+        windstorm_info["gust_model"] = gust_model
+
+        if gust_model == "constant_weibull":
+            # Accept either gust_weibull_shape or gust_weibull_k; fall back to sensible defaults
+            k = (getattr(ws.data.WS.event, "gust_weibull_shape", None)
+                 or getattr(ws.data.WS.event, "gust_weibull_k", None)
+                 or 2.0)
+            lam = getattr(ws.data.WS.event, "gust_weibull_scale", 30.0)
+            windstorm_info["gust_model_params"] = {
+                "shape": float(k),
+                "scale": float(lam),
+            }
+        else:
+            # Legacy (log-linear) min/max bounds for completeness
+            windstorm_info["gust_model_params"] = {
+                "min_v_bounds": list(ws.data.WS.event.min_v),
+                "max_v_bounds": list(ws.data.WS.event.max_v),
+            }
+
+        # - Radius
+        windstorm_info["radius_model"] = getattr(ws.data.WS.event, "r_model", None)
+        if windstorm_info["radius_model"] == "constant_uniform":
+            windstorm_info["radius_model_params"] = {
+                "uniform_bounds": list(getattr(ws.data.WS.event, "r_uniform_bounds", []))
+            }
+        else:
+            windstorm_info["radius_model_params"] = {
+                "max_r_bounds": list(ws.data.WS.event.max_r),
+                "min_r_bounds": list(ws.data.WS.event.min_r),
+            }
+
+        # - Translation speed
+        windstorm_info["prop_model"] = getattr(ws.data.WS.event, "prop_model", None)
+        if windstorm_info["prop_model"] == "constant_uniform":
+            windstorm_info["prop_model_params"] = {
+                "uniform_bounds": list(getattr(ws.data.WS.event, "prop_uniform_bounds", []))
+            }
+        else:
+            windstorm_info["prop_model_params"] = {
+                "max_prop_v_bounds": list(ws.data.WS.event.max_prop_v),
+                "min_prop_v_bounds": list(ws.data.WS.event.min_prop_v),
+            }
+
+
         # Initialize contour distances
         ws.init_ws_path0()
-
-        # Get period info
-        num_hrs_prd = ws._get_num_hrs_prd()
 
         # Initialize scenario data
         scenario_data = {
@@ -196,7 +246,7 @@ def generate_windstorm_library(
     if library_name is None:
         network_alias = _get_network_alias(network_preset)
         windstorm_alias = _get_windstorm_alias(windstorm_preset)
-        library_name = f"windstorm_library_{network_alias}_{windstorm_alias}_{num_scenarios}scenarios_seed{base_seed}.json"
+        library_name = f"windstorm_library_net_{network_alias}_ws_{windstorm_alias}_{num_scenarios}scenarios_seed{base_seed}.json"
 
     output_path = os.path.join(output_dir, library_name)
 
@@ -226,7 +276,7 @@ def _get_windstorm_alias(windstorm_preset: str) -> str:
     """Get shortened windstorm alias for filename."""
     aliases = {
         "windstorm_GB_transmission_network": "GB",
-        # Add more aliases as needed
+        "windstorm_29_bus_GB_transmission_network": "29BusGB",
     }
     return aliases.get(windstorm_preset, windstorm_preset)
 
@@ -403,9 +453,9 @@ if __name__ == "__main__":
     # Example usage
     library_path = generate_windstorm_library(
         network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
-        windstorm_preset="windstorm_GB_transmission_network",
-        num_scenarios=1000,
-        base_seed=30000,
+        windstorm_preset="windstorm_29_bus_GB_transmission_network",
+        num_scenarios=10,
+        base_seed=50000,
         output_dir="../Scenario_Database/Scenarios_Libraries/Original_Scenario_Libraries",
     )
 

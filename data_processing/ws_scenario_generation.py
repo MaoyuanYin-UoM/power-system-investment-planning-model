@@ -19,6 +19,7 @@ def generate_ws_scenarios(num_ws_prd, seed=None, out_dir="Scenario_Database/Full
           2) Please use 'generate_single_ws_scenario' and then 'combine_selected_scenarios' if you want manually select
           each single scenario.
     """
+    # todo: to be updated to incorporate the new gust speed, radius, translation speed model
     # Optional reproducibility
     if seed is not None:
         set_random_seed(seed)

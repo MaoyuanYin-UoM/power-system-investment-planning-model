@@ -71,6 +71,8 @@ def get_alias(preset_name: str, preset_type: str) -> str:
     elif preset_type == "windstorm":
         if preset_name == "windstorm_GB_transmission_network":
             return "GB"
+        elif preset_name == "windstorm_29_bus_GB_transmission_network":
+            return "29GB"
         else:
             return preset_name
     else:
@@ -457,7 +459,7 @@ if __name__ == "__main__":
     
     # Screen the library
     results = screen_scenarios(
-        library_path="../Scenario_Database/Scenarios_Libraries/Original_Scenario_Libraries/windstorm_library_29BusGB-KearsleyGSP_GB_1000scenarios_seed30000.json",
+        library_path="../Scenario_Database/Scenarios_Libraries/Original_Scenario_Libraries/windstorm_library_net_29BusGB-KearsleyGSP_ws_29BusGB_1000scenarios_seed50000.json",
         output_dir="../Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries",
         buffer_km=15,
         min_impacted_branches=1,

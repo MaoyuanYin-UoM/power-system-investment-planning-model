@@ -190,6 +190,11 @@ class WindClass:
             t = cp_start_connectivity[i][1] - 1
             d = self.get_distance(cp_lon[f], cp_lat[f], cp_lon[t], cp_lat[t])
             dis[i + 1] = dis[i] + d
+
+        # Keep the segment endpoints in the same order used for 'dis'
+        self.data.WS.contour.seg_from = [cp_start_connectivity[i][0] - 1 for i in range(cp_num)]
+        self.data.WS.contour.seg_to = [cp_start_connectivity[i][1] - 1 for i in range(cp_num)]
+
         self.data.WS.contour.num = cp_num
         self.data.WS.contour.dis = [dis[i] / dis[cp_num] for i in range(cp_num + 1)]
 
@@ -219,8 +224,10 @@ class WindClass:
 
             aux = (rand_location[i] - cp_dis_aggregated[j - 1]) / \
                   (cp_dis_aggregated[j] - cp_dis_aggregated[j - 1])
-            start_lon[i] = cp_start_lon[j - 1] + aux * (cp_start_lon[j] - cp_start_lon[j - 1])
-            start_lat[i] = cp_start_lat[j - 1] + aux * (cp_start_lat[j] - cp_start_lat[j - 1])
+            f = self.data.WS.contour.seg_from[j - 1]
+            t = self.data.WS.contour.seg_to[j - 1]
+            start_lon[i] = cp_start_lon[f] + aux * (cp_start_lon[t] - cp_start_lon[f])
+            start_lat[i] = cp_start_lat[f] + aux * (cp_start_lat[t] - cp_start_lat[f])
 
         # Random direction
         end_lon = [0 for i in range(num_ws)]
@@ -261,42 +268,135 @@ class WindClass:
         path_ws = [[0, 0] for _ in range(lng_ws + 1)]
         path_ws[0] = [Lon1, Lat1]
 
-        # sample initial and final propagation speeds (in km/h)
+        # Get bounds
         lim_max_prop_v_ws = self._get_lim_max_prop_v_ws()
         lim_min_prop_v_ws = self._get_lim_min_prop_v_ws()
-        init_prop_v_ws = random.uniform(lim_max_prop_v_ws[0], lim_max_prop_v_ws[1])
-        final_prop_v_ws = random.uniform(lim_min_prop_v_ws[0], lim_min_prop_v_ws[1])
 
-        # compute windstorm path (assume the propagation speed decays linearly with time):
-        for hr in range(1, lng_ws + 1):
-            dist_hr = init_prop_v_ws*1e3 - final_prop_v_ws*1e3 * (hr - 1) / lng_ws
-            brg_hr = self.get_bearing(dir_lon[hr - 1], dir_lat[hr - 1], dir_lon[hr], dir_lat[hr])
-            path_ws[hr] = self.get_destination(path_ws[hr - 1][0], path_ws[hr - 1][1], brg_hr, dist_hr)
+        prop_model = getattr(self.data.WS.event, 'prop_model', None)
+
+        if prop_model == 'constant_uniform':
+            # Bounds for constant sampling (km/h)
+            bounds = getattr(self.data.WS.event, 'prop_uniform_bounds', None)
+            if bounds is None:
+                # Envelope from configured min/max ranges
+                low = min(lim_min_prop_v_ws[0], lim_min_prop_v_ws[1],
+                          lim_max_prop_v_ws[0], lim_max_prop_v_ws[1])
+                high = max(lim_min_prop_v_ws[0], lim_min_prop_v_ws[1],
+                           lim_max_prop_v_ws[0], lim_max_prop_v_ws[1])
+                bounds = [low, high]
+
+            prop_v_const = random.uniform(bounds[0], bounds[1])
+
+            # compute windstorm path with constant propagation speed
+            for hr in range(1, lng_ws + 1):
+                dist_hr = prop_v_const * 1e3  # km/h → m/h
+                brg_hr = self.get_bearing(dir_lon[hr - 1], dir_lat[hr - 1], dir_lon[hr], dir_lat[hr])
+                path_ws[hr] = self.get_destination(path_ws[hr - 1][0], path_ws[hr - 1][1], brg_hr, dist_hr)
+
+        elif prop_model == 'linear_decrease':
+            # Legacy behavior: linearly decreasing propagation speed
+            init_prop_v_ws = random.uniform(lim_max_prop_v_ws[0], lim_max_prop_v_ws[1])
+            final_prop_v_ws = random.uniform(lim_min_prop_v_ws[0], lim_min_prop_v_ws[1])
+
+            for hr in range(1, lng_ws + 1):
+                # Linear decrease over the event duration
+                v_hr = init_prop_v_ws + (final_prop_v_ws - init_prop_v_ws) * (hr - 1) / max(1, lng_ws - 1)
+                dist_hr = v_hr * 1e3  # km/h → m/h
+                brg_hr = self.get_bearing(dir_lon[hr - 1], dir_lat[hr - 1], dir_lon[hr], dir_lat[hr])
+                path_ws[hr] = self.get_destination(path_ws[hr - 1][0], path_ws[hr - 1][1], brg_hr, dist_hr)
+
+        else:
+            raise ValueError(
+                f"Unsupported prop_model '{prop_model}'. "
+                "Expected 'constant_uniform' or 'linear_decrease'."
+            )
 
         return path_ws
 
-
     def crt_ws_radius(self, lng_ws):
-        """Create radius of a windstorm at each hour"""
-        # Assumption: radius decreases linearly with time
-        # Gets:
-        lim_max_r_ws = self._get_lim_max_r_ws()
-        lim_min_r_ws = self._get_lim_min_r_ws()
-        # Randomly sample the initial and final radius
-        init_r_ws = random.uniform(lim_max_r_ws[0], lim_max_r_ws[1])
-        end_r_ws = random.uniform(lim_min_r_ws[0], lim_min_r_ws[1])
-        # Create radius for all timesteps
-        radius = np.linspace(init_r_ws, end_r_ws, lng_ws + 1)
-        return radius
+        """Create radius of a windstorm at each hour.
 
+        Notes:
+            - If event.r_model == 'constant_uniform': sample ONCE from a Uniform (low, high) and keep it constant across
+            the event.
+            - If event.r_model == 'linear_decrease': use the legacy linear decrease between sampled initial and final
+            radii.
+        """
+        r_model = getattr(self.data.WS.event, 'r_model', None)
+
+        if r_model == 'constant_uniform':
+            # Bounds for constant sampling (km)
+            # If not explicitly set, fall back to a sensible envelope from min/max bounds
+            bounds = getattr(self.data.WS.event, 'r_uniform_bounds', None)
+            if bounds is None:
+                # Envelope from configured min/max ranges
+                lim_max_r_ws = self._get_lim_max_r_ws()
+                lim_min_r_ws = self._get_lim_min_r_ws()
+                low = min(lim_min_r_ws[0], lim_min_r_ws[1], lim_max_r_ws[0], lim_max_r_ws[1])
+                high = max(lim_min_r_ws[0], lim_min_r_ws[1], lim_max_r_ws[0], lim_max_r_ws[1])
+                bounds = [low, high]
+
+            r_const = random.uniform(bounds[0], bounds[1])
+            return np.full(lng_ws + 1, r_const, dtype=float)
+
+        elif r_model == 'linear_decrease':
+            # Legacy behavior (kept for backward compatibility)
+            # Assumption: radius decreases linearly with time
+            lim_max_r_ws = self._get_lim_max_r_ws()
+            lim_min_r_ws = self._get_lim_min_r_ws()
+            init_r_ws = random.uniform(lim_max_r_ws[0], lim_max_r_ws[1])
+            end_r_ws = random.uniform(lim_min_r_ws[0], lim_min_r_ws[1])
+            radius = np.linspace(init_r_ws, end_r_ws, lng_ws + 1)
+            return radius
+
+        else:
+            raise ValueError(
+                f"Unsupported r_model '{r_model}'. "
+                "Expected 'constant_uniform' or 'linear_decrease'."
+            )
 
     def crt_ws_v(self, lim_v_ws, lng_ws):
-        """Create gust speeds of a windstorm at each hour"""
-        a = math.log(lim_v_ws[1] / lim_v_ws[0]) / (lng_ws - 1)
+        """Create gust speeds of a windstorm at each hour.
 
-        v_ws = [lim_v_ws[0] * math.exp(a * i) for i in range(lng_ws)]
+        Notes:
+            - If event.gust_model == 'constant_weibull': sample once from a Weibull(k, λ) and keep it constant across
+            the event.
+            - If event.gust_model == 'log_linear_decrease': use the old log-linear model between lim_v_ws[0] and
+            lim_v_ws[1].
+        """
+        # Read model name; default to the legacy log-linear model for backward compatibility
+        gust_model = getattr(self.data.WS.event, 'gust_model', 'log_linear_decrease')
 
-        return v_ws
+        if gust_model == 'constant_weibull':
+            # Weibull parameters (shape k, scale λ), with sensible defaults
+            k = (getattr(self.data.WS.event, 'gust_weibull_shape', None)
+                 or getattr(self.data.WS.event, 'gust_weibull_k', None)
+                 or 2.0)
+            lam = getattr(self.data.WS.event, 'gust_weibull_scale', 30.0)
+
+            # Sample ONCE → constant gust during the event
+            v_const = float(np.random.weibull(k) * lam)
+            return [v_const] * lng_ws
+
+        elif gust_model == 'log_linear_decrease':
+            # Legacy behavior (kept for backward compatibility)
+            # Monotonic (log-linear) profile between min/max.
+            # Protect against division by zero when lng_ws == 1.
+            denom = max(1, (lng_ws - 1))
+
+            # Guard against invalid ratios; if min == 0 or ratio <= 0, keep 'a' at 0.
+            ratio = (lim_v_ws[1] / lim_v_ws[0]) if lim_v_ws[0] != 0 else 1.0
+            a = math.log(ratio) / denom if ratio > 0 else 0.0
+
+            v_ws = [lim_v_ws[0] * math.exp(a * i) for i in range(lng_ws)]
+            return v_ws
+
+        else:
+            # Explicit error for unsupported model names
+            raise ValueError(
+                f"Unsupported gust_model '{gust_model}'. "
+                "Expected 'constant_weibull' or 'log_linear_decrease'."
+            )
 
     def compare_circle(self, epicentre, rad_ws, gis_bgn, gis_end, num_bch):
         """Identify whether an asset falls within the impact zone marked by a radius [km] around the epicentre."""

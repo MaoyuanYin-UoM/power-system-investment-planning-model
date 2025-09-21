@@ -98,6 +98,19 @@ class WindConfig:
         self.data.WS.event.lng = [12, 48]  # lower and upper bounds for windstorm duration
         self.data.WS.event.ttr = [24, 120]  # lower and upper bounds for line repair (time to restoration)
 
+        # if the 'constant_weibull' gust speed model is used
+        self.data.WS.event.gust_model = 'constant_weibull'
+        self.data.WS.event.gust_weibull_shape = 2.0  # k
+        self.data.WS.event.gust_weibull_scale = 30.0  # λ (m/s)
+
+        # if the 'constant_uniform' radius model is used
+        self.data.WS.event.r_model = 'constant_uniform'
+        self.data.WS.event.r_uniform_bounds = [20, 25]  # km
+
+        # if the 'constant_uniform' radius model is used
+        self.data.WS.event.prop_model = 'constant_uniform'
+        self.data.WS.event.prop_uniform_bounds = [22, 26]  # km/h
+
         # 2) define the contours where windstorms start and end (it impacts windstorms' path):
         self.data.WS.contour = Object()
         self.data.WS.contour.start_lon = [-2.0, -3.3, -3.3, -4.8, -4.8, -3.2, -2.2,
