@@ -532,7 +532,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Qimp_cost = 50  # reactive power importing cost
         ncon.data.net.Qexp_cost = 0  # reactive power exporting remuneration
 
-        ncon.data.net.Pc_cost = [2e4] * len(ncon.data.net.bus)  # active load shedding cost
+        ncon.data.net.Pc_cost = [1e4] * len(ncon.data.net.bus)  # active load shedding cost
         ncon.data.net.Qc_cost = [0] * len(ncon.data.net.bus)  # reactive load shedding cost
 
         # Generation cost of installed DGs
@@ -553,7 +553,7 @@ def make_network(name: str) -> NetworkClass:
         # (line hardening is modelled as a fixed fragility rightward shift, with cost proportional to the line length)
         ncon.data.net.fixed_hrdn_shift = [30.0] * len(ncon.data.net.bch)
         # Hardening cost rate
-        ncon.data.net.hrdn_cost_rate = [5e4] * len(ncon.data.net.bch)  # £50k/km for DN lines
+        ncon.data.net.hrdn_cost_rate = [2e6] * len(ncon.data.net.bch)  # £50k/km for DN lines
         # Compute hardening cost
         ncon.data.net.cost_bch_hrdn_fixed = []
         for i, length in enumerate(ncon.data.net.bch_length_km):
@@ -921,7 +921,7 @@ def make_network(name: str) -> NetworkClass:
         ncon.data.net.Qimp_cost = 50
         ncon.data.net.Qexp_cost = 0
 
-        ncon.data.net.Pc_cost = [2e3] * len(ncon.data.net.bus)
+        ncon.data.net.Pc_cost = [6e3] * len(ncon.data.net.bus)
         ncon.data.net.Qc_cost = [0] * len(ncon.data.net.bus)
 
         # Generation cost of installed DGs
@@ -941,7 +941,7 @@ def make_network(name: str) -> NetworkClass:
         # (line hardening is modelled as a fixed fragility rightward shift, with cost proportional to the line length)
         ncon.data.net.fixed_hrdn_shift = [20.0] * len(ncon.data.net.bch)
         # Hardening cost rate
-        ncon.data.net.hrdn_cost_rate = [2e5] * len(ncon.data.net.bch)  # £500k/km for TN lines
+        ncon.data.net.hrdn_cost_rate = [2e7] * len(ncon.data.net.bch)  # £500k/km for TN lines
         # Compute hardening cost
         ncon.data.net.cost_bch_hrdn_fixed = []
         for i, length in enumerate(ncon.data.net.bch_length_km):

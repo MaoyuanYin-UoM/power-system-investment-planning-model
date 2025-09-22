@@ -13,382 +13,360 @@ import json
 import math
 from typing import Any, Dict, List, Tuple, Optional
 
+import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle, Polygon, Patch
+from matplotlib.patches import Circle, Rectangle
+from matplotlib.patches import FancyBboxPatch
+from matplotlib.patches import PathPatch
+from matplotlib.path import Path as MplPath
+from matplotlib.lines import Line2D
+from matplotlib.collections import PatchCollection
+from matplotlib import cm
 
-from factories.network_factory import make_network  # uses metadata.network_preset
-
-
-# ======================= USER SETTINGS =======================
-
-
-LIBRARY_PATH = "../Scenario_Database/Scenarios_Libraries/Original_Scenario_Libraries/windstorm_library_net_29BusGB-KearsleyGSP_ws_29BusGB_10scenarios_seed50000.json"
-# LIBRARY_PATH = "../Scenario_Database/Scenarios_Libraries/Clustered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_1000scn_s50000_filt_b1_h1_buf15_eens_k10.json"
-
-# Choose a single scenario by id (e.g., "ws_0003"), by 1-based index (e.g., 3), or None for the first
-SCENARIO_ID_OR_INDEX: Optional[object] = None
-
-# ---- Appearance / fonts
-FIGSIZE = (10, 8)
-TITLE_FONTSIZE = 14
-LABEL_FONTSIZE = 12
-TICK_FONTSIZE = 10
-LEGEND_FONTSIZE = 10
-
-# ---- Event path / disks
-PLOT_CIRCLES = True
-PATH_ALPHA = 0.9
-MARKER_SIZE = 40
-DISK_ALPHA = 0.20
-
-# ---- Continuous-motion visuals (envelopes)
-# Pairwise swept band between consecutive epicentres (recommended)
-PLOT_PAIRWISE_SWEEP = True
-# Per-circle circumbox (square 2r) — alternative diagnostic view
-PLOT_PER_CIRCLE_BOX = False
-
-# Envelope styling (by default uses the *same* colour as the path but lighter)
-SWEEP_FACE_ALPHA = 0.20
-SWEEP_EDGE_ALPHA = 0.9
-
-# ======================= LIB HELPERS ========================
-
-def _load_library(path: str) -> Dict[str, Any]:
-    with open(path, "r") as f:
-        return json.load(f)
+from factories.network_factory import make_network
+from factories.windstorm_factory import make_windstorm
 
 
-def _iter_scenarios(lib: Dict[str, Any]):
+# -----------------------------
+# Helpers
+# -----------------------------
+def km_to_deg_radius(lat_deg: float, r_km: float) -> float:
+    """Convert radius in km to degrees of latitude at given latitude (ok for small circles)."""
+    return r_km / 111.0  # use latitude scale; conservative on longitude
+
+
+def segment_capsule_polygon(p0: Tuple[float, float],
+                            p1: Tuple[float, float],
+                            r_deg: float,
+                            cap_samples: int = 12) -> np.ndarray:
     """
-    Iterate scenarios in a consistent way for both dict and list formats.
-    Yields tuples: (scenario_id, scenario_data)
+    Build a capsule (rounded rectangle) polygon around segment p0->p1 with radius r_deg.
+    Returns Nx2 array of (lon, lat) vertices.
     """
-    if "scenarios" in lib:
-        scenarios = lib["scenarios"]
-    elif "ws_scenarios" in lib:  # legacy
-        scenarios = lib["ws_scenarios"]
-    else:
-        raise ValueError("No scenarios found. Expected 'scenarios' or 'ws_scenarios'.")
+    x0, y0 = p0
+    x1, y1 = p1
+    vx, vy = x1 - x0, y1 - y0
+    seg_len = math.hypot(vx, vy)
+    if seg_len == 0:
+        # Degenerate: return a circle
+        theta = np.linspace(0, 2 * np.pi, 36, endpoint=True)
+        return np.c_[x0 + r_deg * np.cos(theta), y0 + r_deg * np.sin(theta)]
 
-    if isinstance(scenarios, dict):
-        def key_fn(sid: str):
-            try:
-                return (int(sid.split("_")[-1]), sid)
-            except Exception:
-                return (10**9, sid)
-        for sid in sorted(scenarios.keys(), key=key_fn):
-            yield sid, scenarios[sid]
-    elif isinstance(scenarios, list):
-        for i, s in enumerate(scenarios):
-            sid = s.get("scenario_id", f"ws_{i:04d}")
-            yield sid, s
-    else:
-        raise TypeError("Unsupported scenarios container type.")
+    # Unit perpendicular (to the left)
+    nx, ny = -vy / seg_len, vx / seg_len
 
+    # Offset corners
+    a1 = (x0 + nx * r_deg, y0 + ny * r_deg)
+    a2 = (x1 + nx * r_deg, y1 + ny * r_deg)
+    b2 = (x1 - nx * r_deg, y1 - ny * r_deg)
+    b1 = (x0 - nx * r_deg, y0 - ny * r_deg)
 
-def _pick_scenario(lib: Dict[str, Any], selector: Optional[object]) -> Tuple[str, Dict[str, Any]]:
-    all_scenarios = list(_iter_scenarios(lib))
-    if not all_scenarios:
-        raise ValueError("Library has no scenarios.")
+    # Caps: semicircles at p1 and p0
+    th1 = math.atan2(ny, nx)            # normal direction angle
+    th_seg = math.atan2(vy, vx)         # segment direction angle
 
-    if selector is None:
-        return all_scenarios[0]
+    # End cap around p1 (from +normal to -normal, sweeping forward)
+    theta_end = np.linspace(th_seg - np.pi/2, th_seg + np.pi/2, cap_samples)
+    cap_end = np.c_[x1 + r_deg * np.cos(theta_end), y1 + r_deg * np.sin(theta_end)]
 
-    if isinstance(selector, int):  # 1-based
-        if selector < 1 or selector > len(all_scenarios):
-            raise IndexError(f"Scenario index {selector} out of range (1..{len(all_scenarios)}).")
-        return all_scenarios[selector - 1]
+    # Start cap around p0 (from -normal to +normal, sweeping backward)
+    theta_start = np.linspace(th_seg + np.pi/2, th_seg - np.pi/2, cap_samples)
+    cap_start = np.c_[x0 + r_deg * np.cos(theta_start), y0 + r_deg * np.sin(theta_start)]
 
-    for sid, sdata in all_scenarios:
-        if sid == selector:
-            return sid, sdata
-
-    raise KeyError(f"Scenario '{selector}' not found. First few: {[sid for sid,_ in all_scenarios[:6]]}")
-
-
-def _km_to_deg_lat(km: float) -> float:
-    """Approx convert km to degrees of latitude (1° ≈ 111 km)."""
-    return km / 111.0
+    # Assemble polygon (CCW): a1 -> a2 -> end cap -> b2 -> b1 -> start cap
+    poly = np.vstack([
+        np.array(a1),
+        np.array(a2),
+        cap_end,
+        np.array(b2),
+        np.array(b1),
+        cap_start
+    ])
+    return poly
 
 
-# ======================= GEOMETRY HELPERS ========================
-
-def _unit_perp(p1, p2):
-    """Unit vector perpendicular to segment p1->p2 (in degrees)."""
-    vx = p2[0] - p1[0]
-    vy = p2[1] - p1[1]
-    nx, ny = -vy, vx
-    nrm = math.hypot(nx, ny)
-    if nrm == 0:
-        return (0.0, 0.0)
-    return (nx / nrm, ny / nrm)
-
-
-def _rect_from_center_dirs(cx, cy, half_len, half_wid, tx, ty, nx, ny):
-    """Oriented rectangle centred at (cx,cy) with tangent t=(tx,ty) and normal n=(nx,ny)."""
-    p1 = (cx - half_len * tx - half_wid * nx, cy - half_len * ty - half_wid * ny)
-    p2 = (cx + half_len * tx - half_wid * nx, cy + half_len * ty - half_wid * ny)
-    p3 = (cx + half_len * tx + half_wid * nx, cy + half_len * ty + half_wid * ny)
-    p4 = (cx - half_len * tx + half_wid * nx, cy - half_len * ty + half_wid * ny)
-    return [p1, p2, p3, p4]
-
-
-# ======================= NETWORK BACKGROUND ========================
-
-def _draw_network_background(ax, network_preset: str):
-    """Draw branches with T/D colouring; set axis to bus extents."""
-    net = make_network(network_preset)
+def draw_network(ax, net, tn_color="darkgreen", dn_color="orange", lw=1.2, alpha=0.9):
+    """Plot network branches with separate colours for T/D."""
     net.set_gis_data()
-
     bgn = net._get_bch_gis_bgn()
     end = net._get_bch_gis_end()
-
-    bus_lons = net._get_bus_lon()
-    bus_lats = net._get_bus_lat()
-
-    has_branch_levels = hasattr(net.data.net, 'branch_level')
+    has_branch_levels = hasattr(net.data.net, "branch_level")
 
     tn_plotted = False
     dn_plotted = False
-
     for idx, (p, q) in enumerate(zip(bgn, end), start=1):
         if has_branch_levels:
-            level = net.data.net.branch_level.get(idx, 'T')
+            lvl = net.data.net.branch_level.get(idx, "T")
         else:
-            level = 'T'
+            lvl = "T"
 
-        if level in ('T', 'T-D'):
-            color = 'darkgreen'
-            label = 'Transmission Branch' if not tn_plotted else ""
+        if lvl in ("T", "T-D"):
+            color = tn_color
+            label = "Transmission Branch" if not tn_plotted else None
             tn_plotted = True
         else:
-            color = 'orange'
-            label = 'Distribution Branch' if not dn_plotted else ""
+            color = dn_color
+            label = "Distribution Branch" if not dn_plotted else None
             dn_plotted = True
 
-        ax.plot([p[0], q[0]], [p[1], q[1]], color=color, alpha=0.7, label=label)
+        ax.plot([p[0], q[0]], [p[1], q[1]], color=color, lw=lw, alpha=alpha, label=label)
 
+
+def _auto_marker_stride(n_points: int, target_markers: int = 22) -> int:
+    """Return markevery stride so we show about `target_markers` markers along a path."""
+    if n_points <= target_markers:
+        return 1
+    return max(1, n_points // target_markers)
+
+
+# -----------------------------
+# Core plotting
+# -----------------------------
+def plot_ws_scenarios(
+    ws_library_path: str,
+    show_network: bool = True,
+    plot_circles: bool = True,
+    plot_envelopes: bool = True,
+    multi_on_one_axis: bool = True,
+    show_per_scenario_legend: bool = False,
+    figsize: Tuple[int, int] = (11, 9),
+    title: Optional[str] = None,
+    circle_alpha: float = 0.18,
+    envelope_alpha: float = 0.20,
+    path_alpha: float = 0.9,
+    title_fontsize: int = 15,          # New parameter for title font size
+    xlabel_fontsize: int = 12,         # New parameter for x-axis label font size
+    ylabel_fontsize: int = 12,         # New parameter for y-axis label font size
+    tick_fontsize: int = 10,           # New parameter for tick font size
+    legend_fontsize: int = 10,         # New parameter for legend font size
+):
+    """
+    Tidy visualization of all scenarios in a library.
+
+    - Generic legend items only (unless `show_per_scenario_legend=True`).
+    - “Storm radius” legend entry added with a circle marker.
+    - Envelope shares the same hue as the path, with high transparency.
+    """
+    with open(ws_library_path, "r") as f:
+        data = json.load(f)
+
+    meta = data.get("metadata", {})
+    scenarios: Dict[str, Any] = data.get("scenarios") or data.get("ws_scenarios")
+
+    # Extract scenario probabilities if available
+    scenario_probabilities = data.get("scenario_probabilities", {})
+
+    if isinstance(scenarios, list):
+        # Old format → list; give IDs
+        scenarios = {f"ws_{i:04d}": sc for i, sc in enumerate(scenarios)}
+    scenario_ids = list(scenarios.keys())
+
+    # Network & windstorm objects (for axis extents + consistent style)
+    net = make_network(meta.get("network_preset", "29_bus_GB_transmission_network_with_Kearsley_GSP_group"))
+    ws = make_windstorm(meta.get("windstorm_preset", "windstorm_GB_transmission_network"))
+
+    # Figure/axis
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Network underlay
+    if show_network:
+        draw_network(ax, net)
+
+    # Colors for scenarios - avoid green and orange which are used for TN/DN branches
+    # tab10 colormap indices: 0=blue, 1=orange, 2=green, 3=red, 4=purple, 5=brown, 6=pink, 7=gray, 8=olive, 9=cyan
+    # Skip indices 1 (orange) and 2 (green) to avoid conflicts with network colors
+    cmap = cm.get_cmap("tab10")
+    safe_indices = [0, 1, 4, 5, 6, 7, 8, 9]  # Exclude 2, 3
+    colors = [cmap(safe_indices[i % len(safe_indices)]) for i in range(len(scenario_ids))]
+
+    # Plot each scenario
+    per_scn_handles = []
+    for idx, scn_id in enumerate(scenario_ids):
+        scn = scenarios[scn_id]
+        # Each scenario may have multiple events → draw them all in the same color
+        sc_color = colors[idx]
+
+        for ev in scn.get("events", []):
+            epi = np.asarray(ev["epicentre"], dtype=float)  # shape (T, 2)
+            r_km = ev["radius"]
+            if isinstance(r_km, (int, float)):
+                r_km = [r_km] * len(epi)
+            r_deg = [km_to_deg_radius(lat, rk) for (lon, lat), rk in zip(epi, r_km)]
+
+            # Path
+            stride = _auto_marker_stride(len(epi))
+            (ln,) = ax.plot(
+                epi[:, 0],
+                epi[:, 1],
+                "-o",
+                lw=1.8,
+                ms=4.5,
+                markevery=stride,
+                color=sc_color,
+                alpha=path_alpha,
+                label=None,
+                zorder=3,
+            )
+
+            # Circles (per-hour radius)
+            if plot_circles:
+                patches = []
+                for (lon, lat), rr in zip(epi, r_deg):
+                    patches.append(Circle((lon, lat), rr))
+                pc = PatchCollection(patches, facecolor=sc_color, edgecolor="none", alpha=circle_alpha, zorder=2)
+                ax.add_collection(pc)
+
+            # Envelope (capsule per segment)
+            if plot_envelopes and len(epi) > 1:
+                env_patches = []
+                for t in range(len(epi) - 1):
+                    p0 = (epi[t, 0], epi[t, 1])
+                    p1 = (epi[t + 1, 0], epi[t + 1, 1])
+                    rr = r_deg[t]  # radius for hour t
+                    poly = segment_capsule_polygon(p0, p1, rr, cap_samples=18)
+                    # Build a closed Path
+                    verts = np.vstack([poly, poly[0]])
+                    codes = [MplPath.MOVETO] + [MplPath.LINETO] * (len(poly) - 1) + [MplPath.CLOSEPOLY]
+                    path = MplPath(verts, codes)
+                    env_patches.append(PathPatch(path))
+
+                env = PatchCollection(
+                    env_patches,
+                    facecolor=sc_color,
+                    edgecolor="none",
+                    alpha=envelope_alpha,
+                    zorder=2,
+                )
+                ax.add_collection(env)
+
+        # Optionally add a legend entry per scenario (kept off by default)
+        if show_per_scenario_legend:
+            # per_scn_handles.append(Line2D([0], [0], color=sc_color, lw=2, label=f"{scn_id} (paths/envelopes)"))
+
+            # Create legend entry with scenario probability
+            # Extract scenario number from ID (e.g., "ws_0001" -> 1)
+            scenario_num = idx + 1  # Simple 1-based numbering
+            # Get probability for this scenario (default to equal probability if not found)
+            prob = scenario_probabilities.get(scn_id, 1.0 / len(scenario_ids))
+
+            # Add legend handle with scenario number and probability
+            legend_label = f"Scenario {scenario_num}, p = {prob:.3f}"
+            per_scn_handles.append(Line2D([0], [0], color=sc_color, lw=2, label=legend_label))
+
+    # Axis limits: pad around network
+    bus_lons = net._get_bus_lon()
+    bus_lats = net._get_bus_lat()
     xmin, xmax = min(bus_lons), max(bus_lons)
     ymin, ymax = min(bus_lats), max(bus_lats)
-    ax.set_xlim(xmin - 1, xmax + 1)
-    ax.set_ylim(ymin - 1, ymax + 1)
+    pad_x = 0.7
+    pad_y = 0.7
+    ax.set_xlim(xmin - pad_x, xmax + pad_x)
+    ax.set_ylim(ymin - pad_y, ymax + pad_y)
 
-    return net
-
-
-# ======================= EVENT PLOTTING ========================
-
-def _draw_pairwise_sweep_band(ax, epicentre: List[List[float]], radii_km: List[float], color: str):
-    """
-    For each consecutive pair (t, t+1), draw a band equal to the Minkowski sum
-    of the line segment with a disk of radius min(r_t, r_{t+1}).
-    End circles (already plotted) cover larger radius differences.
-    """
-    T = len(epicentre)
-    if T < 2:
-        return
-
-    # Make sure legend has exactly one "Storm Envelope" entry
-    have_env_label = "Storm Envelope" in ax.get_legend_handles_labels()[1]
-    env_label = None if have_env_label else "Storm Envelope"
-
-    for t in range(T - 1):
-        p1 = epicentre[t]
-        p2 = epicentre[t + 1]
-        r_deg = _km_to_deg_lat(min(radii_km[t], radii_km[t + 1]))
-
-        nx, ny = _unit_perp(p1, p2)
-        if nx == 0.0 and ny == 0.0:
-            continue
-
-        c1 = (p1[0] + nx * r_deg, p1[1] + ny * r_deg)
-        c2 = (p2[0] + nx * r_deg, p2[1] + ny * r_deg)
-        c3 = (p2[0] - nx * r_deg, p2[1] - ny * r_deg)
-        c4 = (p1[0] - nx * r_deg, p1[1] - ny * r_deg)
-
-        band = Polygon([c1, c2, c3, c4], closed=True,
-                       facecolor=color, edgecolor=color,
-                       alpha=SWEEP_FACE_ALPHA, zorder=2, label=env_label)
-        ax.add_patch(band)
-
-        # Only label the first band once
-        env_label = None
-
-
-def _draw_per_circle_boxes(ax, epicentre: List[List[float]], radii_km: List[float], color: str):
-    """Draw a circumbox (square) of side 2r for each circle, oriented by the local tangent."""
-    T = len(epicentre)
-    if T == 0:
-        return
-
-    for t in range(T):
-        cx, cy = epicentre[t]
-        r_deg = _km_to_deg_lat(radii_km[t])
-
-        # tangent from neighbours (forward/backward at ends)
-        if t == 0:
-            tx = (epicentre[1][0] - cx) if T > 1 else 1.0
-            ty = (epicentre[1][1] - cy) if T > 1 else 0.0
-        elif t == T - 1:
-            tx = cx - epicentre[t - 1][0]
-            ty = cy - epicentre[t - 1][1]
+    # Titles & labels
+    if title is None:
+        if len(scenario_ids) == 1:
+            lbl = scenario_ids[0]
+            ax.set_title(f"Windstorm Path – {lbl}", fontsize=title_fontsize, fontweight="bold")
         else:
-            tx = epicentre[t + 1][0] - epicentre[t - 1][0]
-            ty = epicentre[t + 1][1] - epicentre[t - 1][1]
+            ax.set_title("Windstorm Paths – Multiple Scenarios", fontsize=title_fontsize, fontweight="bold")
+    else:
+        ax.set_title(title, fontsize=title_fontsize, fontweight="bold")
 
-        nrm = math.hypot(tx, ty)
-        if nrm == 0:
-            tx, ty = 1.0, 0.0
-        else:
-            tx, ty = tx / nrm, ty / nrm
+    ax.set_xlabel("Longitude", fontsize=xlabel_fontsize)
+    ax.set_ylabel("Latitude", fontsize=ylabel_fontsize)
+    ax.tick_params(axis='both', labelsize=tick_fontsize)
+    ax.grid(True, alpha=0.3)
 
-        nx, ny = -ty, tx  # normal
-        # Rect corners for half_len=r_deg, half_wid=r_deg
-        p1 = (cx - r_deg * tx - r_deg * nx, cy - r_deg * ty - r_deg * ny)
-        p2 = (cx + r_deg * tx - r_deg * nx, cy + r_deg * ty - r_deg * ny)
-        p3 = (cx + r_deg * tx + r_deg * nx, cy + r_deg * ty + r_deg * ny)
-        p4 = (cx - r_deg * tx + r_deg * nx, cy - r_deg * ty + r_deg * ny)
+    # -----------------------------
+    # Legend
+    # -----------------------------
+    legend_handles: List[Any] = []
 
-        poly = Polygon([p1, p2, p3, p4], closed=True, fill=False,
-                       edgecolor=color, alpha=0.8, lw=1.0)
-        ax.add_patch(poly)
-
-
-def _plot_event_over_network(ax, event: Dict[str, Any], color: str):
-    """Overlay one windstorm event on an axis that already has the network drawn."""
-    epic = event["epicentre"]             # [[lon, lat], ...]
-    radii_km = event["radius"]            # [r_km, ...]
-
-    # path + markers
-    lons = [p[0] for p in epic]
-    lats = [p[1] for p in epic]
-    ax.plot(lons, lats, "o-", color=color, alpha=PATH_ALPHA, lw=1.5, label="Windstorm Path")
-    ax.scatter(lons, lats, s=MARKER_SIZE, color=color, zorder=3)
-
-    # hourly circles
-    if PLOT_CIRCLES:
-        for (lon, lat), r_km in zip(epic, radii_km):
-            r_deg = _km_to_deg_lat(r_km)
-            ax.add_patch(Circle((lon, lat), r_deg, color=color, alpha=DISK_ALPHA, fill=True))
-
-    # continuous-motion visuals (envelope)
-    if PLOT_PAIRWISE_SWEEP:
-        _draw_pairwise_sweep_band(ax, epic, radii_km, color)
-
-    if PLOT_PER_CIRCLE_BOX:
-        _draw_per_circle_boxes(ax, epic, radii_km, color)
-
-
-# ======================= DEFAULT: ONE FIGURE PER EVENT =======================
-
-def _plot_scenario_events_with_network(sid: str, sdata: Dict[str, Any], network_preset: str, color: str = "blue"):
-    events = sdata.get("events", [])
-    if not events:
-        print(f"[{sid}] No events to plot.")
-        return
-
-    for ev_idx, ev in enumerate(events, start=1):
-        fig, ax = plt.subplots(figsize=FIGSIZE)
-
-        _draw_network_background(ax, network_preset)
-        _plot_event_over_network(ax, ev, color=color)
-
-        ax.set_xlabel("Longitude", fontsize=LABEL_FONTSIZE)
-        ax.set_ylabel("Latitude", fontsize=LABEL_FONTSIZE)
-        ax.tick_params(axis='both', labelsize=TICK_FONTSIZE)
-        ax.set_title(f"Windstorm Path - {sid}, Event {ev_idx}", fontsize=TITLE_FONTSIZE, fontweight='bold')
-
-        # Deduplicate legend entries
-        handles, labels = ax.get_legend_handles_labels()
-        seen = set()
-        h_clean, l_clean = [], []
-        for h, l in zip(handles, labels):
-            if l and l not in seen:
-                h_clean.append(h); l_clean.append(l); seen.add(l)
-        if h_clean:
-            ax.legend(h_clean, l_clean, fontsize=LEGEND_FONTSIZE, loc="best")
-
-        ax.grid(True)
-        plt.tight_layout()
-        plt.show()
-
-
-# ======================= OPTIONAL: MULTI-SCENARIO, SINGLE CANVAS =======================
-
-# Toggle this to True to plot multiple scenarios on one canvas
-MULTI_SCENARIO_SINGLE_CANVAS = True
-# Leave None to plot ALL scenarios; or provide a list of ids/1-based indices, e.g. ["ws_0000", 2, 5]
-SCENARIOS_TO_PLOT: Optional[List[object]] = None
-
-def _color_cycle():
-    for c in plt.rcParams['axes.prop_cycle'].by_key().get('color', ['C0','C1','C2','C3','C4','C5','C6','C7','C8','C9']):
-        yield c
-
-def _plot_multiple_scenarios_single_canvas(lib: Dict[str, Any], network_preset: str):
-    scen_list = list(_iter_scenarios(lib))
-    if SCENARIOS_TO_PLOT:
-        # filter by id or 1-based index
-        picked = []
-        ids = {s for s in SCENARIOS_TO_PLOT if isinstance(s, str)}
-        idxs = {s for s in SCENARIOS_TO_PLOT if isinstance(s, int)}
-        for i, (sid, sdata) in enumerate(scen_list, start=1):
-            if sid in ids or i in idxs:
-                picked.append((sid, sdata))
-        scen_list = picked
-
-    if not scen_list:
-        print("No scenarios selected to plot.")
-        return
-
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-    _draw_network_background(ax, network_preset)
-
-    colour = _color_cycle()
-    legend_added_for_path = set()
-
-    for sid, sdata in scen_list:
-        c = next(colour)
-        for ev in sdata.get("events", []):
-            # Draw event with this scenario's colour
-            _plot_event_over_network(ax, ev, color=c)
-
-        # Add one proxy legend handle per scenario for path colour
-        if sid not in legend_added_for_path:
-            ax.plot([], [], color=c, lw=2, label=f"{sid} (paths/envelopes)")
-            legend_added_for_path.add(sid)
-
-    ax.set_xlabel("Longitude", fontsize=LABEL_FONTSIZE)
-    ax.set_ylabel("Latitude", fontsize=LABEL_FONTSIZE)
-    ax.tick_params(axis='both', labelsize=TICK_FONTSIZE)
-    ax.set_title("Windstorm Paths – Multiple Scenarios", fontsize=TITLE_FONTSIZE, fontweight='bold')
-
-    # Deduplicate legend
-    handles, labels = ax.get_legend_handles_labels()
+    # Network entries (already plotted with labels in draw_network)
+    # Extract unique labelled handles actually present
+    cur_handles, cur_labels = ax.get_legend_handles_labels()
     seen = set()
-    h_clean, l_clean = [], []
-    for h, l in zip(handles, labels):
-        if l and l not in seen:
-            h_clean.append(h); l_clean.append(l); seen.add(l)
-    if h_clean:
-        ax.legend(h_clean, l_clean, fontsize=LEGEND_FONTSIZE, loc="best")
+    for h, lab in zip(cur_handles, cur_labels):
+        if lab and lab not in seen and lab in ("Transmission Branch", "Distribution Branch"):
+            legend_handles.append(Line2D([0], [0], color=h.get_color(), lw=2, label=lab))
+            seen.add(lab)
 
-    ax.grid(True)
+    # 1) Windstorm Path (generic)
+    legend_handles.append(Line2D([0], [0], color="#1f77b4", lw=2, marker="o", label="Windstorm Path"))
+
+    # 2) Storm radius (as a circle marker, filled)
+    legend_handles.append(Line2D([0], [0], linestyle="None", marker="o", ms=9,
+                                 markerfacecolor="#1f77b4", markeredgecolor="none",
+                                 alpha=0.35, label="Storm radius"))
+
+    # 3) Storm Envelope (filled patch)
+    legend_handles.append(FancyBboxPatch((0, 0), 1, 1,
+                                         boxstyle="round,pad=0.0",
+                                         linewidth=0,
+                                         facecolor="#1f77b4",
+                                         alpha=0.22,
+                                         label="Storm Envelope"))
+
+    # 4） Per scenario data
+    legend_handles.extend(per_scn_handles)
+
+    ax.legend(handles=legend_handles, loc="upper left", frameon=True, fontsize=legend_fontsize)
+
+
     plt.tight_layout()
     plt.show()
+    return fig, ax
 
 
-# ======================= MAIN =======================
+# -----------------------------
+# Quick single-event helper (kept simple)
+# -----------------------------
+def plot_single_event(ws_library_path: str,
+                      scenario_id: str,
+                      event_idx: int = 0,
+                      **kwargs):
+    """Convenience wrapper to plot one chosen scenario/event with the same clean legend."""
+    with open(ws_library_path, "r") as f:
+        data = json.load(f)
+    scenarios: Dict[str, Any] = data.get("scenarios") or data.get("ws_scenarios")
+    if isinstance(scenarios, list):
+        scenarios = {f"ws_{i:04d}": sc for i, sc in enumerate(scenarios)}
+    # Slice a small dict containing just one scenario
+    mini = {"metadata": data.get("metadata", {}), "scenarios": {scenario_id: scenarios[scenario_id]}}
+    tmp = Path(".") / "_tmp_single_ws.json"
+    with open(tmp, "w") as f:
+        json.dump(mini, f)
+    try:
+        return plot_ws_scenarios(str(tmp), **kwargs)
+    finally:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
 
+
+# -----------------------------
+# Script entry
+# -----------------------------
 if __name__ == "__main__":
-    lib = _load_library(LIBRARY_PATH)
-    meta = lib.get("metadata", {})
-    network_preset = meta.get("network_preset", None)
-    if not network_preset:
-        raise KeyError("metadata.network_preset missing in the library JSON; cannot draw network background.")
+    # Example: plot 10 scenarios from a filtered library on one canvas.
+    # Adjust the path below to your library.
+    ws_library = "../Scenario_Database/Scenarios_Libraries/Clustered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_5000scn_s10000_filt_b1_h1_buf15_eens_k10.json"
 
-    if MULTI_SCENARIO_SINGLE_CANVAS:
-        _plot_multiple_scenarios_single_canvas(lib, network_preset)
-    else:
-        sid, sdata = _pick_scenario(lib, SCENARIO_ID_OR_INDEX)
-        # default “classic” behaviour: one figure per event (blue)
-        _plot_scenario_events_with_network(sid, sdata, network_preset, color="C0")
+    plot_ws_scenarios(
+        ws_library_path=ws_library,
+        show_network=True,
+        plot_circles=True,  # circles visible (constant radius → feel free to set False)
+        plot_envelopes=True,  # capsule envelope
+        multi_on_one_axis=True,  # plot all scenarios together
+        show_per_scenario_legend=True,  # keep legend compact
+        figsize=(11, 9),
+        title="Windstorm Scenario Visualisations",
+        # Font size parameters (optional - will use defaults if not specified)
+        title_fontsize=16,  # Font size for title
+        xlabel_fontsize=14,  # Font size for x-axis label
+        ylabel_fontsize=14,  # Font size for y-axis label
+        tick_fontsize=12,  # Font size for axis ticks
+        legend_fontsize=12  # Font size for legend
+    )
