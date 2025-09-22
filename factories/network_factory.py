@@ -328,7 +328,7 @@ def make_network(name: str) -> NetworkClass:
                 # Data is already hourly, use directly
                 hourly_profile = bsp_data[:, idx].astype(float).tolist()
                 bus_specific_profiles[bus_id] = hourly_profile
-                print(f"  Loaded profile for BSP bus {bus_id} ({bsp_names[idx]}): {len(hourly_profile)} hours")
+                # print(f"  Loaded profile for BSP bus {bus_id} ({bsp_names[idx]}): {len(hourly_profile)} hours")
 
             # Process Primary substation profiles (data starts from row 5, index 4)
             primary_data = df_primary.iloc[4:, 1:len(primary_bus_ids) + 1].values
@@ -336,7 +336,7 @@ def make_network(name: str) -> NetworkClass:
                 # Data is already hourly, use directly
                 hourly_profile = primary_data[:, idx].astype(float).tolist()
                 bus_specific_profiles[bus_id] = hourly_profile
-                print(f"  Loaded profile for Primary bus {bus_id} ({primary_names[idx]}): {len(hourly_profile)} hours")
+                # print(f"  Loaded profile for Primary bus {bus_id} ({primary_names[idx]}): {len(hourly_profile)} hours")
 
             print(f"Loaded bus-specific profiles for {len(bus_specific_profiles)} buses")
 

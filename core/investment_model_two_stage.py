@@ -13,7 +13,7 @@ import json
 import os
 
 from factories.windstorm_factory import make_windstorm
-
+from factories.network_factory import make_network
 
 class Object(object):
     pass
@@ -1584,7 +1584,7 @@ class InvestmentClass():
 
         # 5.11) Resilience metric threshold constraint (resilience metric <= pre-defined threshold)
         # Code 'expected total operational cost at dn level across all ws scenarios' as an expression
-        def expected_total_op_cost_dn_ws_rule(model):
+        def ws_expected_total_op_cost_relprob_dn_rule(model):
             # 1) DN generation cost from EXISTING generators
             gen_cost_dn_exst = sum(
                 model.scn_prob_relative[sc] * (
@@ -1619,11 +1619,11 @@ class InvestmentClass():
 
             return gen_cost_dn_exst + gen_cost_dn_new + active_ls_cost_dn + reactive_ls_cost_dn + rep_cost_dn
 
-        model.exp_total_op_cost_dn_ws_expr = pyo.Expression(rule=expected_total_op_cost_dn_ws_rule)
+        model.ws_exp_total_op_cost_relprob_dn_expr = pyo.Expression(rule=ws_expected_total_op_cost_relprob_dn_rule)
 
         # Code "Expected Energy Not Supplied (EENS) at dn level across all ws scenarios" as an expression
         # Since we have hourly resolution, EENS = sum of all active power load shedding
-        def expected_total_eens_dn_ws_rule(model):
+        def ws_expected_total_eens_relprob_dn_rule(model):
             # EENS = sum of all active power load shedding, weighted by RELATIVE ws probability
             # This gives the expected value across windstorm scenarios only
             eens_dn = sum(
@@ -1632,12 +1632,12 @@ class InvestmentClass():
             )
             return eens_dn
 
-        model.exp_total_eens_dn_ws_expr = pyo.Expression(rule=expected_total_eens_dn_ws_rule)
+        model.ws_exp_total_eens_relprob_dn_expr = pyo.Expression(rule=ws_expected_total_eens_relprob_dn_rule)
 
         if resilience_metric_threshold is not None:
             model.Constraint_ResilienceLevel = pyo.Constraint(
                 # expr=model.exp_total_op_cost_dn_expr <= model.resilience_metric_threshold
-                expr=model.exp_total_eens_dn_ws_expr <= model.resilience_metric_threshold
+                expr=model.ws_exp_total_eens_relprob_dn_expr <= model.resilience_metric_threshold
             )
 
         # ------------------------------------------------------------------
@@ -1663,8 +1663,8 @@ class InvestmentClass():
 
         model.total_inv_cost_expr = pyo.Expression(rule=total_inv_cost_rule)
 
-        # Code the expression: total operational cost during the windstorm hours
-        def expected_total_op_cost_rule(model):
+        # Expression: total operational cost during the windstorm hours calculated using absolute probabilities
+        def ws_exp_total_op_cost_absprob_expr(model):
             # All components already use model.scn_prob_abs[sc] correctly
             # 1) Generation cost from existing generators
             gen_cost_exst = sum(
@@ -1710,7 +1710,7 @@ class InvestmentClass():
             # REMOVED: Don't add annual_normal_cost here
             return ws_window_cost
 
-        model.exp_total_op_cost_expr = pyo.Expression(rule=expected_total_op_cost_rule)
+        model.ws_exp_total_op_cost_absprob_expr = pyo.Expression(rule=ws_exp_total_op_cost_absprob_expr)
 
         print(model.scn_prob_abs[sc] for sc in model.Set_scn)
 
@@ -1731,32 +1731,20 @@ class InvestmentClass():
                 # Normal scenario contributes its probability * annual cost
                 normal_contribution = normal_scenario_prob * normal_operation_opf_results["total_cost"]
                 # Windstorm scenarios contribute their expected cost (already probability-weighted)
-                ws_contribution = model.exp_total_op_cost_expr
+                ws_contribution = model.ws_exp_total_op_cost_absprob_expr
 
                 # Total annual operational cost
                 annual_op_cost = normal_contribution + ws_contribution
                 return inv_cost + pv_factor * annual_op_cost
             else:
                 # Only windstorm scenarios
-                return inv_cost + pv_factor * model.exp_total_op_cost_expr
+                return inv_cost + pv_factor * model.ws_exp_total_op_cost_absprob_expr
 
         model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
-        # Add parameter to track normal cost contribution
-        if include_normal_scenario and normal_operation_opf_results:
-            model.normal_annual = pyo.Param(
-                initialize=normal_scenario_prob * normal_operation_opf_results["total_cost"],
-                mutable=False
-            )
-
-            # Also create expressions for tracking DN-level normal costs
-            model.normal_gen_cost_dn = pyo.Param(
-                initialize=normal_scenario_prob * normal_operation_opf_results["gen_cost_dn"],
-                mutable=False
-            )
 
         # ------------------------------------------------------------------
-        # 7. Additional expressions (i.e., for future data post-processing)
+        # 7. Additional expressions (Recorded for future result writing or data post-processing)
         # ------------------------------------------------------------------
         print("Defining additional expressions...")
 
@@ -1777,6 +1765,138 @@ class InvestmentClass():
                        for e in model.Set_ess_new)
 
         model.total_inv_cost_ess_expr = pyo.Expression(rule=total_inv_cost_ess_rule)
+
+        def ws_exp_total_op_cost_relprob_rule(model):
+            # 1) Generation cost from existing generators
+            gen_cost_exst = sum(
+                model.scn_prob_relative[sc] * (
+                        model.gen_cost_coef_exst[g, 0] + model.gen_cost_coef_exst[g, 1] * model.Pg_exst[sc, g, t])
+                for (sc, g, t) in model.Set_sgt_exst
+            )
+
+            # 2) Generation cost from new generators
+            gen_cost_new = sum(
+                model.scn_prob_relative[sc] * (
+                        model.gen_cost_coef_new[g, 0] + model.gen_cost_coef_new[g, 1] * model.Pg_new[sc, g, t])
+                for (sc, g, t) in model.Set_sgt_new
+            )
+
+            # 3) Grid import/export
+            imp_exp_cost = sum(
+                model.scn_prob_relative[sc] * (
+                            model.Pimp_cost * model.Pimp[sc, t] + model.Pexp_cost * model.Pexp[sc, t])
+                for (sc, t) in model.Set_st
+            )
+
+            # 4) Active load-shedding
+            act_ls_cost = sum(
+                model.scn_prob_relative[sc] * model.Pc_cost[b] * model.Pc[sc, b, t]
+                for (sc, b, t) in model.Set_sbt
+            )
+
+            # 5) Reactive load-shedding (DN buses only)
+            reac_ls_cost = sum(
+                model.scn_prob_relative[sc] * model.Qc_cost[b] * model.Qc[sc, b, t]
+                for (sc, b, t) in model.Set_sbt_dn
+            )
+
+            # 6) Line repair
+            rep_cost = sum(
+                model.scn_prob_relative[sc] * model.rep_cost[l] * model.repair_applies[sc, l, t]
+                for (sc, l, t) in model.Set_slt_lines
+            )
+
+            return gen_cost_exst + gen_cost_new + imp_exp_cost + act_ls_cost + reac_ls_cost + rep_cost
+
+        model.ws_exp_total_op_cost_relprob_expr = pyo.Expression(rule=ws_exp_total_op_cost_relprob_rule)
+
+        def ws_exp_total_op_cost_absprob_dn_rule(model):
+            # 1) DN generation cost from existing generators
+            gen_cost_dn_exst = sum(
+                model.scn_prob_abs[sc] * (
+                        model.gen_cost_coef_exst[g, 0] + model.gen_cost_coef_exst[g, 1] * model.Pg_exst[sc, g, t])
+                for (sc, g, t) in model.Set_sgt_dn_exst
+            )
+
+            # 2) DN generation cost from new generators
+            gen_cost_dn_new = sum(
+                model.scn_prob_abs[sc] * (
+                        model.gen_cost_coef_new[g, 0] + model.gen_cost_coef_new[g, 1] * model.Pg_new[sc, g, t])
+                for (sc, g, t) in model.Set_sgt_dn_new
+            )
+
+            # 3) DN active load-shedding
+            active_ls_cost_dn = sum(
+                model.scn_prob_abs[sc] * model.Pc_cost[b] * model.Pc[sc, b, t]
+                for (sc, b, t) in model.Set_sbt_dn
+            )
+
+            # 4) DN reactive load-shedding
+            reactive_ls_cost_dn = sum(
+                model.scn_prob_abs[sc] * model.Qc_cost[b] * model.Qc[sc, b, t]
+                for (sc, b, t) in model.Set_sbt_dn
+            )
+
+            # 5) DN line repair
+            rep_cost_dn = sum(
+                model.scn_prob_abs[sc] * model.rep_cost[l] * model.repair_applies[sc, l, t]
+                for (sc, l, t) in model.Set_slt_dn_lines
+            )
+
+            return gen_cost_dn_exst + gen_cost_dn_new + active_ls_cost_dn + reactive_ls_cost_dn + rep_cost_dn
+
+        model.ws_exp_total_op_cost_absprob_dn_expr = pyo.Expression(rule=ws_exp_total_op_cost_absprob_dn_rule)
+
+        def ws_exp_total_eens_absprob_dn_rule(model):
+            # EENS = sum of all active power load shedding, weighted by ABSOLUTE ws probability
+            eens_dn = sum(
+                model.scn_prob_abs[sc] * model.Pc[sc, b, t]
+                for (sc, b, t) in model.Set_sbt_dn
+            )
+            return eens_dn
+
+        model.ws_exp_total_eens_absprob_dn_expr = pyo.Expression(rule=ws_exp_total_eens_absprob_dn_rule)
+
+        def ws_exp_total_ls_cost_absprob_dn_rule(model):
+            # Active load-shedding cost at DN level with ABSOLUTE probability
+            active_ls_cost_dn = sum(
+                model.scn_prob_abs[sc] * model.Pc_cost[b] * model.Pc[sc, b, t]
+                for (sc, b, t) in model.Set_sbt_dn
+            )
+            return active_ls_cost_dn
+
+        model.ws_exp_total_ls_cost_absprob_dn_expr = pyo.Expression(rule=ws_exp_total_ls_cost_absprob_dn_rule)
+
+        def ws_exp_total_ls_cost_relprob_dn_rule(model):
+            # Active load-shedding cost at DN level with RELATIVE probability
+            active_ls_cost_dn = sum(
+                model.scn_prob_relative[sc] * model.Pc_cost[b] * model.Pc[sc, b, t]
+                for (sc, b, t) in model.Set_sbt_dn
+            )
+            return active_ls_cost_dn
+
+        model.ws_exp_total_ls_cost_relprob_dn_expr = pyo.Expression(rule=ws_exp_total_ls_cost_relprob_dn_rule)
+
+        if include_normal_scenario and normal_operation_opf_results:
+            model.normal_annual_op_cost_absprob = pyo.Param(
+                initialize=normal_scenario_prob * normal_operation_opf_results["total_cost"],
+                mutable=False
+            )
+
+            model.normal_annual_op_cost_relprob = pyo.Param(
+                initialize=1.0 * normal_operation_opf_results["total_cost"],
+                mutable=False
+            )
+
+            model.normal_gen_cost_absprob_dn = pyo.Param(
+                initialize=normal_scenario_prob * normal_operation_opf_results["gen_cost_dn"],
+                mutable=False
+            )
+
+            model.normal_gen_cost_relprob_dn = pyo.Param(
+                initialize=1.0 * normal_operation_opf_results["gen_cost_dn"],
+                mutable=False
+            )
 
 
         print("\nModel building completed.")
@@ -1935,10 +2055,10 @@ class InvestmentClass():
         }
 
     def _write_selected_variables_to_excel(self, model,
-                                           path: str = "Optimization_Results/Investment_Model/results.xlsx",
+                                           path: str = None,
                                            meta: dict | None = None):
         """
-        Export selected variables and key parameters to a multi-sheet .xlsx workbook.
+        Export values of selected variables and expressions to a multi-sheet .xlsx workbook.
         """
         important = (
             "line_hrdn_binary",
@@ -1955,6 +2075,7 @@ class InvestmentClass():
         path = Path(path).with_suffix(".xlsx")
         path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Construct metadata
         if meta is None:
             meta = {
                 "written_at": datetime.now().isoformat(timespec="seconds"),
@@ -1965,7 +2086,7 @@ class InvestmentClass():
                 "ws_library_total_num_scenarios": getattr(self.meta, 'total_num_ws_scenarios'),
                 "windstorm_library_random_seed": getattr(self.meta, 'ws_seed', None),
                 "num_ws_scenarios_used": getattr(self.meta, 'num_ws_scenarios_used', 0),
-                "ws_scenario_probabilities": str(getattr(self.meta, 'ws_scenario_probabilities_relative', [])),
+                "ws_scenario_probs_abs": str(getattr(self.meta, 'ws_scenario_probabilities_abs', [])),
 
                 "normal_scenario_included": getattr(self.meta, 'normal_scenario_included', False),
                 "normal_scenario_probability": getattr(self.meta, 'normal_scenario_prob', 0),
@@ -1978,35 +2099,51 @@ class InvestmentClass():
                 "investment_cost_dg": float(pyo.value(model.total_inv_cost_dg_expr)),
                 "investment_cost_ess": float(pyo.value(model.total_inv_cost_ess_expr)),
 
-                "expected_total_operational_cost": float(pyo.value(model.exp_total_op_cost_expr)),
-                "ws_expected_total_operational_cost_dn": float(pyo.value(model.exp_total_op_cost_dn_ws_expr)),
-                "ws_exp_total_eens_dn": float(pyo.value(model.exp_total_eens_dn_ws_expr)),
+                "ws_exp_total_eens_absprob_dn": float(pyo.value(model.ws_exp_total_eens_absprob_dn_expr)),
+                "ws_exp_total_eens_relprob_dn": float(pyo.value(model.ws_exp_total_eens_relprob_dn_expr)),
+
+                "ws_expected_total_operational_cost_absprob": float(pyo.value(model.ws_exp_total_op_cost_absprob_expr)),
+                "ws_expected_total_operational_cost_relprob": float(pyo.value(model.ws_exp_total_op_cost_relprob_expr)),
+
+                "ws_expected_total_operational_cost_absprob_dn": float(pyo.value(model.ws_exp_total_op_cost_absprob_dn_expr)),
+                "ws_expected_total_operational_cost_relprob_dn": float(pyo.value(model.ws_exp_total_op_cost_relprob_dn_expr)),
+
+                "ws_expected_total_ls_cost_absprob_dn_rule": float(pyo.value(model.ws_exp_total_ls_cost_absprob_dn_expr)),
+                "ws_expected_total_ls_cost_relprob_dn_rule": float(pyo.value(model.ws_exp_total_ls_cost_relprob_dn_expr)),
             }
 
-            # Add normal scenario costs if included
-            if hasattr(model, 'normal_annual'):
-                meta["normal_operation_cost_contribution"] = float(pyo.value(model.normal_annual))
+        # Add normal scenario costs if included
+        if hasattr(model, 'normal_annual_op_cost_absprob'):
+            meta["normal_annual_op_cost_absprob"] = float(pyo.value(model.normal_annual_op_cost_absprob))
 
-                # Also add the DN generation cost from normal scenario if available
-                if hasattr(model, 'normal_gen_cost_dn'):
-                    meta["normal_operation_gen_cost_dn"] = float(pyo.value(model.normal_gen_cost_dn))
+            meta["expected_total_operational_cost_(objective_value)"] = (
+                    float(pyo.value(model.ws_exp_total_op_cost_absprob_expr)) +
+                    float(pyo.value(model.normal_annual_op_cost_absprob))
+            )
 
-                # Calculate total expected cost including normal
-                # The windstorm operational cost is already weighted by (1 - normal_prob) in the objective
-                # So the total is just the objective value
-                meta["total_expected_operational_cost_with_normal"] = (
-                        float(pyo.value(model.exp_total_op_cost_expr)) +
-                        float(pyo.value(model.normal_annual))
-                )
+        else:
+            meta["expected_total_operational_cost_(objective_value)"] = (
+                    float(pyo.value(model.ws_exp_total_op_cost_relprob_expr))
+            )
 
-            # Add detailed normal operation info if available
-            if hasattr(self.meta, 'normal_operation_opf_results') and self.meta.normal_operation_opf_results:
-                meta["normal_hours_computed"] = self.meta.normal_operation_opf_results.get("hours_computed", "N/A")
-                meta["normal_scale_factor"] = self.meta.normal_operation_opf_results.get("scale_factor", "N/A")
-                meta["normal_solver_status"] = self.meta.normal_operation_opf_results.get("solver_status", "N/A")
-                if hasattr(self.meta.normal_operation_opf_results, 'representative_days'):
-                    meta["normal_representative_days"] = str(
-                        self.meta.normal_operation_opf_results.get("representative_days", "N/A"))
+        if hasattr(model, 'normal_annual_op_cost_relprob'):
+            meta["normal_annual_op_cost_relprob"] = float(pyo.value(model.normal_annual_op_cost_relprob))
+
+        # Also add the DN generation cost from normal scenario if available
+        if hasattr(model, 'normal_gen_cost_absprob_dn'):
+            meta["normal_gen_cost_absprob_dn"] = float(pyo.value(model.normal_gen_cost_absprob_dn))
+
+        if hasattr(model, 'normal_gen_cost_relprob_dn'):
+            meta["normal_gen_cost_relprob_dn"] = float(pyo.value(model.normal_gen_cost_relprob_dn))
+
+        # Add detailed normal operation info if available
+        if hasattr(self.meta, 'normal_operation_opf_results') and self.meta.normal_operation_opf_results:
+            meta["normal_hours_computed"] = self.meta.normal_operation_opf_results.get("hours_computed", "N/A")
+            meta["normal_scale_factor"] = self.meta.normal_operation_opf_results.get("scale_factor", "N/A")
+            meta["normal_solver_status"] = self.meta.normal_operation_opf_results.get("solver_status", "N/A")
+            if hasattr(self.meta.normal_operation_opf_results, 'representative_days'):
+                meta["normal_representative_days"] = str(
+                    self.meta.normal_operation_opf_results.get("representative_days", "N/A"))
 
         from factories.network_factory import make_network
         net = make_network(meta.get("network_name", self.network_name))
