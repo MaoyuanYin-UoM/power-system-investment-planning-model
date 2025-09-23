@@ -80,31 +80,31 @@ def extract_data_from_excel_files(file_paths: List[str],
 def test_extract_data_function():
     """Test function to demonstrate usage."""
     # Example test (uncomment and modify for actual testing)
-    file_paths = ['../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_inf_20250916_193202.xlsx',
-                  # '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_1.30e4_20250818_012101.xlsx',
-                  # '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_1.20e4_20250818_013045.xlsx',
-                  # '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_1.10e4_20250818_014455.xlsx',
-                  # '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_1.00e4_20250818_020041.xlsx',
-                  # '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_9.00e3_20250818_021111.xlsx',
-                  # '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_20000_resilience_threshold_8.00e3_20250818_022519.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_6.00e3_20250916_205724.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_5.00e3_20250916_212507.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_4.00e3_20250916_220955.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_3.00e3_20250916_225733.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_2.00e3_20250916_234848.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_1.00e3_20250917_003839.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_8.00e2_20250917_012944.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_6.00e2_20250917_020000.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_4.00e2_20250917_021254.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_3.00e2_20250917_072712.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_2.80e2_20250917_073617.xlsx',
-                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_2.60e2_20250917_074404.xlsx',
+    file_paths = ['../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_inf_20250923_003917.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_2.00e3_20250922_032703.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_1.80e3_20250922_042558.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_1.60e3_20250922_093437.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_1.40e3_20250922_112318.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_1.20e3_20250922_140151.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_1.00e3_20250922_160520.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_8.00e2_20250922_174725.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_6.00e2_20250922_190414.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_4.00e2_20250922_202908.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_3.00e2_20250922_213524.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_2.00e2_20250922_225908.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_1.80e2_20250923_022943.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_1.60e2_20250923_041126.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_1.40e2_20250923_052656.xlsx',
+                  '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_1.20e2_20250923_062326.xlsx',
+                  # '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_3.00e2_20250917_072712.xlsx',
+                  # '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_2.80e2_20250917_073617.xlsx',
+                  # '../Optimization_Results/Investment_Model/results_network_29BusGB-Kearsley_1000_ws_seed_10000_resilience_threshold_2.60e2_20250917_074404.xlsx',
                   ]
 
     sheet_name = 'Meta'
 
     target_names = ['resilience_metric_threshold',
-                    'ws_exp_total_eens_dn',
+                    'ws_exp_total_eens_relprob_dn',
                     'total_investment_cost',
                     'investment_cost_line_hardening',
                     'investment_cost_dg',
@@ -119,7 +119,7 @@ def test_extract_data_function():
     except Exception as e:
         print(f"Error: {e}")
 
-    print("Test function ready. Uncomment example code to test with actual files.")
+    # print("Test function ready. Uncomment example code to test with actual files.")
 
 
 if __name__ == "__main__":

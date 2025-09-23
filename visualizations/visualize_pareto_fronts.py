@@ -1,9 +1,10 @@
 def plot_pareto_front_from_excel(
-        excel_path="Post-processed_Data_for_Plots/investment_costs_vs_resilience_metrics_at_20_hrdn_shift.xlsx",
+        excel_path=None,
         plot_types=None,
         custom_titles=None,
         overlay_plots=False,
         overlay_line_styles=None,
+        overlay_colors=None,
         show_threshold_labels=True,
         annotation_spacing=1,
         figure_size=(12, 8),
@@ -256,89 +257,102 @@ def plot_pareto_front_from_excel(
         else:
             raise ValueError("overlay_line_styles must be a string, list, or None")
 
-            # Create legend elements list
-            legend_elements = []
+        # Create legend elements list
+        legend_elements = []
 
-            # Define marker styles for different plots
-            marker_styles = ['o', 's', '^', 'D', 'v', 'p', 'h']
+        from matplotlib.lines import Line2D
 
-            # Plot all types on the same axes
-            for idx, ptype in enumerate(plot_types):
-                config = plot_configs[ptype]
-                y_col_millions = f"{config['y_col']}_millions"
+        # Define marker styles for different plots
+        marker_styles = ['o', 's', '^', 'D', 'v', 'p', 'h']
 
-                # Use different marker and line styles for each plot type
-                current_marker = marker_styles[idx % len(marker_styles)]
-                current_line = line_styles[idx % len(line_styles)]
+        # Handle custom colors if provided
+        if overlay_colors is not None:
+            if isinstance(overlay_colors, list):
+                for idx, ptype in enumerate(plot_types):
+                    if idx < len(overlay_colors):
+                        plot_configs[ptype]['color'] = overlay_colors[idx]
+            elif isinstance(overlay_colors, dict):
+                for ptype in plot_types:
+                    if ptype in overlay_colors:
+                        plot_configs[ptype]['color'] = overlay_colors[ptype]
 
-                # Plot the Pareto front
-                line_handle = ax.plot(df['eens_gwh'], df[y_col_millions],
-                                      current_line, linewidth=line_width,
-                                      color=config['color'], alpha=0.7)[0]
+        # Plot all types on the same axes
+        for idx, ptype in enumerate(plot_types):
+            config = plot_configs[ptype]
+            y_col_millions = f"{config['y_col']}_millions"
 
-                # Add markers
-                ax.scatter(df['eens_gwh'],
-                           df[y_col_millions],
-                           s=marker_size,
-                           marker=current_marker,
-                           color=config['color'],
-                           edgecolors='white',
-                           linewidth=1,
-                           zorder=5)
+            # Use different marker and line styles for each plot type
+            current_marker = marker_styles[idx % len(marker_styles)]
+            current_line = line_styles[idx % len(line_styles)]
 
-                # Add to legend elements with both line and marker
-                legend_label = config.get('ylabel', ptype).replace(' (£ Million)', '')
-                legend_elements.append(
-                    Line2D([0], [0],
-                           color=config['color'],
-                           linestyle=current_line,
-                           linewidth=line_width,
-                           marker=current_marker,
-                           markersize=8,
-                           markerfacecolor=config['color'],
-                           markeredgecolor=config['color'],
-                           label=legend_label)
-                )
+            # Plot the Pareto front
+            line_handle = ax.plot(df['eens_gwh'], df[y_col_millions],
+                                  current_line, linewidth=line_width,
+                                  color=config['color'], alpha=0.7)[0]
 
-            # Add threshold labels only for the first plot type to avoid clutter
-            if show_threshold_labels and idx == 0:
-                for i in range(0, len(df), annotation_spacing):
-                    row = df.iloc[i]
-                    threshold_val = row[threshold_col]
+            # Add markers
+            ax.scatter(df['eens_gwh'],
+                       df[y_col_millions],
+                       s=marker_size,
+                       marker=current_marker,
+                       color=config['color'],
+                       edgecolors='white',
+                       linewidth=1,
+                       zorder=5)
 
-                    # Format threshold value
-                    if threshold_val == 'Inf':
-                        label_text = 'infinite'
-                    elif threshold_val >= 1000:
-                        label_text = f'{threshold_val / 1000:.1f}' if (
-                                                                                  threshold_val / 1000) % 1 else f'{int(threshold_val / 1000)}'
-                    else:
-                        label_text = f'{threshold_val:.0f}'
+            # Add to legend elements with both line and marker
+            legend_label = config.get('ylabel', ptype).replace(' (£ Million)', '')
+            legend_elements.append(
+                Line2D([0], [0],
+                       color=config['color'],
+                       linestyle=current_line,
+                       linewidth=line_width,
+                       marker=current_marker,
+                       markersize=8,
+                       markerfacecolor=config['color'],
+                       markeredgecolor=config['color'],
+                       label=legend_label)
+            )
 
-                    # Position annotations
-                    offset_x = 0.15
-                    offset_y = df[y_col_millions].max() * 0.02
-                    if i % 2 == 0:
-                        offset_y = -offset_y
+        # Add threshold labels only for the first plot type to avoid clutter
+        if show_threshold_labels and idx == 0:
+            for i in range(0, len(df), annotation_spacing):
+                row = df.iloc[i]
+                threshold_val = row[threshold_col]
 
-                    ax.annotate(label_text,
-                                xy=(row['eens_gwh'], row[y_col_millions]),
-                                xytext=(row['eens_gwh'] + offset_x, row[y_col_millions] + offset_y),
-                                fontsize=annotation_fontsize,
-                                bbox=dict(boxstyle='round,pad=0.3',
-                                          facecolor='white',
-                                          edgecolor='gray',
-                                          alpha=0.8),
-                                arrowprops=dict(arrowstyle='->',
-                                                connectionstyle='arc3,rad=0.2',
-                                                color='gray',
-                                                alpha=0.6,
-                                                lw=0.5))
+                # Format threshold value
+                if threshold_val == 'Inf':
+                    label_text = 'infinite'
+                elif threshold_val >= 1000:
+                    label_text = f'{threshold_val / 1000:.1f}' if (
+                                                                              threshold_val / 1000) % 1 else f'{int(threshold_val / 1000)}'
+                else:
+                    label_text = f'{threshold_val:.0f}'
+
+                # Position annotations
+                offset_x = 0.15
+                offset_y = df[y_col_millions].max() * 0.02
+                if i % 2 == 0:
+                    offset_y = -offset_y
+
+                ax.annotate(label_text,
+                            xy=(row['eens_gwh'], row[y_col_millions]),
+                            xytext=(row['eens_gwh'] + offset_x, row[y_col_millions] + offset_y),
+                            fontsize=annotation_fontsize,
+                            bbox=dict(boxstyle='round,pad=0.3',
+                                      facecolor='white',
+                                      edgecolor='gray',
+                                      alpha=0.8),
+                            arrowprops=dict(arrowstyle='->',
+                                            connectionstyle='arc3,rad=0.2',
+                                            color='gray',
+                                            alpha=0.6,
+                                            lw=0.5))
 
         # Set labels and title
-        ax.set_xlabel('EENS at distribution level across all windstorm scenarios (GWh)',
+        ax.set_xlabel('EENS in DN across all windstorm scenarios (GWh)',
                       fontsize=label_fontsize)
-        ax.set_ylabel('Investment Cost (£ Million)', fontsize=label_fontsize)
+        ax.set_ylabel('Investment Costs (£ Million)', fontsize=label_fontsize)
 
         # Set title - use custom title if provided as string, otherwise default
         if isinstance(custom_titles, str):
@@ -352,7 +366,22 @@ def plot_pareto_front_from_excel(
 
         # Add grid
         if show_grid:
-            ax.grid(True, alpha=grid_alpha, linestyle='--', linewidth=0.5)
+            ax.grid(True, alpha=grid_alpha, linestyle='-', linewidth=0.5)
+
+            from matplotlib.ticker import MultipleLocator
+
+            # Keep grid lines dense but show fewer tick labels
+            # For x-axis: show ticks at 0.5 intervals but keep finer grid
+            ax.xaxis.set_major_locator(MultipleLocator(0.5))  # Tick labels every 0.5
+            ax.xaxis.set_minor_locator(MultipleLocator(0.25))  # Grid lines every 0.25
+
+            # For y-axis: show ticks at 40 or 50 intervals
+            ax.yaxis.set_major_locator(MultipleLocator(40))  # Tick labels every 40
+            ax.yaxis.set_minor_locator(MultipleLocator(20))  # Grid lines every 20
+
+            # Show both major and minor grid lines
+            ax.grid(True, which='major', alpha=grid_alpha, linestyle='-', linewidth=0.5)
+            ax.grid(True, which='minor', alpha=grid_alpha * 0.7, linestyle='-', linewidth=0.3)
 
         # Add legend
         ax.legend(handles=legend_elements, loc='upper right',
@@ -562,93 +591,102 @@ def generate_pareto_analysis_plots(hrdn_shift_value=20, plot_types=None, custom_
 
 
 # Usage Examples
-"""
-Example 1: Plot a single graph with default title
--------------------------------------------------
-fig, ax = plot_pareto_front_from_excel(
-    plot_types='total_investment'
-)
+if __name__ == "__main__":
+    """
+    
+    """
 
-Example 2: Plot multiple graphs overlaid with all solid lines
--------------------------------------------------------------
-fig, ax = plot_pareto_front_from_excel(
-    plot_types=['total_investment', 'line_hardening', 'dg_installation', 'ess_installation'],
-    overlay_plots=True,
-    overlay_line_styles='-',  # All lines will be solid
-    custom_titles='Multi-Investment Strategy Comparison',
-    figure_size=(14, 8)
-)
+    # Example 1: Plot a single graph with default title
+    # -------------------------------------------------
+    # fig, ax = plot_pareto_front_from_excel(
+    #     plot_types='total_investment'
+    # )
 
-Example 3: Overlay with custom line styles for each plot
---------------------------------------------------------
-fig, ax = plot_pareto_front_from_excel(
-    plot_types=['total_investment', 'line_hardening', 'dg_installation'],
-    overlay_plots=True,
-    overlay_line_styles=['-', '--', '-.'],  # Solid, dashed, dash-dot
-    custom_titles='Comparison of Investment Strategies',
-    figure_size=(14, 8)
-)
+    # Example 2: Plot multiple graphs overlaid with all solid lines
+    # -------------------------------------------------------------
+    # fig, ax = plot_pareto_front_from_excel(
+    #     plot_types=['total_investment', 'line_hardening', 'dg_installation', 'ess_installation'],
+    #     overlay_plots=True,
+    #     overlay_line_styles='-',  # All lines will be solid
+    #     custom_titles='Multi-Investment Strategy Comparison',
+    #     figure_size=(14, 8)
+    # )
 
-Example 4: Plot specific graphs in separate subplots
-----------------------------------------------------
-fig, axes = plot_pareto_front_from_excel(
-    plot_types=['total_investment', 'line_hardening'],
-    overlay_plots=False,  # This is the default
-    custom_titles={
-        'total_investment': 'Investment vs Resilience Trade-off (20m/s hardening)',
-        'line_hardening': 'Line Hardening Strategy Analysis'
-    }
-)
+    # Example 3: Overlay with custom line styles for each plot
+    # --------------------------------------------------------
+    # fig, ax = plot_pareto_front_from_excel(
+    #     plot_types=['total_investment', 'line_hardening', 'dg_installation'],
+    #     overlay_plots=True,
+    #     overlay_line_styles=['-', '--', '-.'],  # Solid, dashed, dash-dot
+    #     custom_titles='Comparison of Investment Strategies',
+    #     figure_size=(14, 8)
+    # )
 
-Example 5: Overlay with automatic line style differentiation (default)
-----------------------------------------------------------------------
-fig, ax = plot_pareto_front_from_excel(
-    plot_types=['total_investment', 'line_hardening', 'dg_installation', 'ess_installation'],
-    overlay_plots=True,
-    # overlay_line_styles=None,  # This is default - auto-assigns different styles
-    custom_titles='Multi-Investment Strategy Comparison',
-    show_threshold_labels=True,
-    annotation_spacing=2,
-    figure_size=(12, 8),
-    save_path='Images_and_Plots/overlaid_costs_comparison.png'
-)
+    # Example 4: Plot specific graphs in separate subplots
+    # ----------------------------------------------------
+    # fig, axes = plot_pareto_front_from_excel(
+    #     plot_types=['total_investment', 'line_hardening'],
+    #     overlay_plots=False,  # This is the default
+    #     custom_titles={
+    #         'total_investment': 'Investment vs Resilience Trade-off (20m/s hardening)',
+    #         'line_hardening': 'Line Hardening Strategy Analysis'
+    #     }
+    # )
 
-Example 6: Single plot with all customizations
-----------------------------------------------
-fig, ax = plot_pareto_front_from_excel(
-    plot_types='line_hardening',
-    custom_titles='Optimal Line Hardening Strategy under Windstorm Scenarios',
-    show_threshold_labels=True,
-    annotation_spacing=1,  # Show all labels
-    title_fontsize=16,
-    label_fontsize=14,
-    tick_fontsize=12,
-    annotation_fontsize=10,
-    marker_size=150,
-    line_style='--',
-    save_path='Images_and_Plots/line_hardening_analysis.png'
-)
+    # Example 5: Overlay with automatic line style differentiation (default)
+    # ----------------------------------------------------------------------
+    # fig, ax = plot_pareto_front_from_excel(
+    #     plot_types=['total_investment', 'line_hardening', 'dg_installation', 'ess_installation'],
+    #     overlay_plots=True,
+    #     # overlay_line_styles=None,  # This is default - auto-assigns different styles
+    #     custom_titles='Multi-Investment Strategy Comparison',
+    #     show_threshold_labels=True,
+    #     annotation_spacing=2,
+    #     figure_size=(12, 8),
+    #     save_path='Images_and_Plots/overlaid_costs_comparison.png'
+    # )
 
-Example 7: Compare two strategies with both using solid lines
--------------------------------------------------------------
-fig, ax = plot_pareto_front_from_excel(
-    plot_types=['line_hardening', 'dg_installation'],
-    overlay_plots=True,
-    overlay_line_styles='-',  # Both will use solid lines
-    custom_titles='Line Hardening vs DG Installation Trade-offs',
-    show_threshold_labels=True,
-    figure_size=(12, 8)
-)
+    # Example 6: Single plot with all customizations
+    # ----------------------------------------------
+    fig, ax = plot_pareto_front_from_excel(
+        excel_path="Post-processed_Data_for_Plots/investment_costs_vs_resilience_metrics_updated_network_and_windstorm_presets_(22-Sep-2025).xlsx",
+        plot_types=['total_investment', 'line_hardening', 'dg_installation'],
+        overlay_plots=True,
+        overlay_line_styles=['-', '-', '-', '-'],  # Solid, dashed, dash-dot, dotted
+        overlay_colors=['#2E7D32', '#1976D2', '#F57C00'],
+        custom_titles='Cost-Resilience Pareto Front',
+        show_threshold_labels=True,
+        annotation_spacing=1,  # Show all labels
+        title_fontsize=16,
+        label_fontsize=14,
+        tick_fontsize=12,
+        legend_fontsize=13,
+        annotation_fontsize=12,
+        line_width=2.5,
+        marker_size=80,
+        figure_size=(8, 6)
+        # save_path='Images_and_Plots/line_hardening_analysis.png',
+    )
 
-Example 8: Using the batch generation helper
---------------------------------------------
-# Generate only specific plots
-generate_pareto_analysis_plots(
-    hrdn_shift_value=20,
-    plot_types=['total_investment', 'line_hardening'],
-    custom_titles={
-        'total_investment': 'Total Cost Analysis (20m/s)',
-        'line_hardening': 'Hardening Strategy (20m/s)'
-    }
-)
-"""
+    # Example 7: Compare two strategies with both using solid lines
+    # -------------------------------------------------------------
+    # fig, ax = plot_pareto_front_from_excel(
+    #     plot_types=['line_hardening', 'dg_installation'],
+    #     overlay_plots=True,
+    #     overlay_line_styles='-',  # Both will use solid lines
+    #     custom_titles='Line Hardening vs DG Installation Trade-offs',
+    #     show_threshold_labels=True,
+    #     figure_size=(12, 8)
+    # )
+
+    # Example 8: Using the batch generation helper
+    # --------------------------------------------
+    # Generate only specific plots
+    # generate_pareto_analysis_plots(
+    #     hrdn_shift_value=20,
+    #     plot_types=['total_investment', 'line_hardening'],
+    #     custom_titles={
+    #         'total_investment': 'Total Cost Analysis (20m/s)',
+    #         'line_hardening': 'Hardening Strategy (20m/s)'
+    #     }
+    # )

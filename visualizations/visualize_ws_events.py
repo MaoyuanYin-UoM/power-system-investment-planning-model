@@ -361,12 +361,12 @@ if __name__ == "__main__":
         plot_envelopes=True,  # capsule envelope
         multi_on_one_axis=True,  # plot all scenarios together
         show_per_scenario_legend=True,  # keep legend compact
-        figsize=(11, 9),
-        title="Windstorm Scenario Visualisations",
+        figsize=(10, 10),
+        title="Windstorm Scenarios Visualisation",
         # Font size parameters (optional - will use defaults if not specified)
         title_fontsize=16,  # Font size for title
         xlabel_fontsize=14,  # Font size for x-axis label
         ylabel_fontsize=14,  # Font size for y-axis label
         tick_fontsize=12,  # Font size for axis ticks
-        legend_fontsize=12  # Font size for legend
+        legend_fontsize=13,  # Font size for legend
     )
