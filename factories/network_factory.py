@@ -551,7 +551,7 @@ def make_network(name: str) -> NetworkClass:
         
         # 2) Line hardening cost
         # (line hardening is modelled as a fixed fragility rightward shift, with cost proportional to the line length)
-        ncon.data.net.fixed_hrdn_shift = [30.0] * len(ncon.data.net.bch)
+        ncon.data.net.fixed_hrdn_shift = [15.0] * len(ncon.data.net.bch)
         # Hardening cost rate
         ncon.data.net.hrdn_cost_rate = [2e6] * len(ncon.data.net.bch)  # £50k/km for DN lines
         # Compute hardening cost
@@ -575,10 +575,10 @@ def make_network(name: str) -> NetworkClass:
         # 11.  Fragility data
         # -----------------------------------------------------------
         num_bch = len(ncon.data.net.bch)
-        ncon.data.frg.mu = [3.8] * num_bch
-        ncon.data.frg.sigma = [0.12] * num_bch
-        ncon.data.frg.thrd_1 = [20] * num_bch
-        ncon.data.frg.thrd_2 = [90] * num_bch
+        ncon.data.frg.mu = [3.18] * num_bch
+        ncon.data.frg.sigma = [0.17] * num_bch
+        ncon.data.frg.thrd_1 = [10] * num_bch
+        ncon.data.frg.thrd_2 = [40] * num_bch
         ncon.data.frg.shift_f = [0.0] * num_bch
 
         net = NetworkClass(ncon)
@@ -939,7 +939,7 @@ def make_network(name: str) -> NetworkClass:
 
         # 2) Line hardening cost
         # (line hardening is modelled as a fixed fragility rightward shift, with cost proportional to the line length)
-        ncon.data.net.fixed_hrdn_shift = [20.0] * len(ncon.data.net.bch)
+        ncon.data.net.fixed_hrdn_shift = [15.0] * len(ncon.data.net.bch)
         # Hardening cost rate
         ncon.data.net.hrdn_cost_rate = [2e7] * len(ncon.data.net.bch)  # £500k/km for TN lines
         # Compute hardening cost
@@ -962,10 +962,10 @@ def make_network(name: str) -> NetworkClass:
         # 10.  Fragility data (uniform defaults)
         # -----------------------------------------------------------
         num_bch = len(ncon.data.net.bch)
-        ncon.data.frg.mu = [4.2] * num_bch
-        ncon.data.frg.sigma = [0.15] * num_bch
-        ncon.data.frg.thrd_1 = [40] * num_bch
-        ncon.data.frg.thrd_2 = [110] * num_bch
+        ncon.data.frg.mu = [3.42] * num_bch
+        ncon.data.frg.sigma = [0.10] * num_bch
+        ncon.data.frg.thrd_1 = [20] * num_bch
+        ncon.data.frg.thrd_2 = [50] * num_bch
         ncon.data.frg.shift_f = [0.0] * num_bch
 
 
