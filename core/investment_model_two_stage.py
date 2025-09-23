@@ -957,24 +957,69 @@ class InvestmentClass():
         model.Constraint_ShiftedGust = pyo.Constraint(model.Set_slt_lines, rule=shifted_gust_rule)
 
         print("  - Piecewise fragility constraints...")
-        # 5.3) Piece-wise fragility
-        # compute linearized fragility data
-        fragility_data = self.piecewise_linearize_fragility(net, line_idx=Set_bch_lines, num_pieces=6)
+        # 5.3) Piece-wise fragility with line-specific breakpoints
+        fragility_data = self.piecewise_linearize_fragility(net, line_idx=Set_bch_lines, num_pieces=4)
 
-        gust_speeds = fragility_data["gust_speeds"]
-        gust_index = {x: i for i, x in enumerate(gust_speeds)}
+        # Group lines by their breakpoints
+        breakpoint_groups = {}
+        for l, data in fragility_data.items():
+            # Use tuple of breakpoints as key
+            bpts_tuple = tuple(data["breakpoints"])
+            if bpts_tuple not in breakpoint_groups:
+                breakpoint_groups[bpts_tuple] = {
+                    "lines": [],
+                    "breakpoints": data["breakpoints"],
+                    "probs_by_line": {}
+                }
+            breakpoint_groups[bpts_tuple]["lines"].append(l)
+            breakpoint_groups[bpts_tuple]["probs_by_line"][l] = data["probabilities"]
 
-        def fragility_rule(model, sc, l, t, x):
-            return fragility_data["fail_probs"][l][gust_index[x]]
+        # Create a separate Piecewise component for each group
+        for group_idx, (bpts_tuple, group_data) in enumerate(breakpoint_groups.items()):
+            lines_in_group = group_data["lines"]
+            breakpoints = group_data["breakpoints"]
+            probs_by_line = group_data["probs_by_line"]
 
-        model.Piecewise_Fragility = pyo.Piecewise(
-            model.Set_slt_lines,
-            model.fail_prob,
-            model.shifted_gust_speed,
-            pw_pts=gust_speeds,
-            f_rule=fragility_rule,
-            pw_constr_type="EQ",
-            pw_repn="DCC")
+            # Create index set for this group
+            group_index_set = [(sc, l, t)
+                               for sc in model.Set_scn
+                               for l in lines_in_group
+                               for t in Set_ts_scn[sc]]
+
+            # Create fragility rule for this group
+            def make_fragility_rule(probs_dict, bpts):
+                def fragility_rule(model, sc, l, t, x):
+                    # Get the probabilities for this specific line
+                    probs = probs_dict[l]
+                    # Find the index for interpolation
+                    for i in range(len(bpts) - 1):
+                        if bpts[i] <= x <= bpts[i + 1]:
+                            # Linear interpolation
+                            weight = (x - bpts[i]) / (bpts[i + 1] - bpts[i])
+                            return probs[i] * (1 - weight) + probs[i + 1] * weight
+                    # Edge cases
+                    if x <= bpts[0]:
+                        return probs[0]
+                    else:
+                        return probs[-1]
+
+                return fragility_rule
+
+            # Create the Piecewise component for this group
+            piecewise_name = f'Piecewise_Fragility_Group_{group_idx}'
+            setattr(model, piecewise_name,
+                    pyo.Piecewise(
+                        group_index_set,
+                        model.fail_prob,
+                        model.shifted_gust_speed,
+                        pw_pts=breakpoints,
+                        f_rule=make_fragility_rule(probs_by_line, breakpoints),
+                        pw_constr_type="EQ",
+                        pw_repn="DCC"
+                    ))
+
+            print(f"    - Created {piecewise_name}: {len(lines_in_group)} lines, "
+                  f"{len(breakpoints)} breakpoints [{breakpoints[0]:.1f}, {breakpoints[-1]:.1f}]")
 
         print("  - Failure logic constraints...")
         # 5.4) Failure logic constraints (unchanged from the original version)
@@ -2195,38 +2240,94 @@ class InvestmentClass():
                 sheet = name[:29]
                 df.to_excel(xl, sheet_name=sheet, index=False)
 
-
     def piecewise_linearize_fragility(self, net, line_idx, num_pieces):
-
         """
-        Return { "gust_speeds": [...],
-                 "fail_probs" : { l: [p(t1),…,p(tn)] for l in line_idx } }
+        Create line-specific piecewise linearization with adaptive breakpoints.
+        Each line gets breakpoints focused on its transition region [thrd_1, thrd_2].
         """
-        # restrict mins / maxs to *lines* only
-        # gmin = min(net.data.frg.thrd_1[l - 1] for l in line_idx)
-        # gmax = max(net.data.frg.thrd_2[l - 1] for l in line_idx)
-        gmin = 0
-        gmax = 120
-        gust_speeds = np.linspace(gmin, gmax, num_pieces).tolist()
 
-        fail_probs = {}
+        # Group lines by their fragility parameters to avoid redundancy
+        line_groups = {}
+
         for l in line_idx:
-            mu, sg = net.data.frg.mu[l - 1], net.data.frg.sigma[l - 1]
-            th1, th2 = net.data.frg.thrd_1[l - 1], net.data.frg.thrd_2[l - 1]
+            mu = net.data.frg.mu[l - 1]
+            sg = net.data.frg.sigma[l - 1]
+            th1 = net.data.frg.thrd_1[l - 1]
+            th2 = net.data.frg.thrd_2[l - 1]
             sf = net.data.frg.shift_f[l - 1]
 
-            fp = []
-            for x in gust_speeds:
-                z = x - sf
-                if z < th1:
-                    fp.append(0.0)
-                elif z > th2:
-                    fp.append(1.0)
-                else:
-                    fp.append(float(lognorm.cdf(z, s=sg, scale=np.exp(mu))))
-            fail_probs[l] = fp
+            # Create a key for grouping (round to avoid floating point issues)
+            key = (round(mu, 4), round(sg, 4), round(th1, 2), round(th2, 2), round(sf, 2))
 
-        return {"gust_speeds": gust_speeds, "fail_probs": fail_probs}
+            if key not in line_groups:
+                line_groups[key] = []
+            line_groups[key].append(l)
+
+        print(f"  - Found {len(line_groups)} unique fragility parameter sets among {len(line_idx)} lines")
+
+        # Create breakpoints and probabilities for each line
+        line_specific_data = {}
+
+        for group_idx, (params, lines) in enumerate(line_groups.items()):
+            mu, sg, th1, th2, sf = params
+
+            # Define bounds
+            global_min = 0
+            global_max = 120
+
+            # Effective thresholds after shift
+            effective_th1 = th1 + sf
+            effective_th2 = th2 + sf
+
+            # Create adaptive breakpoints
+            breakpoints = []
+
+            # Add global minimum (start of first flat region)
+            breakpoints.append(global_min)
+
+            # Add the first threshold (end of first flat region, start of transition)
+            breakpoints.append(effective_th1)
+
+            # Add (num_pieces - 1) points within transition region
+            if num_pieces > 2:
+                transition_points = np.linspace(effective_th1, effective_th2, num_pieces + 1)[1:-1]
+                breakpoints.extend(transition_points.tolist())
+
+            # Add the second threshold (end of transition, start of second flat region)
+            breakpoints.append(effective_th2)
+
+            # Add global maximum (end of second flat region)
+            breakpoints.append(global_max)
+
+            # Remove duplicates and sort (shouldn't have any, but just in case)
+            breakpoints = sorted(list(set(breakpoints)))
+
+            # Calculate failure probabilities at each breakpoint
+            fail_probs = []
+            for x in breakpoints:
+                z = x - sf  # Apply shift
+                if z <= th1:
+                    fail_probs.append(0.0)
+                elif z >= th2:
+                    fail_probs.append(1.0)
+                else:
+                    fail_probs.append(float(lognorm.cdf(z, s=sg, scale=np.exp(mu))))
+
+            # Store data for each line in this group
+            for l in lines:
+                line_specific_data[l] = {
+                    "breakpoints": breakpoints,
+                    "probabilities": fail_probs
+                }
+
+            # Debug output
+            print(f"\n    Group {group_idx}: Lines {lines[:3]}{'...' if len(lines) > 3 else ''}")
+            print(f"      Parameters: mu={mu:.3f}, sigma={sg:.3f}, thrd=[{th1:.1f}, {th2:.1f}], shift={sf:.1f}")
+            print(f"      Breakpoints: {[f'{x:.1f}' for x in breakpoints]}")
+            print(
+                f"      Structure: [0-{effective_th1:.0f}] flat | [{effective_th1:.0f}-{effective_th2:.0f}] transition ({num_pieces} pieces) | [{effective_th2:.0f}-120] flat")
+
+        return line_specific_data
 
     def build_normal_scenario_opf_model(self,
                                         network_name: str,
