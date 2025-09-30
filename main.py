@@ -35,7 +35,7 @@ from core.investment_model_two_stage import *
 # Seeds with windstorms passing the Kearsley group:
 # --> for 1-ws scenarios, seed=112
 # --> for 5-ws scenarios, seed=104
-path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Clustered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_5000scn_s10000_filt_b1_h1_buf15_eens_k2.json"
+path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Clustered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_5000scn_s10000_filt_b1_h1_buf15_eens_k6.json"
 # path_normal_scenario = "Scenario_Database/Scenarios_for_Old_Two_Stage_Model/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json"
 
 # resilience_thresholds = [
@@ -98,6 +98,10 @@ resilience_metric_thresholds = [
     # 0
 ]
 
+additional_notes = """
+
+"""
+
 for resilience_metric_threshold in resilience_metric_thresholds:
     inv = InvestmentClass()
     model = inv.build_investment_model(path_ws_scenario_library=path_ws_scenario_library,
@@ -112,8 +116,9 @@ for resilience_metric_threshold in resilience_metric_thresholds:
                                          result_path=None,
                                          mip_gap=1e-8,
                                          mip_gap_abs=1e3,
-                                         time_limit=18000,
+                                         time_limit=36000,
                                          numeric_focus=2,
+                                         additional_notes=additional_notes,
                                          )
 
 

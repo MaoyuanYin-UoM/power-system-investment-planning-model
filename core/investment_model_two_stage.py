@@ -1960,6 +1960,7 @@ class InvestmentClass():
             write_lp: bool = False,
             write_result: bool = False,
             result_path: str = None,
+            additional_notes: str = None,
             **solver_options
     ):
         """
@@ -2088,7 +2089,7 @@ class InvestmentClass():
                 result_dir.mkdir(parents=True, exist_ok=True)  # Create directory if it doesn't exist
                 result_path = str(result_dir / fname)
 
-            self._write_selected_variables_to_excel(model, result_path)
+            self._write_selected_variables_to_excel(model, result_path, additional_notes=additional_notes)
             print(f"Results written to: {result_path}")
 
         return {
@@ -2101,7 +2102,9 @@ class InvestmentClass():
 
     def _write_selected_variables_to_excel(self, model,
                                            path: str = None,
-                                           meta: dict | None = None):
+                                           meta: dict | None = None,
+                                           additional_notes: str = None,
+                                           ):
         """
         Export values of selected variables and expressions to a multi-sheet .xlsx workbook.
         """
@@ -2189,6 +2192,9 @@ class InvestmentClass():
             if hasattr(self.meta.normal_operation_opf_results, 'representative_days'):
                 meta["normal_representative_days"] = str(
                     self.meta.normal_operation_opf_results.get("representative_days", "N/A"))
+
+        # Add additional notes
+        meta["additional_notes"] = additional_notes if additional_notes else "None"
 
         from factories.network_factory import make_network
         net = make_network(meta.get("network_name", self.network_name))
@@ -2663,7 +2669,7 @@ class InvestmentClass():
             ess_ch = sum(
                 model.Pess_charge_exst[e, t] for e in getattr(model, 'Set_ess_exst', []) if net.data.net.ess[e - 1] == b)
 
-            return (inflow_dn + inflow_cpl + Pg_exst + ess_dis - 
+            return (inflow_dn + inflow_cpl + Pg_exst + ess_dis -
                     (outflow_dn + outflow_cpl + model.Pd[b, t] - model.Pc[b, t] + ess_ch) ) == 0
 
         model.PowerBalance_DN = pyo.Constraint(model.Set_bus_dn, model.Set_ts, rule=power_balance_dn_rule)
