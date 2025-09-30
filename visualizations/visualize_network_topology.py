@@ -77,18 +77,17 @@ def plot_network_branches(ax,
                 color=color, lw=lw, alpha=alpha, label=label)
 
 
-def plot_network_buses(ax,
-                      net,
-                      tn_node_color: str = '#2ca02c',
-                      dn_node_color: str = '#d62728',
-                      node_size: float = 30,
-                      alpha: float = 1.0,
-                      show_legend: bool = True,
-                      label_buses: bool = False,
-                      label_fontsize: int = 8,
-                      label_offset: float = 0.02):
+def plot_network_buses(ax, net,
+                       tn_node_color='#2ca02c',
+                       dn_node_color='#d62728',
+                       node_size=30,
+                       alpha=1.0,
+                       show_legend=True,
+                       label_buses=False,
+                       label_fontsize=8,
+                       label_offset=0.02):
     """
-    Plot network buses with transmission/distribution distinction.
+    Plot network buses on given axes.
 
     Parameters
     ----------
@@ -129,20 +128,30 @@ def plot_network_buses(ax,
 
         if lvl == "T":
             color = tn_node_color
-            label = "Transmission bus" if not tn_buses_plotted and show_legend else None
+            label = "Transmission Bus" if not tn_buses_plotted and show_legend else None
             tn_buses_plotted = True
         else:
             color = dn_node_color
-            label = "Distribution bus" if not dn_buses_plotted and show_legend else None
+            label = "Distribution Bus" if not dn_buses_plotted and show_legend else None
             dn_buses_plotted = True
 
         ax.scatter(lon, lat, c=color, s=node_size, alpha=alpha,
-                  zorder=3, label=label)
+                   zorder=3, label=label)
 
         # Add bus labels if requested
         if label_buses:
-            ax.text(lon + label_offset, lat, str(bus_id),
-                   fontsize=label_fontsize, ha='left', va='center')
+            # Add white background box to make text more readable
+            text = ax.text(lon + label_offset, lat, str(bus_id),
+                           fontsize=label_fontsize,
+                           ha='left',
+                           va='center',
+                           weight='bold',  # Make text bolder for clarity
+                           zorder=5,  # Ensure text is on top
+                           bbox=dict(boxstyle='round,pad=0.2',
+                                     facecolor='white',
+                                     edgecolor='gray',
+                                     alpha=0.8,
+                                     linewidth=0.5))
 
 
 def add_windstorm_contours(ax,
@@ -867,14 +876,16 @@ if __name__ == "__main__":
     # )
 
     # Example 2: Zoomed distribution network view
-    # print("\nExample 2: Distribution network view")
-    # visualize_network_topology(
-    #     network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
-    #     zoom_to_dn=True,
-    #     show_buses=True,
-    #     label_buses=False,
-    #     custom_title="Distribution Network - Kearsley GSP Group (Zoomed View)"
-    # )
+    print("\nExample 2: Distribution network view")
+    visualize_network_topology(
+        network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
+        zoom_to_dn=True,
+        show_buses=True,
+        label_buses=True,
+        label_fontsize=14,
+        label_offset=0.01,
+        custom_title="Distribution Network - Kearsley GSP Group (Zoomed View)"
+    )
 
     # Example 3: Network with windstorm contours
     # Note: This requires a valid windstorm event file
@@ -934,53 +945,53 @@ if __name__ == "__main__":
     #     figsize=(16, 6)
     # )
 
-    visualize_network_topology(
-        network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
-        show_buses=True,
-        label_buses=False,
-        tn_branch_color='green',
-        dn_branch_color='orange',
-        tn_bus_color='darkgreen',
-        dn_bus_color='darkorange',
-        branch_lw=1.5,
-        bus_size=50,
-        title_fontsize=16,
-        xlabel_fontsize=14,
-        ylabel_fontsize=14,
-        tick_fontsize=12,
-        legend_fontsize=14,
-        legend_loc='center left',
-        figsize=(10, 10),
-        custom_title="Network Topology Visualization",
-        # Add interconnection arrows
-        interconnection_buses=[5, 10, 11, 26, 27],  # Your IC buses
-        show_interconnection_arrows=True,
-        ic_arrow_color='purple',
-        ic_arrow_width=3,
-        ic_arrow_length=0.5,
-        ic_arrow_directions={
-            5: -135,  # Adjust arrow angles)
-            10: 0,
-            11: 180,
-            26: 0,
-            27: -45
-        },
-        # Inset
-        show_dn_inset=True,
-        inset_position='upper right',
-        inset_size=0.30,
-        inset_borderpad=1.5,  # Gap from edges (points)
-        inset_lw_scale=0.8,  # Line width 80% of main
-        inset_bus_scale=0.7,  # Bus size 70% of main
-        # inset_padding_scale=0.5,  # Padding 50% of main
-        inset_show_title=True,  # Show title in inset
-        inset_title="Kearsley GSP Group",  # Custom title text
-        inset_title_fontsize=12,  # Title font size
-        show_grid=True,
-        figure_margins={  # Manual margins with inset
-            'left': 0.08,
-            'right': 0.94,
-            'top': 0.94,
-            'bottom': 0.08
-        },
-    )
+    # visualize_network_topology(
+    #     network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
+    #     show_buses=True,
+    #     label_buses=False,
+    #     tn_branch_color='green',
+    #     dn_branch_color='orange',
+    #     tn_bus_color='darkgreen',
+    #     dn_bus_color='darkorange',
+    #     branch_lw=1.5,
+    #     bus_size=50,
+    #     title_fontsize=16,
+    #     xlabel_fontsize=14,
+    #     ylabel_fontsize=14,
+    #     tick_fontsize=12,
+    #     legend_fontsize=14,
+    #     legend_loc='center left',
+    #     figsize=(10, 10),
+    #     custom_title="Network Topology Visualisation",
+    #     # Add interconnection arrows
+    #     interconnection_buses=[5, 10, 11, 26, 27],  # Your IC buses
+    #     show_interconnection_arrows=True,
+    #     ic_arrow_color='purple',
+    #     ic_arrow_width=3,
+    #     ic_arrow_length=0.5,
+    #     ic_arrow_directions={
+    #         5: -135,  # Adjust arrow angles)
+    #         10: 0,
+    #         11: 180,
+    #         26: 0,
+    #         27: -45
+    #     },
+    #     # Inset
+    #     show_dn_inset=True,
+    #     inset_position='upper right',
+    #     inset_size=0.30,
+    #     inset_borderpad=1.5,  # Gap from edges (points)
+    #     inset_lw_scale=0.8,  # Line width 80% of main
+    #     inset_bus_scale=0.7,  # Bus size 70% of main
+    #     # inset_padding_scale=0.5,  # Padding 50% of main
+    #     inset_show_title=True,  # Show title in inset
+    #     inset_title="DN: Kearsley GSP Group",  # Custom title text
+    #     inset_title_fontsize=12,  # Title font size
+    #     show_grid=True,
+    #     figure_margins={  # Manual margins with inset
+    #         'left': 0.08,
+    #         'right': 0.94,
+    #         'top': 0.94,
+    #         'bottom': 0.08
+    #     },
+    # )

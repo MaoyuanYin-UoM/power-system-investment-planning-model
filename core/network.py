@@ -939,6 +939,7 @@ class NetworkClass:
                                             mip_gap_abs: float = 1e5,
                                             time_limit: float = 3600,
                                             write_xlsx: bool = False,
+                                            analyze_load_shedding: bool = False,
                                             out_dir: str = "Optimization_Results/Combined_DC_and_Linearized_AC"):
         """
         Solve the combined DC (transmission) + linearized AC (distribution) OPF model.
@@ -978,15 +979,224 @@ class NetworkClass:
             for obj in model.component_objects(pyo.Objective, active=True):
                 print(f"\nObjective {obj.name}: Value = {pyo.value(obj)}")
 
-            # Write results
-            if write_xlsx:
-                prefix = "combined_dc_and_linearized_ac_"
-                net_name = getattr(self, "name", "network")
-                book = pathlib.Path(out_dir) / f"results_{prefix}{net_name}.xlsx"
-                self._write_results_to_excel(model, results, book)
+                # Write general results if requested
+                if write_xlsx:
+                    prefix = "combined_dc_and_linearized_ac_"
+                    net_name = getattr(self, "name", "network")
+                    # Generate timestamp for file naming
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    book = pathlib.Path(out_dir) / f"results_{prefix}{net_name}_{timestamp}.xlsx"
+                    self._write_results_to_excel(model, results, book)
+
+                # Analyze load shedding if requested
+                if analyze_load_shedding:
+                    ls_analysis_path = pathlib.Path(out_dir) / f"load_shedding_analysis_{net_name}_{timestamp}.xlsx"
+                    self._analyze_load_shedding(model, ls_analysis_path)
+
         else:
             print("Solver failed to find an optimal solution.")
         return results
+
+    def solve_combined_opf_in_chunks(self,
+                                     total_timesteps=8760,
+                                     chunk_size=168,
+                                     solver='gurobi',
+                                     mip_gap=1e-3,
+                                     mip_gap_abs=1e5,
+                                     time_limit_per_chunk=300,
+                                     analyze_load_shedding=True,
+                                     out_dir="Optimization_Results/Combined_DC_and_Linearized_AC"):
+        """
+        Solve the combined OPF model in chunks to manage memory usage.
+
+        Parameters:
+        -----------
+        total_timesteps : int
+            Total number of timesteps to analyze
+        chunk_size : int
+            Number of timesteps per chunk (default 168 = 1 week)
+        time_limit_per_chunk : float
+            Time limit for solving each chunk
+        analyze_load_shedding : bool
+            Whether to perform load shedding analysis
+
+        Returns:
+        --------
+        dict: Combined results from all chunks including pc_results and chunk_summaries
+
+        Note: ESS state-of-charge resets between chunks, which is acceptable
+              for identifying structural capacity issues.
+        """
+        import numpy as np
+        import pandas as pd
+        import gc
+        from datetime import datetime
+
+        print("\n" + "=" * 70)
+        print("CHUNKED OPF SOLVING")
+        print("=" * 70)
+        print(f"Total timesteps: {total_timesteps} hours")
+        print(f"Chunk size: {chunk_size} hours")
+        print(f"Number of chunks: {np.ceil(total_timesteps / chunk_size):.0f}")
+        print("WARNING: Time-coupled constraints (ESS, ramp rates) will be")
+        print("         approximated at chunk boundaries.")
+        print("=" * 70 + "\n")
+
+        # Prepare timesteps and chunks
+        all_timesteps = list(range(total_timesteps))
+        chunks = []
+        for i in range(0, total_timesteps, chunk_size):
+            chunk = all_timesteps[i:i + chunk_size]
+            chunks.append(chunk)
+
+        # Storage for all results
+        all_pc_results = {}  # {(bus, timestep): value}
+        chunk_summaries = []
+
+        # Process each chunk
+        for chunk_idx, chunk_timesteps in enumerate(chunks):
+            chunk_start = chunk_timesteps[0]
+            chunk_end = chunk_timesteps[-1]
+
+            print(f"\nChunk {chunk_idx + 1}/{len(chunks)}: Hours {chunk_start}-{chunk_end}")
+            print("-" * 40)
+
+            try:
+                # Build model for this chunk
+                chunk_model = self.build_combined_dc_linearized_ac_opf_model(
+                    timesteps=chunk_timesteps
+                )
+
+                # Solve the chunk
+                opt = SolverFactory(solver)
+                if solver.lower() == 'gurobi':
+                    opt.options['MIPGap'] = mip_gap
+                    opt.options['MIPGapAbs'] = mip_gap_abs
+                    opt.options['TimeLimit'] = time_limit_per_chunk
+                elif solver.lower() == 'cbc':
+                    opt.options['threads'] = 0
+                    opt.options['seconds'] = time_limit_per_chunk
+
+                chunk_results = opt.solve(chunk_model, tee=False)
+
+                # Check if solved successfully
+                if (chunk_results.solver.status == 'ok' and
+                        chunk_results.solver.termination_condition == 'optimal'):
+
+                    print(f"  Chunk {chunk_idx + 1} solved successfully")
+
+                    # Extract Pc values from this chunk
+                    pc_chunk_total = 0
+                    buses_with_ls = set()
+
+                    for (b, t) in chunk_model.Pc:
+                        value = pyo.value(chunk_model.Pc[b, t])
+                        all_pc_results[(b, t)] = value
+
+                        if value > 1e-6:
+                            pc_chunk_total += value
+                            buses_with_ls.add(b)
+
+                    # Store chunk summary
+                    chunk_summaries.append({
+                        'chunk': chunk_idx + 1,
+                        'hours': f"{chunk_start}-{chunk_end}",
+                        'total_ls_mw': pc_chunk_total,
+                        'buses_affected': len(buses_with_ls),
+                        'status': 'optimal',
+                        'solve_time': chunk_results.solver.time if hasattr(chunk_results.solver, 'time') else 0
+                    })
+
+                    if pc_chunk_total > 1e-6:
+                        print(f"  WARNING: Load shedding = {pc_chunk_total:.2f} MW")
+                        print(f"           Buses affected: {len(buses_with_ls)}")
+
+                else:
+                    print(f"  ERROR: Chunk {chunk_idx + 1} failed to solve optimally")
+                    print(f"  Status: {chunk_results.solver.status}")
+                    print(f"  Termination: {chunk_results.solver.termination_condition}")
+
+                    # Fill with zeros for failed chunks
+                    for b in chunk_model.Set_bus:
+                        for t in chunk_timesteps:
+                            all_pc_results[(b, t)] = 0.0
+
+                    chunk_summaries.append({
+                        'chunk': chunk_idx + 1,
+                        'hours': f"{chunk_start}-{chunk_end}",
+                        'total_ls_mw': 0,
+                        'buses_affected': 0,
+                        'status': 'failed',
+                        'solve_time': 0
+                    })
+
+            except Exception as e:
+                print(f"  ERROR in chunk {chunk_idx + 1}: {str(e)}")
+
+                # Fill with zeros for error chunks
+                if 'chunk_model' in locals():
+                    for b in chunk_model.Set_bus:
+                        for t in chunk_timesteps:
+                            all_pc_results[(b, t)] = 0.0
+
+                chunk_summaries.append({
+                    'chunk': chunk_idx + 1,
+                    'hours': f"{chunk_start}-{chunk_end}",
+                    'total_ls_mw': 0,
+                    'buses_affected': 0,
+                    'status': 'error',
+                    'solve_time': 0
+                })
+
+            finally:
+                # Clean up the chunk model to free memory
+                if 'chunk_model' in locals():
+                    del chunk_model
+                gc.collect()
+
+        # Create summary DataFrame
+        chunk_df = pd.DataFrame(chunk_summaries)
+        successful_chunks = chunk_df[chunk_df['status'] == 'optimal']
+
+        # Print summary
+        print("\n" + "=" * 70)
+        print("CHUNKED SOLVING COMPLETE")
+        print("=" * 70)
+        print(f"Chunks solved successfully: {len(successful_chunks)}/{len(chunks)}")
+        print(f"Total solve time: {chunk_df['solve_time'].sum():.1f} seconds")
+        print(f"Total load shedding: {sum(all_pc_results.values()):.2f} MWh")
+
+        # Generate timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Save chunk summary
+        chunk_summary_path = pathlib.Path(out_dir) / f"chunk_summary_{self.name}_{timestamp}.xlsx"
+        chunk_df.to_excel(chunk_summary_path, index=False)
+        print(f"\nChunk summary saved to: {chunk_summary_path}")
+
+        # Analyze combined results if requested
+        if analyze_load_shedding:
+            ls_path = pathlib.Path(out_dir) / f"load_shedding_analysis_chunked_{chunk_size}h_{self.name}_{timestamp}.xlsx"
+            self._analyze_load_shedding(all_pc_results, ls_path, timesteps=all_timesteps)
+
+        # Store metadata about this run
+        metadata = {
+            'timestamp': timestamp,
+            'total_timesteps': total_timesteps,
+            'chunk_size': chunk_size,
+            'num_chunks': len(chunks),
+            'successful_chunks': len(successful_chunks),
+            'total_load_shedding_mwh': sum(all_pc_results.values()),
+            'output_dir': str(out_dir)
+        }
+
+        return {
+            'pc_results': all_pc_results,
+            'chunk_summaries': chunk_df,
+            'total_load_shedding': sum(all_pc_results.values()),
+            'successful_chunks': len(successful_chunks),
+            'total_chunks': len(chunks)
+        }
 
     def build_combined_opf_model_under_ws_scenarios(self,
                                                     single_ws_scenario: dict,
@@ -1871,6 +2081,135 @@ class NetworkClass:
             })
             meta.to_excel(xl, sheet_name="meta", index=False)
 
+    def _analyze_load_shedding(self, model_or_pc_dict, output_path, timesteps=None):
+        """
+        Analyze load shedding (Pc) values and create detailed reports.
+
+        Parameters:
+        -----------
+        model_or_pc_dict : ConcreteModel or dict
+            Either a solved Pyomo model or a dict with (bus, timestep) keys
+        output_path : Path to output Excel file
+        timesteps : list (optional)
+            Required if passing a dict, to know all timesteps
+        """
+        import pandas as pd
+        import numpy as np
+
+        output_path = pathlib.Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Extract Pc values based on input type
+        if isinstance(model_or_pc_dict, dict):
+            # Direct dictionary input
+            pc_data = {}
+            for (b, t), value in model_or_pc_dict.items():
+                if b not in pc_data:
+                    pc_data[b] = {}
+                pc_data[b][t] = value
+
+            if timesteps is None:
+                timesteps = sorted(set(t for (b, t) in model_or_pc_dict.keys()))
+        else:
+            # Pyomo model input
+            model = model_or_pc_dict
+            pc_data = {}
+            for (b, t) in model.Pc:
+                if b not in pc_data:
+                    pc_data[b] = {}
+                pc_data[b][t] = pyo.value(model.Pc[b, t])
+
+            timesteps = sorted(set(t for bus_data in pc_data.values() for t in bus_data.keys()))
+
+        # Create DataFrame with buses as rows and timesteps as columns
+        buses = sorted(pc_data.keys())
+
+        pc_df = pd.DataFrame(index=buses, columns=timesteps)
+        for b in buses:
+            for t in timesteps:
+                pc_df.loc[b, t] = pc_data.get(b, {}).get(t, 0.0)
+
+        # Convert to numeric type
+        pc_df = pc_df.astype(float)
+
+        # Create summary statistics
+        summary_data = []
+        for b in buses:
+            bus_pc_values = pc_df.loc[b, :].values
+            non_zero_hours = np.count_nonzero(bus_pc_values)
+            total_ls = np.sum(bus_pc_values)
+            max_ls = np.max(bus_pc_values)
+            avg_ls = np.mean(bus_pc_values[bus_pc_values > 0]) if non_zero_hours > 0 else 0
+
+            summary_data.append({
+                'Bus': b,
+                'Non-zero Hours': non_zero_hours,
+                'Total Load Shedding (MW)': total_ls,
+                'Max Load Shedding (MW)': max_ls,
+                'Avg Non-zero LS (MW)': avg_ls,
+                'Percentage of Hours with LS': (non_zero_hours / len(timesteps)) * 100
+            })
+
+        summary_df = pd.DataFrame(summary_data)
+
+        # Filter for problematic buses (those with any load shedding)
+        problematic_buses = summary_df[summary_df['Non-zero Hours'] > 0].copy()
+        problematic_buses = problematic_buses.sort_values('Total Load Shedding (MW)', ascending=False)
+
+        # Create hourly summary
+        hourly_summary = pd.DataFrame({
+            'Hour': timesteps,
+            'Total System LS (MW)': [pc_df[t].sum() for t in timesteps],
+            'Buses with LS': [pc_df[t].gt(0).sum() for t in timesteps]
+        })
+
+        # Write to Excel with multiple sheets
+        with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
+            # Metadata
+            meta_data = {
+                'Metric': ['Total Buses', 'Buses with Load Shedding', 'Total Load Shedding (MW)',
+                           'Total Hours Analyzed', 'Hours with Any LS'],
+                'Value': [len(buses),
+                          len(problematic_buses) if not problematic_buses.empty else 0,
+                          pc_df.sum().sum(),
+                          len(timesteps),
+                          (pc_df.sum(axis=0) > 0).sum()]
+            }
+            meta_df = pd.DataFrame(meta_data)
+            meta_df.to_excel(writer, sheet_name='Metadata', index=False)
+
+            # Summary statistics
+            summary_df.to_excel(writer, sheet_name='Bus_Summary', index=False)
+
+            # Problematic buses only
+            if not problematic_buses.empty:
+                problematic_buses.to_excel(writer, sheet_name='Problematic_Buses', index=False)
+
+                # Extract Pc values only for problematic buses (if not too many)
+                if len(problematic_buses) <= 50:
+                    problematic_pc = pc_df.loc[problematic_buses['Bus'].values]
+                    problematic_pc.to_excel(writer, sheet_name='Pc_Problematic_Only', index=True)
+
+            # Hourly summary
+            hourly_summary.to_excel(writer, sheet_name='Hourly_Summary', index=False)
+
+        # Print summary to console
+        print("\n" + "=" * 60)
+        print("LOAD SHEDDING ANALYSIS SUMMARY")
+        print("=" * 60)
+        print(f"Total buses analyzed: {len(buses)}")
+        print(f"Buses with load shedding: {len(problematic_buses) if not problematic_buses.empty else 0}")
+        print(f"Total load shedding: {pc_df.sum().sum():.2f} MWh")
+        print(f"Hours with any load shedding: {(pc_df.sum(axis=0) > 0).sum()} out of {len(timesteps)}")
+
+        if not problematic_buses.empty:
+            print("\nTop 10 buses with highest total load shedding:")
+            print(problematic_buses[['Bus', 'Total Load Shedding (MW)', 'Non-zero Hours']].head(10))
+        else:
+            print("\nNo load shedding detected - network operates normally!")
+
+        print(f"\nDetailed results saved to: {output_path}")
+        print("=" * 60)
 
     def read_normalized_profile(self, file_path):
         """Read normalized demand profile from given file path into a Python list"""
