@@ -1,0 +1,13 @@
+# IDE
+.idea/
+# Virtual envs
+.venv/
+venv/
+# Python cache
+__pycache__/
+*.py[cod]
+# Build & test artifacts
+*.egg-info/
+dist/
+build/
+.pytest_cache/
