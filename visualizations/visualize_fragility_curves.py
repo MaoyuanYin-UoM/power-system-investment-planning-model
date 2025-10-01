@@ -147,22 +147,34 @@ def plot_single_fragility_curve(ax: plt.Axes,
         actual_thrd_1 = thrd_1 + shift_f + hardening_shift
         actual_thrd_2 = thrd_2 + shift_f + hardening_shift
 
-        label1 = f'Threshold 1 ({actual_thrd_1:.1f} m/s)' if threshold_labels else None
-        label2 = f'Threshold 2 ({actual_thrd_2:.1f} m/s)' if threshold_labels else None
-
+        # Always add threshold lines to legend with simple labels
         ax.axvline(actual_thrd_1,
-                  color=threshold_colors[0],
-                  linestyle=threshold_linestyles[0],
-                  linewidth=threshold_linewidth,
-                  alpha=threshold_alpha,
-                  label=label1)
+                   color=threshold_colors[0],
+                   linestyle=threshold_linestyles[0],
+                   linewidth=threshold_linewidth,
+                   alpha=threshold_alpha,
+                   label='Lower threshold')
 
         ax.axvline(actual_thrd_2,
-                  color=threshold_colors[1],
-                  linestyle=threshold_linestyles[1],
-                  linewidth=threshold_linewidth,
-                  alpha=threshold_alpha,
-                  label=label2)
+                   color=threshold_colors[1],
+                   linestyle=threshold_linestyles[1],
+                   linewidth=threshold_linewidth,
+                   alpha=threshold_alpha,
+                   label='Upper threshold')
+
+        # Add text annotations if threshold_labels is True
+        if threshold_labels:
+            # Add text labels near the threshold lines
+            ax_ylim = ax.get_ylim()
+            y_pos = ax_ylim[0] + (ax_ylim[1] - ax_ylim[0]) * 0.95  # Position near top
+
+            ax.text(actual_thrd_1, y_pos, f'{actual_thrd_1:.1f} m/s',
+                    rotation=90, verticalalignment='top',
+                    fontsize=threshold_fontsize, color=threshold_colors[0])
+
+            ax.text(actual_thrd_2, y_pos, f'{actual_thrd_2:.1f} m/s',
+                    rotation=90, verticalalignment='top',
+                    fontsize=threshold_fontsize, color=threshold_colors[1])
 
 
 def add_hardening_arrow(ax: plt.Axes,
@@ -314,6 +326,68 @@ def add_info_textbox(ax: plt.Axes,
            bbox=props)
 
 
+def create_piecewise_breakpoints(thrd_1: float, thrd_2: float, shift_f: float,
+                                 num_pieces: int = 6) -> Tuple[List[float], List[float]]:
+    """
+    Create breakpoints for piecewise linearization matching the implementation
+    in piecewise_linearize_fragility.
+
+    Returns:
+        Tuple of (breakpoints, effective_thresholds)
+    """
+    # Define bounds
+    global_min = 0
+    global_max = 70
+
+    # Effective thresholds after shift
+    effective_th1 = thrd_1 + shift_f
+    effective_th2 = thrd_2 + shift_f
+
+    # Create adaptive breakpoints
+    breakpoints = []
+
+    # Add global minimum (start of first flat region)
+    breakpoints.append(global_min)
+
+    # Add the first threshold (end of first flat region, start of transition)
+    breakpoints.append(effective_th1)
+
+    # Add (num_pieces - 1) points within transition region
+    if num_pieces > 2:
+        transition_points = np.linspace(effective_th1, effective_th2, num_pieces + 1)[1:-1]
+        breakpoints.extend(transition_points.tolist())
+
+    # Add the second threshold (end of transition, start of second flat region)
+    breakpoints.append(effective_th2)
+
+    # Add global maximum (end of second flat region)
+    breakpoints.append(global_max)
+
+    # Remove duplicates and sort
+    breakpoints = sorted(list(set(breakpoints)))
+
+    return breakpoints, (effective_th1, effective_th2)
+
+
+def calculate_piecewise_fragility(breakpoints: List[float], mu: float, sigma: float,
+                                  thrd_1: float, thrd_2: float, shift_f: float) -> List[float]:
+    """
+    Calculate failure probabilities at breakpoints for piecewise linearization.
+    """
+    from scipy.stats import lognorm
+
+    fail_probs = []
+    for x in breakpoints:
+        z = x - shift_f  # Apply shift
+        if z <= thrd_1:
+            fail_probs.append(0.0)
+        elif z >= thrd_2:
+            fail_probs.append(1.0)
+        else:
+            fail_probs.append(float(lognorm.cdf(z, s=sigma, scale=np.exp(mu))))
+
+    return fail_probs
+
 # -----------------------------
 # Main Visualization Function
 # -----------------------------
@@ -334,6 +408,14 @@ def visualize_fragility_curves(
     hardening_levels: List[float] = [10, 20, 30],
     hardening_colors: Optional[List[str]] = None,
     hardening_labels: Optional[List[str]] = None,
+
+    # Show piecewise linearized curve
+    show_piecewise: bool = False,
+    num_pieces: int = 6,
+    piecewise_linestyle: str = ':',
+    piecewise_alpha: float = 0.8,
+    piecewise_marker: str = 'o',
+    piecewise_markersize: float = 4,
 
     # Plot type options
     plot_type: str = 'single',  # 'single', 'hardening_shift', 'comparison', 'network_comparison'
@@ -794,11 +876,10 @@ def visualize_fragility_curves(
             network_labels = []
             for preset in network_presets:
                 if 'transmission' in preset.lower() or 'tn' in preset.lower() or 'GB_Transmission' in preset:
-                    network_labels.append('Fragility curve of TN OHL')
+                    network_labels.append('TN OHL')
                 elif 'distribution' in preset.lower() or 'dn' in preset.lower() or 'Manchester' in preset:
-                    network_labels.append('Fragility curve of DN OHL')
+                    network_labels.append('DN OHL')
                 else:
-                    # Use a shortened version of the preset name
                     network_labels.append(preset.replace('_', ' ').split()[0])
 
         # Plot each network's fragility curve
@@ -813,44 +894,82 @@ def visualize_fragility_curves(
             if hasattr(net, 'data') and hasattr(net.data, 'frg'):
                 net_mu = net.data.frg.mu[0] if isinstance(net.data.frg.mu, list) else net.data.frg.mu
                 net_sigma = net.data.frg.sigma[0] if isinstance(net.data.frg.sigma, list) else net.data.frg.sigma
-                net_thrd_1 = net.data.frg.thrd_1[0] if isinstance(net.data.frg.thrd_1, list) else net.data.frg.thrd_1
-                net_thrd_2 = net.data.frg.thrd_2[0] if isinstance(net.data.frg.thrd_2, list) else net.data.frg.thrd_2
-                net_shift_f = net.data.frg.shift_f[0] if isinstance(net.data.frg.shift_f, list) else net.data.frg.shift_f
+                net_thrd_1 = net.data.frg.thrd_1[0] if isinstance(net.data.frg.thrd_1,
+                                                                  list) else net.data.frg.thrd_1
+                net_thrd_2 = net.data.frg.thrd_2[0] if isinstance(net.data.frg.thrd_2,
+                                                                  list) else net.data.frg.thrd_2
+                net_shift_f = net.data.frg.shift_f[0] if isinstance(net.data.frg.shift_f,
+                                                                    list) else net.data.frg.shift_f
             else:
-                raise ValueError(f"Network preset '{preset}' does not have fragility data")
+                raise ValueError(f"Network preset '{preset}' doesn't have fragility data")
 
-            # Calculate PoF for this network
-            pof_values = calculate_fragility_pof(
-                wind_speeds, net_mu, net_sigma, net_thrd_1, net_thrd_2, net_shift_f
-            )
+            # Calculate smooth fragility curve
+            pof_values = calculate_fragility_pof(wind_speeds, net_mu, net_sigma,
+                                                 net_thrd_1, net_thrd_2, net_shift_f)
 
-            # Plot the curve
+            # Plot smooth curve
             ax.plot(wind_speeds, pof_values,
-                   color=color,
-                   linewidth=curve_linewidth,
-                   linestyle=curve_linestyle,
-                   alpha=curve_alpha,
-                   label=label)
+                    color=color,
+                    linewidth=curve_linewidth,
+                    linestyle='-',
+                    label=label,
+                    alpha=1.0)
 
-            # Optionally show thresholds for each network (with reduced alpha for clarity)
+            # Add piecewise linearization if requested
+            if show_piecewise:
+                # Create breakpoints
+                breakpoints, effective_thresholds = create_piecewise_breakpoints(
+                    net_thrd_1, net_thrd_2, net_shift_f, num_pieces
+                )
+
+                # Calculate probabilities at breakpoints
+                piecewise_probs = calculate_piecewise_fragility(
+                    breakpoints, net_mu, net_sigma, net_thrd_1, net_thrd_2, net_shift_f
+                )
+
+                # Plot piecewise linear approximation
+                ax.plot(breakpoints, piecewise_probs,
+                        color=color,
+                        linewidth=curve_linewidth * 0.8,
+                        linestyle=piecewise_linestyle,
+                        marker=piecewise_marker,
+                        markersize=piecewise_markersize,
+                        label=f'{label} (piecewise, {num_pieces + 2} pieces)',
+                        alpha=piecewise_alpha)
+
+                # Optional: Add subtle vertical lines at breakpoints in transition region
+                if show_thresholds:
+                    for bp in breakpoints[1:-1]:  # Skip global min and max
+                        if effective_thresholds[0] <= bp <= effective_thresholds[1]:
+                            ax.axvline(bp, color=color, linestyle=':',
+                                       linewidth=0.5, alpha=0.3)
+
+            # Add threshold lines if requested
             if show_thresholds:
-                threshold_alpha_net = threshold_alpha * 0.5  # Reduce alpha for multiple curves
+                # Add labels only for the first network's thresholds to avoid legend clutter
+                threshold_label_1 = 'Lower threshold' if i == 0 else None
+                threshold_label_2 = 'Upper threshold' if i == 0 else None
+
+                # Use more subtle styling for thresholds to avoid clutter
                 ax.axvline(net_thrd_1 + net_shift_f,
-                          color=color,
-                          linestyle=':',
-                          linewidth=threshold_linewidth * 0.6,
-                          alpha=threshold_alpha_net)
+                           color=color,
+                           linestyle='--',
+                           linewidth=threshold_linewidth * 0.5,
+                           alpha=threshold_alpha * 0.5,
+                           label=threshold_label_1)
+
                 ax.axvline(net_thrd_2 + net_shift_f,
-                          color=color,
-                          linestyle=':',
-                          linewidth=threshold_linewidth * 0.6,
-                          alpha=threshold_alpha_net)
+                           color=color,
+                           linestyle='--',
+                           linewidth=threshold_linewidth * 0.5,
+                           alpha=threshold_alpha * 0.5,
+                           label=threshold_label_2)
 
         if custom_title is None:
-            if len(network_presets) == 2:
-                custom_title = 'Fragility Curve Comparison: TN vs DN OHL'
+            if show_piecewise:
+                custom_title = f'Fragility Curves with Piecewise Linearization ({num_pieces} pieces)'
             else:
-                custom_title = 'Network Fragility Curve Comparison'
+                custom_title = 'Fragility Curve Comparison'
 
     # Set labels and title
     ax.set_xlabel(xlabel, fontsize=xlabel_fontsize)
@@ -1075,13 +1194,21 @@ if __name__ == "__main__":
         threshold_linewidth=3,
 
         custom_title='Fragility Curve Visualisation',
-        curve_linewidth=3,
+        curve_linewidth=2,
+
+        # Enable piecewise visualization
+        show_piecewise=True,
+        num_pieces=5,  # Number of pieces between thrd_1 and thrd_2
+        piecewise_linestyle=':',
+        piecewise_alpha=0.8,
+        piecewise_marker='o',
+        piecewise_markersize=5,
 
         title_fontsize=16,
         xlabel_fontsize=14,
         ylabel_fontsize=14,
         legend_fontsize=12,
-        legend_loc='upper left',
+        legend_loc='center right',
         legend_handlelength=1.5,
         figsize=(8, 6),
         wind_speed_max=70

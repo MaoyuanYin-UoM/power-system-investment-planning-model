@@ -129,16 +129,17 @@ def plot_ws_scenarios(
     plot_envelopes: bool = True,
     multi_on_one_axis: bool = True,
     show_per_scenario_legend: bool = False,
+    normal_scenario_prob: Optional[float] = None,  # ADD THIS NEW PARAMETER
     figsize: Tuple[int, int] = (11, 9),
     title: Optional[str] = None,
     circle_alpha: float = 0.18,
     envelope_alpha: float = 0.20,
     path_alpha: float = 0.9,
-    title_fontsize: int = 15,          # New parameter for title font size
-    xlabel_fontsize: int = 12,         # New parameter for x-axis label font size
-    ylabel_fontsize: int = 12,         # New parameter for y-axis label font size
-    tick_fontsize: int = 10,           # New parameter for tick font size
-    legend_fontsize: int = 10,         # New parameter for legend font size
+    title_fontsize: int = 15,
+    xlabel_fontsize: int = 12,
+    ylabel_fontsize: int = 12,
+    tick_fontsize: int = 10,
+    legend_fontsize: int = 10,
 ):
     """
     Tidy visualization of all scenarios in a library.
@@ -246,11 +247,20 @@ def plot_ws_scenarios(
             # Create legend entry with scenario probability
             # Extract scenario number from ID (e.g., "ws_0001" -> 1)
             scenario_num = idx + 1  # Simple 1-based numbering
+
             # Get probability for this scenario (default to equal probability if not found)
-            prob = scenario_probabilities.get(scn_id, 1.0 / len(scenario_ids))
+            relative_prob = scenario_probabilities.get(scn_id, 1.0 / len(scenario_ids))
+
+            # Calculate absolute probability if normal_scenario_prob is provided
+            if normal_scenario_prob is not None:
+                # Absolute probability = (1 - normal_scenario_prob) * relative_prob
+                prob = (1 - normal_scenario_prob) * relative_prob
+            else:
+                # Use relative probability as before
+                prob = relative_prob
 
             # Add legend handle with scenario number and probability
-            legend_label = f"Scenario {scenario_num}, p = {prob:.3f}"
+            legend_label = f"Scenario {scenario_num}, p = {prob:.5f}"
             per_scn_handles.append(Line2D([0], [0], color=sc_color, lw=2, label=legend_label))
 
     # Axis limits: pad around network
@@ -352,7 +362,8 @@ def plot_single_event(ws_library_path: str,
 if __name__ == "__main__":
     # Example: plot 10 scenarios from a filtered library on one canvas.
     # Adjust the path below to your library.
-    ws_library = "../Scenario_Database/Scenarios_Libraries/Clustered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_5000scn_s10000_filt_b1_h1_buf15_eens_k10.json"
+    # ws_library = "../Scenario_Database/Scenarios_Libraries/Clustered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_5000scn_s10000_filt_b1_h1_buf15_eens_k10.json"
+    ws_library = "../Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_1000scn_s10000_filt_b1_h1_buf15.json"
 
     plot_ws_scenarios(
         ws_library_path=ws_library,
@@ -361,6 +372,7 @@ if __name__ == "__main__":
         plot_envelopes=True,  # capsule envelope
         multi_on_one_axis=True,  # plot all scenarios together
         show_per_scenario_legend=True,  # keep legend compact
+        normal_scenario_prob=0.99,
         figsize=(10, 10),
         title="Windstorm Scenarios Visualisation",
         # Font size parameters (optional - will use defaults if not specified)

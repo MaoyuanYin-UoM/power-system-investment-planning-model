@@ -149,6 +149,7 @@ def visualize_fragility_curve(WindConfig=None,
                               thrd_2=None,
                               shift_f=None,
                               title='Fragility Curve',
+                              border_width=1.5,
                               figsize=(8, 6),
                               save_path=None):
     """
@@ -205,7 +206,7 @@ def visualize_fragility_curve(WindConfig=None,
                              "(mu, sigma, thrd_1, thrd_2, shift_f) must be provided.")
 
     # Generate hazard intensities
-    hzd_int_range = np.linspace(0, 120, 500)  # Hazard intensity from 0 to 120
+    hzd_int_range = np.linspace(0, 70, 500)  # Hazard intensity from 0 to 120
     pof_values = []
 
     # Calculate PoF for each hazard intensity
@@ -223,12 +224,15 @@ def visualize_fragility_curve(WindConfig=None,
 
     # Plot the fragility curve
     fig, ax = plt.subplots(figsize=figsize)
+    for sp in ax.spines.values():
+        sp.set_linewidth(border_width)
+
     ax.plot(hzd_int_range, pof_values, label='Fragility Curve', linewidth=2)
     ax.axvline(thrd_1 + shift_f, color='green', linestyle='--',
                label=f'Threshold 1 ({thrd_1 + shift_f:.1f})')
     ax.axvline(thrd_2 + shift_f, color='red', linestyle='--',
                label=f'Threshold 2 ({thrd_2 + shift_f:.1f})')
-    ax.set_xlabel('Wind Speed (mph)')
+    ax.set_xlabel('Wind Speed (m/s)')
     ax.set_ylabel('Failure Probability')
     ax.set_title(title)
 

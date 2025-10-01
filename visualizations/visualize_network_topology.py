@@ -876,16 +876,16 @@ if __name__ == "__main__":
     # )
 
     # Example 2: Zoomed distribution network view
-    print("\nExample 2: Distribution network view")
-    visualize_network_topology(
-        network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
-        zoom_to_dn=True,
-        show_buses=True,
-        label_buses=True,
-        label_fontsize=14,
-        label_offset=0.01,
-        custom_title="Distribution Network - Kearsley GSP Group (Zoomed View)"
-    )
+    # print("\nExample 2: Distribution network view")
+    # visualize_network_topology(
+    #     network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
+    #     zoom_to_dn=True,
+    #     show_buses=True,
+    #     label_buses=True,
+    #     label_fontsize=14,
+    #     label_offset=0.01,
+    #     custom_title="Distribution Network - Kearsley GSP Group (Zoomed View)"
+    # )
 
     # Example 3: Network with windstorm contours
     # Note: This requires a valid windstorm event file
@@ -945,53 +945,53 @@ if __name__ == "__main__":
     #     figsize=(16, 6)
     # )
 
-    # visualize_network_topology(
-    #     network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
-    #     show_buses=True,
-    #     label_buses=False,
-    #     tn_branch_color='green',
-    #     dn_branch_color='orange',
-    #     tn_bus_color='darkgreen',
-    #     dn_bus_color='darkorange',
-    #     branch_lw=1.5,
-    #     bus_size=50,
-    #     title_fontsize=16,
-    #     xlabel_fontsize=14,
-    #     ylabel_fontsize=14,
-    #     tick_fontsize=12,
-    #     legend_fontsize=14,
-    #     legend_loc='center left',
-    #     figsize=(10, 10),
-    #     custom_title="Network Topology Visualisation",
-    #     # Add interconnection arrows
-    #     interconnection_buses=[5, 10, 11, 26, 27],  # Your IC buses
-    #     show_interconnection_arrows=True,
-    #     ic_arrow_color='purple',
-    #     ic_arrow_width=3,
-    #     ic_arrow_length=0.5,
-    #     ic_arrow_directions={
-    #         5: -135,  # Adjust arrow angles)
-    #         10: 0,
-    #         11: 180,
-    #         26: 0,
-    #         27: -45
-    #     },
-    #     # Inset
-    #     show_dn_inset=True,
-    #     inset_position='upper right',
-    #     inset_size=0.30,
-    #     inset_borderpad=1.5,  # Gap from edges (points)
-    #     inset_lw_scale=0.8,  # Line width 80% of main
-    #     inset_bus_scale=0.7,  # Bus size 70% of main
-    #     # inset_padding_scale=0.5,  # Padding 50% of main
-    #     inset_show_title=True,  # Show title in inset
-    #     inset_title="DN: Kearsley GSP Group",  # Custom title text
-    #     inset_title_fontsize=12,  # Title font size
-    #     show_grid=True,
-    #     figure_margins={  # Manual margins with inset
-    #         'left': 0.08,
-    #         'right': 0.94,
-    #         'top': 0.94,
-    #         'bottom': 0.08
-    #     },
-    # )
+    visualize_network_topology(
+        network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
+        show_buses=True,
+        label_buses=True,
+        tn_branch_color='green',
+        dn_branch_color='orange',
+        tn_bus_color='darkgreen',
+        dn_bus_color='darkorange',
+        branch_lw=1.5,
+        bus_size=50,
+        title_fontsize=16,
+        xlabel_fontsize=14,
+        ylabel_fontsize=14,
+        tick_fontsize=12,
+        legend_fontsize=14,
+        legend_loc='center left',
+        figsize=(10, 10),
+        custom_title="Network Topology Visualisation",
+        # Add interconnection arrows
+        interconnection_buses=[5, 10, 11, 26, 27],  # Your IC buses
+        show_interconnection_arrows=True,
+        ic_arrow_color='purple',
+        ic_arrow_width=3,
+        ic_arrow_length=0.5,
+        ic_arrow_directions={
+            5: -135,  # Adjust arrow angles)
+            10: 0,
+            11: 180,
+            26: 0,
+            27: -45
+        },
+        # Inset
+        show_dn_inset=True,
+        inset_position='upper right',
+        inset_size=0.30,
+        inset_borderpad=1.5,  # Gap from edges (points)
+        inset_lw_scale=0.8,  # Line width 80% of main
+        inset_bus_scale=0.7,  # Bus size 70% of main
+        # inset_padding_scale=0.5,  # Padding 50% of main
+        inset_show_title=True,  # Show title in inset
+        inset_title="DN: Kearsley GSP Group",  # Custom title text
+        inset_title_fontsize=12,  # Title font size
+        show_grid=True,
+        figure_margins={  # Manual margins with inset
+            'left': 0.08,
+            'right': 0.94,
+            'top': 0.94,
+            'bottom': 0.08
+        },
+    )

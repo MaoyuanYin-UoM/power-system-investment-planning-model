@@ -1173,7 +1173,7 @@ def make_network(name: str) -> NetworkClass:
 
         # 5.2) Insert the TN–DN coupling branch (after the TN list)
         idx_cpl = len(gb.bch)  # position in the master list
-        ncon.data.net.bch.insert(idx_cpl, [13, _map(1)])  # 21 ←→ Kearsley-bus 1
+        ncon.data.net.bch.insert(idx_cpl, [13, _map(1)])  # GB29-bus 1 ←→ Kearsley-bus 1
         ncon.data.net.bch_type.insert(idx_cpl, 0)  # treat as transformer
         ncon.data.net.bch_R.insert(idx_cpl, 0.0)
         ncon.data.net.bch_X.insert(idx_cpl, 0.0001)

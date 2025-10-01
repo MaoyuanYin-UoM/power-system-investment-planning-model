@@ -13,8 +13,8 @@ from factories.network_factory import make_network
 
 net = make_network("29_bus_GB_transmission_network_with_Kearsley_GSP_group")
 
-# # Solve the opf problem in one run (may be too computational heavy if the number of timesteps is large):
-# timesteps = list(range(24))
+# Solve the opf problem in one run (may be too computational heavy if the number of timesteps is large):
+# timesteps = list(range(504, 671))
 # model = net.build_combined_dc_linearized_ac_opf_model(timesteps=timesteps)
 # results = net.solve_combined_dc_linearized_ac_opf(model,
 #                                                   solver='gurobi',

@@ -372,8 +372,8 @@ def plot_pareto_front_from_excel(
 
             # Keep grid lines dense but show fewer tick labels
             # For x-axis: show ticks at 0.5 intervals but keep finer grid
-            ax.xaxis.set_major_locator(MultipleLocator(0.5))  # Tick labels every 0.5
-            ax.xaxis.set_minor_locator(MultipleLocator(0.25))  # Grid lines every 0.25
+            ax.xaxis.set_major_locator(MultipleLocator(2))  # Tick labels every 0.5
+            ax.xaxis.set_minor_locator(MultipleLocator(1))  # Grid lines every 0.25
 
             # For y-axis: show ticks at 40 or 50 intervals
             ax.yaxis.set_major_locator(MultipleLocator(40))  # Tick labels every 40
@@ -649,7 +649,7 @@ if __name__ == "__main__":
     # Example 6: Single plot with all customizations
     # ----------------------------------------------
     fig, ax = plot_pareto_front_from_excel(
-        excel_path="Post-processed_Data_for_Plots/investment_costs_vs_resilience_metrics_updated_network_and_windstorm_presets_(22-Sep-2025).xlsx",
+        excel_path="Post-processed_Data_for_Plots/investment_costs_vs_resilience_metrics_6scn_updated_network_presets_(29-Sep-2025)_dgmaxcapacity100.xlsx",
         plot_types=['total_investment', 'line_hardening', 'dg_installation'],
         overlay_plots=True,
         overlay_line_styles=['-', '-', '-', '-'],  # Solid, dashed, dash-dot, dotted

@@ -1246,12 +1246,12 @@ class NetworkClass:
         # ------------------------------------------------------------------
         # 1. Indexing sets
         # ------------------------------------------------------------------
-        num_bus = len(self.data.net.bus)
-        num_bch = len(self.data.net.bch)
-        num_gen = len(self.data.net.gen)
+        Set_bus = self.data.net.bus
 
-        Set_bus = list(range(1, num_bus + 1))
+        num_bch = len(self.data.net.bch)
         Set_bch = list(range(1, num_bch + 1))
+
+        num_gen = len(self.data.net.gen)
         Set_gen = list(range(1, num_gen + 1))
 
         # Level-specific sets
@@ -1263,17 +1263,31 @@ class NetworkClass:
         Set_bch_td = [l for l in Set_bch if self.data.net.branch_level[l] == 'T-D']
 
         # Line types
-        Set_bch_tn_lines = [l for l in Set_bch_tn if self.data.net.bch_type[l - 1] == 'Line']
-        Set_bch_dn_lines = [l for l in Set_bch_dn if self.data.net.bch_type[l - 1] == 'Line']
+        Set_bch_tn_lines = [l for l in Set_bch_tn if self.data.net.bch_type[l - 1] == 1]
+        Set_bch_dn_lines = [l for l in Set_bch_dn if self.data.net.bch_type[l - 1] == 1]
         Set_bch_lines = Set_bch_tn_lines + Set_bch_dn_lines
 
         # Check for renewable generators
-        has_renewables = hasattr(self.data.net, 'profile_Pg_renewable') and \
-                         any(profile is not None for profile in self.data.net.profile_Pg_renewable)
+        has_renewables = (hasattr(self.data.net, 'profile_Pg_renewable') and
+                          self.data.net.profile_Pg_renewable is not None and
+                          hasattr(self.data.net, 'gen_type'))
 
-        Set_gen_ren = [g for g in Set_gen
-                       if has_renewables and self.data.net.profile_Pg_renewable[g - 1] is not None]
-        Set_gen_nren = [g for g in Set_gen if g not in Set_gen_ren]
+        if has_renewables:
+            Set_gen_ren = []  # renewable generators
+            Set_gen_nren = []  # non-renewable generators
+
+            for g in Set_gen:
+                gen_idx = g - 1
+                gen_bus = self.data.net.gen[gen_idx]
+
+                # A generator is renewable if: 1) It's at the DN level;  2) Its type is 'wind' or 'pv'
+                if gen_bus in Set_bus_dn and self.data.net.gen_type[gen_idx] in ['wind', 'pv']:
+                    Set_gen_ren.append(g)
+                else:
+                    Set_gen_nren.append(g)
+        else:
+            Set_gen_ren = []
+            Set_gen_nren = Set_gen  # All generators are non-renewable
 
         Set_ts = sorted(list(all_timesteps))
 
@@ -1375,15 +1389,30 @@ class NetworkClass:
         for b in Set_bus:
             bus_idx = b - 1
             profile = self.data.net.profile_Pd[bus_idx]
-            max_demand = self.data.net.Pd_max[bus_idx]
 
             for t in Set_ts:
-                demand_data[(b, t)] = profile[t - 1] * max_demand if profile else max_demand
+                hour_of_year = (t - 1) % 8760  # Convert to 0-based hour of year
 
-                if has_reactive_demand:
-                    q_profile = self.data.net.profile_Qd[bus_idx]
-                    max_q_demand = self.data.net.Qd_max[bus_idx]
-                    reactive_demand_data[(b, t)] = q_profile[t - 1] * max_q_demand if q_profile else max_q_demand
+                if profile is not None and len(profile) > hour_of_year:
+                    demand_value = profile[hour_of_year]
+                else:
+                    # Fallback if no profile exists
+                    demand_value = self.data.net.Pd_max[bus_idx]
+                    print(f"Warning: No profile for bus {b}, using Pd_max = {demand_value:.2f} MW")
+
+                demand_data[(b, t)] = demand_value
+
+            if has_reactive_demand:
+                q_profile = self.data.net.profile_Qd[bus_idx]
+
+                for t in Set_ts:
+                    hour_of_year = (t - 1) % 8760
+
+                    if q_profile is not None and len(q_profile) > hour_of_year:
+                        # FIX: Use profile value directly
+                        reactive_demand_data[(b, t)] = q_profile[hour_of_year]
+                    else:
+                        reactive_demand_data[(b, t)] = self.data.net.Qd_max[bus_idx]
 
         model.Pd = pyo.Param(model.Set_bt, initialize=demand_data)
         if has_reactive_demand:
@@ -1440,15 +1469,19 @@ class NetworkClass:
             model.initial_SOC = pyo.Param(model.Set_ess,
                                           initialize={e: self.data.net.initial_SOC_exst[e - 1] for e in Set_ess})
 
-        # 3.6) Load shedding costs
-        model.Pc_cost = pyo.Param(model.Set_bus,
-                                  initialize={b: self.data.net.Pc_cost[b - 1] for b in model.Set_bus})
-        model.Qc_cost = pyo.Param(model.Set_bus,
-                                  initialize={b: self.data.net.Qc_cost[b - 1] for b in model.Set_bus})
+        # 3.6) Cost parameters
+        model.Pc_cost = pyo.Param(Set_bus,
+                                  initialize={b: self.data.net.Pc_cost[self.data.net.bus.index(b)]
+                                              for b in Set_bus})
+        model.Qc_cost = pyo.Param(Set_bus_dn,
+                                  initialize={b: self.data.net.Qc_cost[self.data.net.bus.index(b)]
+                                              for b in Set_bus_dn})
+        model.Pimp_cost = pyo.Param(initialize=self.data.net.Pimp_cost)
+        model.Pexp_cost = pyo.Param(initialize=self.data.net.Pexp_cost)
 
-        # 3.7) Repair costs
-        model.rep_cost = pyo.Param(model.Set_bch_lines,
-                                   initialize={l: self.data.net.cost_bch_rep[l - 1] for l in model.Set_bch_lines})
+        model.rep_cost = pyo.Param(Set_bch_lines,
+                                   initialize={l: self.data.net.cost_bch_repair[l - 1]
+                                               for l in Set_bch_lines})
 
         # 3.8) Scenario probability
         model.prob_factor = pyo.Param(initialize=scenario_probability)
@@ -1484,20 +1517,46 @@ class NetworkClass:
                             if l_idx < len(event_impact_flags) and len(event_impact_flags[l_idx]) > idx:
                                 impact_flags[(l, t)] = int(event_impact_flags[l_idx][idx])
 
-        model.wind_gust_speed = pyo.Param(model.Set_ts, initialize=windstorm_params)
+        # Define wind_gust_speed as Var indexed by (line, timestep) with fixed bounds
+        def wind_speed_bounds(model, l, t):
+            """
+            Set upper and lower bounds equal to fix the wind speed value.
+            Wind speed is the same for all lines at a given timestep.
+            """
+            value = windstorm_params.get(t, 0.0)
+            return (value, value)
+
+        model.wind_gust_speed = pyo.Var(
+            model.Set_lt_lines,  # Index by (line, timestep) to match Piecewise
+            bounds=wind_speed_bounds
+        )
+
         model.impact_flag = pyo.Param(model.Set_lt_lines, initialize=impact_flags, mutable=False)
 
         # Random numbers for failure probability
         rand_nums_data = {}
-        bch_rand_nums = single_ws_scenario.get("bch_rand_nums", [])
 
+        # Extract random numbers from events
+        for event in single_ws_scenario.get("events", []):
+            bgn_hr = event["bgn_hr"]
+            duration = event["duration"]
+            event_rand_nums = event.get("bch_rand_nums", [])  # [num_branches x duration]
+
+            for l in Set_bch_lines:
+                l_idx = l - 1
+                for hr_idx in range(duration):
+                    t = bgn_hr + hr_idx + 1  # Convert to 1-indexed timestep
+                    if t in Set_ts:
+                        if l_idx < len(event_rand_nums) and hr_idx < len(event_rand_nums[l_idx]):
+                            rand_nums_data[(l, t)] = event_rand_nums[l_idx][hr_idx]
+                        else:
+                            rand_nums_data[(l, t)] = 1.0  # Default: no failure
+
+        # Fill remaining timesteps with 1.0 (no failure outside events)
         for l in Set_bch_lines:
-            l_idx = l - 1
             for t in Set_ts:
-                if l_idx < len(bch_rand_nums) and (t - 1) < len(bch_rand_nums[l_idx]):
-                    rand_nums_data[(l, t)] = bch_rand_nums[l_idx][t - 1]
-                else:
-                    rand_nums_data[(l, t)] = 1.0  # No failure if no random number
+                if (l, t) not in rand_nums_data:
+                    rand_nums_data[(l, t)] = 1.0
 
         model.rand_num = pyo.Param(model.Set_lt_lines, initialize=rand_nums_data)
 
@@ -1691,13 +1750,13 @@ class NetworkClass:
 
         # 5.7) Thermal limits - DN (linearized)
         def thermal_limit_dn_pos_rule(model, l, t):
-            return model.Pf_dn[l, t] <= model.Pmax_dn[l] * model.bch_status[l, t]
+            return model.Pf_dn[l, t] <= model.Smax_dn[l] * model.bch_status[l, t]
 
         def thermal_limit_dn_neg_rule(model, l, t):
-            return model.Pf_dn[l, t] >= -model.Pmax_dn[l] * model.bch_status[l, t]
+            return model.Pf_dn[l, t] >= -model.Smax_dn[l] * model.bch_status[l, t]
 
-        model.Constraint_ThermalLimit_DN_pos = pyo.Constraint(model.Set_lt_tn_lines, rule=thermal_limit_dn_pos_rule)
-        model.Constraint_ThermalLimit_DN_neg = pyo.Constraint(model.Set_lt_tn_lines, rule=thermal_limit_dn_neg_rule)
+        model.Constraint_ThermalLimit_DN_pos = pyo.Constraint(model.Set_lt_dn_lines, rule=thermal_limit_dn_pos_rule)
+        model.Constraint_ThermalLimit_DN_neg = pyo.Constraint(model.Set_lt_dn_lines, rule=thermal_limit_dn_neg_rule)
 
         if has_reactive_demand:
             def thermal_limit_dn_Q_pos_rule(model, l, t):  
@@ -1799,72 +1858,207 @@ class NetworkClass:
             model.Constraint_SOC_min = pyo.Constraint(model.Set_et, rule=soc_min_rule)
             model.Constraint_SOC_max = pyo.Constraint(model.Set_et, rule=soc_max_rule)
 
+
         # 5.10) Line failure and repair constraints
-        # Fragility curve (piecewise linear)
-        def fragility_curve_rule(model, l, t):  
-            v = model.wind_gust_speed[t]  
-            mu = model.frg_mu[l]
-            sigma = model.frg_sigma[l]
-            thrd_1 = model.frg_thrd_1[l]
-            thrd_2 = model.frg_thrd_2[l]
 
-            if v <= thrd_1:
-                return model.fail_prob[l, t] == 0  
-            elif v >= thrd_2:
-                return model.fail_prob[l, t] == 1  
-            else:
-                # Linear interpolation between thresholds
-                p1 = lognorm.cdf(thrd_1, s=sigma, scale=mu)
-                p2 = lognorm.cdf(thrd_2, s=sigma, scale=mu)
-                slope = (p2 - p1) / (thrd_2 - thrd_1)
-                return model.fail_prob[l, t] == p1 + slope * (v - thrd_1)  
+        # BigM constant for failure condition constraints
+        model.BigM = 1e4
 
-        model.Constraint_FragilityCurve = pyo.Constraint(model.Set_lt_lines, rule=fragility_curve_rule)
+        # Piecewise linearized fragility curve
+        def compute_fragility_breakpoints(network, line_indices, num_pieces=6):
+            """
+            Compute fragility curve breakpoints for piecewise linearization.
+            Uses line-specific adaptive breakpoints concentrated in transition regions.
 
-        # Failure conditions
-        def fail_condition_1_rule(model, l, t):  
-            return model.fail_prob[l, t] - model.rand_num[l, t] <= model.alpha[l, t]  
+            Args:
+                network: NetworkClass instance
+                line_indices: List of line indices (1-based)
+                num_pieces: Number of pieces in the transition region (default 6)
 
-        def fail_condition_2_rule(model, l, t):  
-            return model.fail_prob[l, t] - model.rand_num[l, t] >= -1 + model.alpha[l, t]  
+            Returns:
+                Dict mapping line_idx to {"breakpoints": [...], "probabilities": [...]}
+            """
+            from scipy.stats import lognorm
+
+            # Get fragility parameters
+            mu_values = network.data.frg.mu
+            sigma_values = network.data.frg.sigma
+            thrd_1_values = network.data.frg.thrd_1
+            thrd_2_values = network.data.frg.thrd_2
+            shift_f_values = network.data.frg.shift_f
+
+            # Define global bounds
+            global_min = 0
+            global_max = 120
+
+            # Store line-specific fragility data
+            fragility_data = {}
+
+            for l in line_indices:
+                # Convert 1-based line index to 0-based array index
+                l_idx = l - 1
+
+                # Get fragility parameters for this line
+                mu = mu_values[l_idx]
+                sigma = sigma_values[l_idx]
+                thrd_1 = thrd_1_values[l_idx]
+                thrd_2 = thrd_2_values[l_idx]
+                shift_f = shift_f_values[l_idx]
+
+                # Effective thresholds after shift
+                effective_th1 = thrd_1 + shift_f
+                effective_th2 = thrd_2 + shift_f
+
+                # Create adaptive breakpoints
+                breakpoints = []
+
+                # Add global minimum (start of first flat region)
+                breakpoints.append(global_min)
+
+                # Add the first threshold (end of first flat region, start of transition)
+                breakpoints.append(effective_th1)
+
+                # Add (num_pieces - 1) points within transition region
+                if num_pieces > 2:
+                    transition_points = np.linspace(effective_th1, effective_th2, num_pieces + 1)[1:-1]
+                    breakpoints.extend(transition_points.tolist())
+
+                # Add the second threshold (end of transition, start of second flat region)
+                breakpoints.append(effective_th2)
+
+                # Add global maximum (end of second flat region)
+                breakpoints.append(global_max)
+
+                # Remove duplicates and sort (shouldn't have any, but just in case)
+                breakpoints = sorted(list(set(breakpoints)))
+
+                # Calculate failure probabilities at each breakpoint
+                probs = []
+                for x in breakpoints:
+                    z = x - shift_f  # Apply shift
+                    if z <= thrd_1:
+                        probs.append(0.0)
+                    elif z >= thrd_2:
+                        probs.append(1.0)
+                    else:
+                        # Lognormal CDF
+                        prob = float(lognorm.cdf(z, s=sigma, scale=np.exp(mu)))
+                        probs.append(prob)
+
+                # Store with 1-based index as key
+                fragility_data[l] = {
+                    "breakpoints": breakpoints,
+                    "probabilities": probs
+                }
+
+            return fragility_data
+
+        # Compute fragility breakpoints (now returns line-specific data)
+        fragility_data = compute_fragility_breakpoints(self, Set_bch_lines, num_pieces=6)
+
+        # Group lines by their breakpoints to avoid redundant Piecewise components
+        breakpoint_groups = {}
+        for l, data in fragility_data.items():
+            # Use tuple of breakpoints as key
+            bpts_tuple = tuple(data["breakpoints"])
+            if bpts_tuple not in breakpoint_groups:
+                breakpoint_groups[bpts_tuple] = {
+                    "lines": [],
+                    "breakpoints": data["breakpoints"],
+                    "probs_by_line": {}
+                }
+            breakpoint_groups[bpts_tuple]["lines"].append(l)
+            breakpoint_groups[bpts_tuple]["probs_by_line"][l] = data["probabilities"]
+
+        # Create a separate Piecewise component for each group
+        for group_idx, (bpts_tuple, group_data) in enumerate(breakpoint_groups.items()):
+            lines_in_group = group_data["lines"]
+            breakpoints = group_data["breakpoints"]
+            probs_by_line = group_data["probs_by_line"]
+
+            # Create index set for this group
+            group_index_set = [(l, t) for l in lines_in_group for t in Set_ts]
+
+            # Create fragility rule for this group
+            def make_fragility_rule(probs_dict, bpts):
+                def fragility_rule(model, l, t, x):
+                    probs = probs_dict[l]
+                    # Find the appropriate probability for wind speed x
+                    for i in range(len(bpts) - 1):
+                        if bpts[i] <= x <= bpts[i + 1]:
+                            # Linear interpolation
+                            weight = (x - bpts[i]) / (bpts[i + 1] - bpts[i])
+                            return probs[i] * (1 - weight) + probs[i + 1] * weight
+                    # Edge cases
+                    if x <= bpts[0]:
+                        return probs[0]
+                    else:
+                        return probs[-1]
+
+                return fragility_rule
+
+            # Create the Piecewise component for this group
+            piecewise_name = f'Piecewise_Fragility_Group_{group_idx}'
+            setattr(model, piecewise_name,
+                    pyo.Piecewise(
+                        group_index_set,
+                        model.fail_prob,
+                        model.wind_gust_speed,
+                        pw_pts=breakpoints,
+                        f_rule=make_fragility_rule(probs_by_line, breakpoints),
+                        pw_constr_type="EQ",
+                        pw_repn="DCC"
+                    ))
+
+        # Failure condition constraints (using BigM formulation)
+        def fail_condition_1_rule(model, l, t):
+            """If rand_num <= fail_prob, then alpha = 1"""
+            return model.fail_prob[l, t] - model.rand_num[l, t] <= model.BigM * model.alpha[l, t]
+
+        def fail_condition_2_rule(model, l, t):
+            """If rand_num > fail_prob, then alpha = 0"""
+            return model.fail_prob[l, t] - model.rand_num[l, t] >= (model.alpha[l, t] - 1) * model.BigM
 
         model.Constraint_FailCondition1 = pyo.Constraint(model.Set_lt_lines, rule=fail_condition_1_rule)
         model.Constraint_FailCondition2 = pyo.Constraint(model.Set_lt_lines, rule=fail_condition_2_rule)
 
-        # Beta indicator (failure + impact)
-        def beta_indicator_1_rule(model, l, t):  
-            return model.beta[l, t] <= model.alpha[l, t]  
+        # Beta indicator constraints (failure condition AND impact)
+        def beta_indicator_1_rule(model, l, t):
+            """Beta can only be 1 if alpha is 1"""
+            return model.beta[l, t] <= model.alpha[l, t]
 
-        def beta_indicator_2_rule(model, l, t):  
-            return model.beta[l, t] <= model.impact_flag[l, t]  
+        def beta_indicator_2_rule(model, l, t):
+            """Beta can only be 1 if line is impacted"""
+            return model.beta[l, t] <= model.impact_flag[l, t]
 
-        def beta_indicator_3_rule(model, l, t):  
-            return model.beta[l, t] >= model.alpha[l, t] + model.impact_flag[l, t] - 1  
+        def beta_indicator_3_rule(model, l, t):
+            """Beta must be 1 if both alpha and impact_flag are 1"""
+            return model.beta[l, t] >= model.alpha[l, t] + model.impact_flag[l, t] - 1
 
         model.Constraint_BetaIndicator1 = pyo.Constraint(model.Set_lt_lines, rule=beta_indicator_1_rule)
         model.Constraint_BetaIndicator2 = pyo.Constraint(model.Set_lt_lines, rule=beta_indicator_2_rule)
         model.Constraint_BetaIndicator3 = pyo.Constraint(model.Set_lt_lines, rule=beta_indicator_3_rule)
 
-        # Failure occurrence
+        # Failure occurrence constraints (failure only if beta=1 AND line is operational)
         def fail_occurs_1_rule(model, l, t):
-            t_idx = Set_ts.index(t)
-            if t_idx == 0:
-                return model.fail_occurs[l, t] <= model.beta[l, t]
-            else:
-                t_prev = Set_ts[t_idx - 1]
-                return model.fail_occurs[l, t] <= model.beta[l, t]
+            """fail_occurs can only be 1 if beta is 1"""
+            return model.fail_occurs[l, t] <= model.beta[l, t]
 
         def fail_occurs_2_rule(model, l, t):
+            """fail_occurs can only be 1 if line was operational at t-1"""
             t_idx = Set_ts.index(t)
             if t_idx == 0:
-                return model.fail_occurs[l, t] <= 1  # Line starts operational
+                # At first timestep, all lines start operational
+                return model.fail_occurs[l, t] <= 1
             else:
                 t_prev = Set_ts[t_idx - 1]
                 return model.fail_occurs[l, t] <= model.bch_status[l, t_prev]
 
         def fail_occurs_3_rule(model, l, t):
+            """fail_occurs must be 1 if both beta=1 and line was operational"""
             t_idx = Set_ts.index(t)
             if t_idx == 0:
+                # At first timestep, all lines start operational
                 return model.fail_occurs[l, t] >= model.beta[l, t] + 1 - 1
             else:
                 t_prev = Set_ts[t_idx - 1]
@@ -1874,30 +2068,112 @@ class NetworkClass:
         model.Constraint_FailOccurs2 = pyo.Constraint(model.Set_lt_lines, rule=fail_occurs_2_rule)
         model.Constraint_FailOccurs3 = pyo.Constraint(model.Set_lt_lines, rule=fail_occurs_3_rule)
 
-        # Line status and repair
-        def line_status_rule(model, l, t):  
-            return model.bch_status[l, t] <= 1 - model.fail_occurs[l, t]  
+        # Immediate failure constraint
+        def immediate_failure_rule(model, l, t):
+            """If failure occurs, line status must be 0"""
+            return model.bch_status[l, t] <= 1 - model.fail_occurs[l, t]
 
-        model.Constraint_LineStatus = pyo.Constraint(model.Set_lt_lines, rule=line_status_rule)
+        model.Constraint_ImmediateFailure = pyo.Constraint(model.Set_lt_lines, rule=immediate_failure_rule)
 
-        def line_repair_rule(model, l, t):
-            # Find if repair should occur (TTR timesteps after failure)
+        # Failure persistence constraint
+        def failure_persistence_rule(model, l, t):
+            """If line is operational, no failure in last TTR hours"""
             t_idx = Set_ts.index(t)
-            ttr_hours = model.ttr[l]
+            ttr = model.ttr[l]
 
-            # Look back TTR hours for a failure
-            repair_sum = 0
-            for i in range(max(0, t_idx - ttr_hours + 1), t_idx + 1):
-                if i <= t_idx - ttr_hours:
-                    continue
-                t_fail = Set_ts[i]
-                if (t - t_fail) == ttr_hours:
-                    repair_sum = model.fail_occurs[l, t_fail]
-                    break
+            # Find the window of timesteps to check
+            window_start_idx = max(0, t_idx - ttr + 1)
+            window_end_idx = t_idx + 1
 
-            return model.repair_applies[l, t] == repair_sum
+            # Sum failures in the window
+            failure_sum = sum(
+                model.fail_occurs[l, Set_ts[tau_idx]]
+                for tau_idx in range(window_start_idx, window_end_idx)
+            )
 
-        model.Constraint_LineRepair = pyo.Constraint(model.Set_lt_lines, rule=line_repair_rule)
+            return model.bch_status[l, t] + failure_sum <= 1
+
+        model.Constraint_FailurePersistence = pyo.Constraint(model.Set_lt_lines, rule=failure_persistence_rule)
+
+        # Repair timing constraint
+        def repair_timing_rule(model, l, t):
+            """Repair must occur exactly TTR timesteps after failure"""
+            t_idx = Set_ts.index(t)
+            ttr = model.ttr[l]
+
+            # Check if we're far enough into the scenario
+            if t_idx >= ttr:
+                # Look back exactly TTR timesteps
+                t_fail_idx = t_idx - ttr
+                t_fail = Set_ts[t_fail_idx]
+                return model.repair_applies[l, t] >= model.fail_occurs[l, t_fail]
+            else:
+                # Can't have repairs in first TTR timesteps
+                return model.repair_applies[l, t] == 0
+
+        model.Constraint_RepairTiming = pyo.Constraint(model.Set_lt_lines, rule=repair_timing_rule)
+
+        # No early repair constraint
+        def no_early_repair_rule(model, l, t):
+            """Prevent repairs before TTR has elapsed"""
+            t_idx = Set_ts.index(t)
+            ttr = model.ttr[l]
+
+            if t_idx >= ttr:
+                # Sum failures in the window (t-ttr+1, t-1)
+                recent_failures_sum = sum(
+                    model.fail_occurs[l, Set_ts[tau_idx]]
+                    for tau_idx in range(max(0, t_idx - ttr + 1), t_idx)
+                    if tau_idx != t_idx - ttr  # Exclude the one exactly TTR ago
+                )
+                return model.repair_applies[l, t] <= 1 - recent_failures_sum
+            else:
+                return model.repair_applies[l, t] == 0
+
+        model.Constraint_NoEarlyRepair = pyo.Constraint(model.Set_lt_lines, rule=no_early_repair_rule)
+
+        # No repair if operational constraint
+        def no_repair_if_operational_rule(model, l, t):
+            """Can only repair failed lines"""
+            t_idx = Set_ts.index(t)
+            if t_idx == 0:
+                # No repairs at first timestep
+                return model.repair_applies[l, t] == 0
+            else:
+                t_prev = Set_ts[t_idx - 1]
+                return model.repair_applies[l, t] <= 1 - model.bch_status[l, t_prev]
+
+        model.Constraint_NoRepairIfOperational = pyo.Constraint(model.Set_lt_lines, rule=no_repair_if_operational_rule)
+
+        # Branch status transition constraint
+        def branch_status_transition_rule(model, l, t):
+            """Update line status based on failures and repairs"""
+            t_idx = Set_ts.index(t)
+            if t_idx == 0:
+                # All lines start operational
+                return model.bch_status[l, t] == 1 - model.fail_occurs[l, t]
+            else:
+                t_prev = Set_ts[t_idx - 1]
+                return (model.bch_status[l, t] ==
+                        model.bch_status[l, t_prev] - model.fail_occurs[l, t] + model.repair_applies[l, t])
+
+        model.Constraint_BranchStatusTransition = pyo.Constraint(model.Set_lt_lines, rule=branch_status_transition_rule)
+
+        # # Fix non-OHL status constraint
+        # def fix_nonline_status(model, l, t):
+        #     if self.data.net.bch_type[l - 1] == 0:  # 0 for transformers/couplers
+        #         return model.bch_status[l, t] == 1
+        #     else:
+        #         return pyo.Constraint.Skip
+        #
+        # model.Constraint_FixNonlineStatus = pyo.Constraint(model., rule=fix_nonline_status)
+
+        # Failure and repair exclusivity constraint
+        def fail_repair_exclusivity_rule(model, l, t):
+            """Failure and repair cannot happen simultaneously"""
+            return model.fail_occurs[l, t] + model.repair_applies[l, t] <= 1
+
+        model.Constraint_FailRepairExclusivity = pyo.Constraint(model.Set_lt_lines, rule=fail_repair_exclusivity_rule)
 
         # ------------------------------------------------------------------
         # 6. Objective
@@ -1930,6 +2206,11 @@ class NetworkClass:
         model.Objective = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
         # Add expression for EENS calculation
+        def eens_total_rule(model):
+            return sum(model.Pc[b, t] for (b, t) in model.Set_bt)
+
+        model.eens_total_expr = pyo.Expression(rule=eens_total_rule)
+
         def eens_dn_rule(model):
             return sum(model.Pc[b, t] for (b, t) in model.Set_bt_dn)
 
@@ -1941,18 +2222,32 @@ class NetworkClass:
                                                     model,
                                                     solver_name: str = "gurobi",
                                                     mip_gap: float = 1e-3,
-                                                    time_limit: int = 60):
+                                                    time_limit: int = 60,
+                                                    numeric_focus: int = 2,
+                                                    write_xlsx: bool = False,
+                                                    output_path: str = None,
+                                                    write_lp_on_failure: bool = False,
+                                                    write_ilp_on_failure: bool = False,
+                                                    debug_file_dir: str = "./debug_models",
+                                                    ):
         """
         Solve the OPF model and return total EENS at DN level.
 
         Args:
             model: Pyomo model from build_combined_opf_model_under_ws_scenarios
-            solver_name: Solver to use
+            solver_name: Solver to use ('gurobi' or 'cplex')
             mip_gap: MIP gap tolerance
             time_limit: Time limit in seconds
+            numeric_focus: Numeric focus setting for Gurobi
+            write_lp_on_failure: Write .lp file if model is infeasible (default False)
+            write_ilp_on_failure: Compute IIS and write .ilp file if infeasible (default False)
+            debug_file_dir: Directory for debug files (default './debug_models')
 
         Returns:
             float: Total EENS at DN level (MWh)
+
+        Raises:
+            RuntimeError: If solver fails to find optimal solution
         """
 
         print(f"Solving OPF model with {solver_name}...")
@@ -1963,6 +2258,7 @@ class NetworkClass:
         if solver_name == "gurobi":
             solver.options['MIPGap'] = mip_gap
             solver.options['TimeLimit'] = time_limit
+            solver.options['NumericFocus'] = numeric_focus
             solver.options['OutputFlag'] = 0  # Suppress output
         elif solver_name == "cplex":
             solver.options['mipgap'] = mip_gap
@@ -1971,46 +2267,119 @@ class NetworkClass:
         # Solve
         results = solver.solve(model, tee=False)
 
-        # Check solution status
+        # Check solution status and handle solver failures
         if results.solver.termination_condition != pyo.TerminationCondition.optimal:
-            print(f"Warning: Solver terminated with status {results.solver.termination_condition}")
-            if results.solver.termination_condition == pyo.TerminationCondition.infeasibleOrUnbounded:
-                print("Model is infeasible or unbounded - writing LP file for debugging")
+            termination_status = results.solver.termination_condition
+            error_msg = f"Solver terminated with status: {termination_status}"
 
-                # Write LP file for debugging
-                model.write("debug_infeasible_model.lp", io_options={'symbolic_solver_labels': True})
-                print("Model written to: debug_infeasible_model.lp")
+            # Only write debug files if requested AND model is infeasible/unbounded
+            if termination_status == pyo.TerminationCondition.infeasibleOrUnbounded:
 
-                # Also compute IIS if using Gurobi
-                if solver_name == "gurobi":
-                    print("Computing IIS (Irreducible Infeasible Subset)...")
-                    import gurobipy as gp
+                # =========================================
+                # OPTIONAL: Write LP file
+                # =========================================
+                if write_lp_on_failure:
+                    import os
+                    from datetime import datetime
 
-                    # Read the LP file with Gurobi directly
-                    m = gp.read("debug_infeasible_model.lp")
-                    m.computeIIS()
-                    m.write("debug_infeasible_model.ilp")
-                    print("IIS written to: debug_infeasible_model.ilp")
+                    # Create debug directory
+                    os.makedirs(debug_file_dir, exist_ok=True)
 
-                    # Print IIS summary
-                    print("\nConstraints in IIS:")
-                    for c in m.getConstrs():
-                        if c.IISConstr:
-                            print(f"  {c.ConstrName}")
+                    # Generate unique filename
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                    lp_file = os.path.join(debug_file_dir, f"infeasible_model_{timestamp}.lp")
 
-                    print("\nVariable bounds in IIS:")
-                    for v in m.getVars():
-                        if v.IISLB > 0:
-                            print(f"  {v.VarName} lower bound")
-                        if v.IISUB > 0:
-                            print(f"  {v.VarName} upper bound")
+                    print(f"Writing LP file for debugging: {lp_file}")
+                    model.write(lp_file, io_options={'symbolic_solver_labels': True})
+                    print(f"✓ LP file written to: {lp_file}")
 
-        # Extract EENS at DN level
-        total_eens_dn = pyo.value(model.eens_dn_expr)
+                    # OPTIONAL: Compute IIS and write ILP file
+                    if write_ilp_on_failure and solver_name == "gurobi":
+                        try:
+                            print("Computing IIS (Irreducible Inconsistent Subsystem)...")
 
-        print(f"Total EENS at DN level: {total_eens_dn:.4f} MWh")
+                            import gurobipy as gp
 
-        return total_eens_dn
+                            # Read the LP file with Gurobi
+                            m = gp.read(lp_file)
+                            m.computeIIS()
+
+                            # Write IIS to .ilp file
+                            ilp_file = os.path.join(debug_file_dir, f"infeasible_model_{timestamp}.ilp")
+                            m.write(ilp_file)
+                            print(f"✓ IIS written to: {ilp_file}")
+
+                            # Print summary
+                            num_constrs = sum(1 for c in m.getConstrs() if c.IISConstr)
+                            num_bounds = sum(1 for v in m.getVars() if v.IISLB > 0 or v.IISUB > 0)
+                            print(
+                                f"  IIS contains {num_constrs} conflicting constraints and {num_bounds} variable bounds")
+
+                        except Exception as e:
+                            print(f"Warning: Failed to compute IIS: {e}")
+
+                else:
+                    # Not writing debug files - just report the failure
+                    print(f"Warning: {error_msg}")
+                    print("  (Set write_lp_on_failure=True to write debug files)")
+
+            # Raise exception to indicate failure
+            raise RuntimeError(error_msg)
+
+        # Extract EENS values
+        eens_total = pyo.value(model.eens_total_expr)
+        eens_dn = pyo.value(model.eens_dn_expr)
+
+        print(f"Total EENS across the network: {eens_total:.4f} MWh")
+        print(f"Total EENS at DN level: {eens_dn:.4f} MWh")
+
+        # Calculate load shedding by network level
+        tn_load_shed = 0
+        tn_buses_with_ls = 0
+        for b in model.Set_bus_tn:
+            for t in model.Set_ts:
+                if (b, t) in model.Set_bt:
+                    ls = pyo.value(model.Pc[b, t])
+                    if ls > 0.01:  # Non-zero load shed
+                        tn_load_shed += ls
+                        tn_buses_with_ls += 1
+                        if tn_buses_with_ls <= 3:  # Show first few
+                            print(f"  TN Bus {b} at t={t}: {ls:.2f} MW shed")
+
+        dn_load_shed = 0
+        dn_buses_with_ls = 0
+        for b in model.Set_bus_dn:
+            for t in model.Set_ts:
+                if (b, t) in model.Set_bt:
+                    ls = pyo.value(model.Pc[b, t])
+                    if ls > 0.01:
+                        dn_load_shed += ls
+                        dn_buses_with_ls += 1
+                        if dn_buses_with_ls <= 3:
+                            print(f"  DN Bus {b} at t={t}: {ls:.2f} MW shed")
+
+        print(f"\nLoad Shedding Summary:")
+        print(f"  TN: {tn_load_shed:.2f} MWh across {tn_buses_with_ls} bus-time pairs")
+        print(f"  DN: {dn_load_shed:.2f} MWh across {dn_buses_with_ls} bus-time pairs")
+        print(f"  Total: {tn_load_shed + dn_load_shed:.2f} MWh")
+
+        # Write results to Excel if requested
+        if write_xlsx:
+            # Generate default path if not provided
+            if output_path is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                net_name = getattr(self, "name", "network")
+                output_path = f"ws_opf_results_{net_name}_{timestamp}.xlsx"
+
+            # Ensure output directory exists
+            output_dir = pathlib.Path(output_path).parent
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Write results using the existing helper method
+            self._write_results_to_excel(model, results, output_path)
+            print(f"\nResults written to: {output_path}")
+
+        return eens_dn
 
     def _write_results_to_excel(self, model, results, book_path: str):
         """
@@ -2022,6 +2391,18 @@ class NetworkClass:
         model : ConcreteModel   (must be solved already)
         book_path : str | Path  full path incl. filename.xlsx
         """
+
+        # Helper function to sanitize sheet names
+        def sanitize_sheet_name(name, max_length=27):
+            """
+            Remove invalid Excel characters and truncate to max_length.
+            Invalid characters for Excel sheet names: [ ] : * ? / \
+            """
+            invalid_chars = ['[', ']', ':', '*', '?', '/', '\\']
+            for char in invalid_chars:
+                name = name.replace(char, '_')
+            return name[:max_length]
+
         book_path = pathlib.Path(book_path)
         book_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -2029,12 +2410,15 @@ class NetworkClass:
 
             # --- variables ---------------------------------------------------
             for var in model.component_objects(pyo.Var, active=True):
+                # Skip auxiliary Piecewise variables (they have brackets in their names)
+                if '[' in var.name or 'Piecewise' in var.name:
+                    continue
+
                 # build a dict { index_tuple: numeric or None }
                 data = {}
                 for idx in var:
                     val = var[idx].value
                     key = idx if idx is not None else ("",)
-                    # if no value, write None (will appear blank in Excel)
                     data[key] = float(val) if val is not None else None
 
                 df = (
@@ -2044,10 +2428,15 @@ class NetworkClass:
                     .reset_index()
                     .rename(columns={"level_0": "index"})
                 )
-                df.to_excel(xl, sheet_name=f"Var_{var.name[:28]}", index=False)
+                clean_name = sanitize_sheet_name(var.name)
+                df.to_excel(xl, sheet_name=f"Var_{clean_name}", index=False)
 
             # --- parameters --------------------------------------------------
             for par in model.component_objects(pyo.Param, active=True):
+                # Skip auxiliary Piecewise parameters
+                if '[' in par.name or 'Piecewise' in par.name:
+                    continue
+
                 data = {}
                 for idx in par:
                     val = par[idx]
@@ -2061,8 +2450,10 @@ class NetworkClass:
                     .reset_index()
                     .rename(columns={"level_0": "index"})
                 )
-                df.to_excel(xl, sheet_name=f"Par_{par.name[:28]}", index=False)
+                clean_name = sanitize_sheet_name(par.name)
+                df.to_excel(xl, sheet_name=f"Par_{clean_name}", index=False)
 
+            # Rest of the function remains the same...
             # --- objective value --------------------------------------------
             for obj in model.component_objects(pyo.Objective, active=True):
                 pd.DataFrame({"Objective": [obj.name],
