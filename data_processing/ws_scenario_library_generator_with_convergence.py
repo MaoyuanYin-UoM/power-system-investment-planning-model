@@ -447,9 +447,9 @@ def print_progress_report(
 
     hit_rate = n_dn_scenarios / n_total_generated if n_total_generated > 0 else 0
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("PROGRESS REPORT")
-    print("="*60)
+    print("=" * 60)
     print(f"Total scenarios generated: {n_total_generated}")
     print(f"DN-affecting scenarios: {n_dn_scenarios} ({hit_rate:.1%} hit rate)")
 
@@ -457,12 +457,16 @@ def print_progress_report(
         print(f"\nConvergence Metrics:")
         print(f"  Mean EENS (DN): {metrics['mean']:.3f} GWh")
         print(f"  Std Dev EENS: {metrics['std']:.3f} GWh")
-        print(f"  CoV: {metrics['cov']:.4f}")
-        print(f"  95% CI: [{metrics['ci_lower']:.3f}, {metrics['ci_upper']:.3f}] GWh")
+        print(f"  CoV (distribution): {metrics['cov']:.4f}")
+        print(f"  Convergence β: {metrics['conv_beta']:.4f}")  # ← Fixed!
+
+        # Only print CI if it exists
+        if 'ci_lower' in metrics and 'ci_upper' in metrics:
+            print(f"  95% CI: [{metrics['ci_lower']:.3f}, {metrics['ci_upper']:.3f}] GWh")
 
     print(f"\nElapsed time: {elapsed_time:.1f} seconds")
-    print(f"Generation rate: {n_total_generated/elapsed_time:.1f} scenarios/sec")
-    print("="*60)
+    print(f"Generation rate: {n_total_generated / elapsed_time:.1f} scenarios/sec")
+    print("=" * 60)
 
 
 #########################
@@ -473,12 +477,12 @@ def generate_windstorm_library_with_convergence(
         network_preset: str,
         windstorm_preset: str,
         convergence_threshold: float = 0.05,
-        min_dn_scenarios: int = 30,
-        max_dn_scenarios: int = 100,
-        max_generation_attempts: int = 500,
+        min_dn_scenarios: int = 20,
+        max_dn_scenarios: int = 500,
+        max_generation_attempts: int = 5000,
         initial_batch_size: int = 10,
-        base_seed: int = 42,
-        output_dir: str = "../Scenario_Database/Scenarios_Libraries/",
+        base_seed: int = 10000,
+        output_dir: str = "../Scenario_Database/Scenarios_Libraries/Convergence_Based/",
         library_name: Optional[str] = None,
         verbose: bool = True,
         visualize_scenarios: bool = False,
@@ -498,7 +502,7 @@ def generate_windstorm_library_with_convergence(
     Args:
         network_preset: Network configuration name
         windstorm_preset: Windstorm parameter preset name
-        convergence_threshold: CoV threshold for convergence (default 0.05 = 5%)
+        convergence_threshold: β threshold for convergence (default 0.05 = 5%)
         min_dn_scenarios: Minimum DN scenarios for valid statistics
         max_dn_scenarios: Maximum DN scenarios to generate
         max_generation_attempts: Maximum total scenarios to try
@@ -729,6 +733,7 @@ def generate_windstorm_library_with_convergence(
             print(f"  Batch complete: {batch_dn_hits}/{current_batch_size} had DN impact")
             print(f"  Batch processing time: {batch_elapsed:.1f}s")
 
+        # Always calculate and report metrics after each batch
         if n_dn_scenarios > 0:
             # Calculate current metrics
             current_metrics = calculate_convergence_metrics(dn_eens_values)
@@ -1320,8 +1325,8 @@ if __name__ == "__main__":
     output_path, metrics = generate_windstorm_library_with_convergence(
         network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
         windstorm_preset="windstorm_29_bus_GB_transmission_network",
-        convergence_threshold=0.05,  # Coefficient of Variance (CoV)
-        min_dn_scenarios=40,
+        convergence_threshold=0.5,  # convergence criterion - β
+        min_dn_scenarios=10,
         max_dn_scenarios=500,
         max_generation_attempts=5000,
         initial_batch_size=20,
@@ -1330,6 +1335,7 @@ if __name__ == "__main__":
         visualize_scenarios=True,
         write_lp_on_failure=False,
         write_ilp_on_failure=False,
+        output_dir="../Scenario_Database/Scenarios_Libraries/Convergence_Based/",
     )
 
     # Example 2: Stricter convergence for higher confidence
