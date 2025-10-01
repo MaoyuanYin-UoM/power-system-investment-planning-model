@@ -691,7 +691,7 @@ def generate_windstorm_library_with_convergence(
             if eens_dn > 0:
                 scenario_id = f"ws_{n_dn_scenarios:04d}"
                 dn_scenarios[scenario_id] = scenario_data
-                dn_scenarios[scenario_id]['eens_dn'] = eens_dn
+                dn_scenarios[scenario_id]['eens_dn_gwh'] = eens_dn
                 dn_eens_values.append(eens_dn)
                 n_dn_scenarios += 1
                 batch_dn_hits += 1
@@ -893,6 +893,14 @@ def generate_windstorm_library_with_convergence(
         "scenarios": dn_scenarios  # ALL THE ACTUAL SCENARIOS WITH EENS VALUES!
     }
 
+    # Add scenario_probabilities into the metadata (for compatibility with investment model)
+    scenario_probabilities = {}
+    equal_prob = 1.0 / n_dn_scenarios
+    for scenario_id in dn_scenarios.keys():
+        scenario_probabilities[scenario_id] = equal_prob
+
+    library["scenario_probabilities"] = scenario_probabilities
+
     # Generate output filename
     if library_name:
         filename = library_name
@@ -929,9 +937,8 @@ def generate_windstorm_library_with_convergence(
 def generate_representative_ws_scenarios_by_splitting_pdf(
         library_path: str,
         n_representatives: int = 5,
-        output_dir: str = "../Scenario_Database/Scenarios_Libraries/Representative/",
+        output_dir: str = "../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/",
         library_name: Optional[str] = None,
-        total_windstorm_probability: float = 0.01,
         verbose: bool = True
 ) -> Tuple[str, Dict]:
     """
@@ -942,14 +949,13 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
     2. Sorts scenarios by EENS to construct empirical PDF
     3. Divides into equal-probability quantiles
     4. Selects middle scenario from each quantile as representative
-    5. Saves as new library with adjusted probabilities
+    5. Saves as new library with adjusted probabilities (relative, summing to 1.0)
 
     Args:
         library_path: Path to convergence-based scenario library JSON
         n_representatives: Number of representative scenarios to select
         output_dir: Directory to save representative library
         library_name: Output filename (auto-generated if None)
-        total_windstorm_probability: Total probability to distribute among representatives
         verbose: Print progress and statistics
 
     Returns:
@@ -983,9 +989,9 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
     # Create list of (scenario_id, eens_value, full_scenario_data)
     scenario_list = []
     for sid, sdata in scenarios.items():
-        if 'eens_dn_gwh' not in sdata:
-            raise ValueError(f"Scenario {sid} missing 'eens_dn_gwh' field")
-        scenario_list.append((sid, sdata['eens_dn_gwh'], sdata))
+        if 'eens_dn' not in sdata:
+            raise ValueError(f"Scenario {sid} missing 'eens_dn' field")
+        scenario_list.append((sid, sdata['eens_dn'], sdata))
 
     # Sort by EENS value (ascending)
     scenario_list.sort(key=lambda x: x[1])
@@ -1045,7 +1051,7 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
         representatives[rep_id] = {
             'original_id': scenario_id,
             'scenario_data': scenario_data,
-            'eens_gwh': eens_value,
+            'eens_gwh': scenario_data['eens_dn'],
             'probability': 1.0 / n_representatives,  # Equal probability for each quantile
             'quantile_info': {
                 'quantile_number': i + 1,
@@ -1074,8 +1080,9 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
     # ====================
 
     # Calculate expected EENS from representatives
+    relative_prob = 1.0 / n_representatives
     expected_eens = sum(
-        rep['eens_gwh'] * rep['probability']
+        rep['eens_gwh'] * relative_prob
         for rep in representatives.values()
     )
 
@@ -1099,8 +1106,7 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
                 "method": "quantile_based",
                 "description": "Equal-probability quantiles with middle scenario selection",
                 "n_representatives": n_representatives,
-                "probability_per_representative": 1.0 / n_representatives,
-                "total_windstorm_probability": total_windstorm_probability
+                "probability_per_representative": 1.0 / n_representatives  # Relative probability
             },
 
             "representative_statistics": {
@@ -1127,10 +1133,7 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
         # Copy full scenario data
         scenario_data = rep_info['scenario_data'].copy()
 
-        # Add probability for optimization (share of total windstorm probability)
-        scenario_data['probability'] = rep_info['probability'] * total_windstorm_probability
-
-        # Add metadata about selection
+        # Add metadata about selection (no probability field in individual scenarios)
         scenario_data['representative_metadata'] = {
             'original_scenario_id': rep_info['original_id'],
             'quantile_info': rep_info['quantile_info'],
@@ -1140,6 +1143,15 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
 
         # Use representative ID
         representative_library['scenarios'][rep_id] = scenario_data
+
+    # Add top-level scenario_probabilities (relative probabilities summing to 1.0)
+    scenario_probabilities = {}
+    relative_prob = 1.0 / n_representatives
+
+    for rep_id in representative_library['scenarios'].keys():
+        scenario_probabilities[rep_id] = relative_prob
+
+    representative_library["scenario_probabilities"] = scenario_probabilities
 
     # ====================
     # 5. SAVE LIBRARY
@@ -1172,25 +1184,25 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
         print("SELECTION COMPLETE")
         print("=" * 70)
         print(f"Representatives selected: {n_representatives}")
-        print(f"Expected EENS: {expected_eens:.3f} GWh")
-        print(f"Each representative probability: {1.0 / n_representatives:.3f}")
-        print(f"Total windstorm probability: {total_windstorm_probability}")
+        print(f"Expected EENS (relative): {expected_eens:.3f} GWh")
+        print(f"Each representative probability (relative): {1.0 / n_representatives:.3f}")
         print(f"\nOutput file: {output_path}")
         print(f"File size: {file_size_kb:.1f} KB")
 
         print("\nRepresentative Summary:")
         for i, (rep_id, rep) in enumerate(representatives.items()):
             print(f"  {rep_id}: EENS = {rep['eens_gwh']:6.2f} GWh, "
-                  f"P = {rep['probability']:.3f}, "
+                  f"P(rel) = {1.0 / n_representatives:.3f}, "
                   f"From Q{i + 1} (orig: {rep['original_id']})")
 
     # Prepare return statistics
     selection_statistics = {
         'n_source_scenarios': len(scenarios),
         'n_representatives': n_representatives,
-        'expected_eens_gwh': expected_eens,
+        'expected_eens_gwh': expected_eens,  # Expected EENS using relative probabilities
         'eens_range': [min_eens, max_eens],
         'representative_eens': [rep['eens_gwh'] for rep in representatives.values()],
+        'relative_probabilities': [1.0 / n_representatives] * n_representatives,  # All equal
         'output_path': output_path,
         'selection_details': selection_info
     }
@@ -1322,50 +1334,29 @@ if __name__ == "__main__":
     print("EXAMPLE 1: Standard Convergence-Based Generation")
     print("="*80)
 
-    output_path, metrics = generate_windstorm_library_with_convergence(
-        network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
-        windstorm_preset="windstorm_29_bus_GB_transmission_network",
-        convergence_threshold=0.5,  # convergence criterion - β
-        min_dn_scenarios=10,
-        max_dn_scenarios=500,
-        max_generation_attempts=5000,
-        initial_batch_size=20,
-        base_seed=10000,
-        verbose=True,
-        visualize_scenarios=True,
-        write_lp_on_failure=False,
-        write_ilp_on_failure=False,
-        output_dir="../Scenario_Database/Scenarios_Libraries/Convergence_Based/",
-    )
-
-    # Example 2: Stricter convergence for higher confidence
-    # print("\n" + "="*80)
-    # print("EXAMPLE 2: Stricter Convergence Criteria")
-    # print("="*80)
-    #
     # output_path, metrics = generate_windstorm_library_with_convergence(
-    #     network_preset="tn29_dn38_kearsley_gsp",
-    #     windstorm_preset="ctr_model",
-    #     convergence_threshold=0.02,  # 2% CoV - very strict
-    #     min_dn_scenarios=50,
-    #     max_dn_scenarios=200,
+    #     network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
+    #     windstorm_preset="windstorm_29_bus_GB_transmission_network",
+    #     convergence_threshold=0.2,  # convergence criterion - β
+    #     min_dn_scenarios=20,
+    #     max_dn_scenarios=500,
     #     max_generation_attempts=5000,
-    #     base_seed=20000,
-    #     verbose=True
+    #     initial_batch_size=20,
+    #     base_seed=10000,
+    #     verbose=True,
+    #     visualize_scenarios=True,
+    #     write_lp_on_failure=False,
+    #     write_ilp_on_failure=False,
+    #     output_dir="../Scenario_Database/Scenarios_Libraries/Convergence_Based/",
     # )
 
-    # Example 3: Quick generation for testing
-    # print("\n" + "="*80)
-    # print("EXAMPLE 3: Quick Test Generation")
-    # print("="*80)
-    #
-    # output_path, metrics = generate_windstorm_library_with_convergence(
-    #     network_preset="tn29_dn38_kearsley_gsp",
-    #     windstorm_preset="ctr_model",
-    #     convergence_threshold=0.10,  # 10% CoV - loose
-    #     min_dn_scenarios=10,
-    #     max_dn_scenarios=20,
-    #     initial_batch_size=20,
-    #     base_seed=30000,
-    #     verbose=True
-    # )
+    # Example 2: Generate representative scenarios using quantile-based PDF splitting
+    print("\n" + "=" * 80)
+    print("EXAMPLE 2: Representative Scenario Selection (Quantile-Based)")
+    print("=" * 80)
+
+    rep_output_path, selection_info = generate_representative_ws_scenarios_by_splitting_pdf(
+        library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.200_21scenarios.json",
+        n_representatives=5,
+        verbose=True,
+    )
