@@ -269,57 +269,104 @@ def generate_scenario_batch(
 # CONVERGENCE FUNCTIONS
 #########################
 
-def calculate_convergence_metrics(eens_values):
+def calculate_convergence_metrics(eens_values: List[float]) -> Dict:
     """
-    Calculate convergence metrics based on Billinton & Li (1994).
+    Calculate convergence metrics for Monte Carlo simulation.
 
     Reference:
         R. Billinton and W. Li, "Reliability Assessment of Electric Power
         Systems Using Monte Carlo Methods," Plenum Press, 1994,
-        Chapter 3, Section 3.2, Equation (3.7).
+        Chapter 3, Equations (3.7), (3.8), (3.12).
+
+    Args:
+        eens_values: List of EENS values from scenarios
+
+    Returns:
+        Dictionary containing:
+            - mean: Sample mean (μ)
+            - std: Sample standard deviation (σ)
+            - cov: Coefficient of variation (σ/μ) - distribution variability
+            - conv_beta: Convergence criterion β = σ/(μ√n) - estimate precision
+            - n_scenarios: Number of scenarios
+            - ci_lower, ci_upper: 95% confidence interval bounds
     """
+    if not eens_values:
+        return {
+            'mean': 0,
+            'std': 0,
+            'cov': float('inf'),
+            'conv_beta': float('inf'),
+            'n_scenarios': 0,
+            'ci_lower': 0,
+            'ci_upper': 0
+        }
+
     n = len(eens_values)
     mean_eens = np.mean(eens_values)
-    std_eens = np.std(eens_values, ddof=1)
+    std_eens = np.std(eens_values, ddof=1) if n > 1 else 0
 
-    # Raw CoV (for reference)
+    # Coefficient of Variation (describes distribution variability)
     cov = std_eens / mean_eens if mean_eens > 0 else float('inf')
 
-    # CONVERGENCE CRITERION: α (called β in our code)
-    # α = √V(Q̄)/Q̄ = √V(x)/(Q̄√N) = σ/(μ√n)
-    alpha = std_eens / (mean_eens * np.sqrt(n)) if mean_eens > 0 and n > 0 else float('inf')
+    # Convergence Criterion: Coefficient of Variation of the Mean
+    # β = σ/(μ√n) - also called relative standard error
+    # Billinton & Li (1994) denote this as α in equation (3.7)
+    conv_beta = std_eens / (mean_eens * np.sqrt(n)) if mean_eens > 0 and n > 0 else float('inf')
+
+    # 95% Confidence interval
+    if n > 1:
+        stderr = std_eens / np.sqrt(n)
+        ci_lower = mean_eens - 1.96 * stderr
+        ci_upper = mean_eens + 1.96 * stderr
+    else:
+        ci_lower = ci_upper = mean_eens
 
     return {
         'mean': mean_eens,
         'std': std_eens,
-        'cov': cov,  # For information
-        'beta': alpha,  # CONVERGENCE CRITERION (Billinton's α)
-        'n_scenarios': n
+        'cov': cov,  # σ/μ
+        'conv_beta': conv_beta,  # σ/(μ√n) ← CONVERGENCE CRITERION
+        'n_scenarios': n,
+        'ci_lower': max(0, ci_lower),
+        'ci_upper': ci_upper,
+        'ci_width_ratio': (ci_upper - ci_lower) / mean_eens if mean_eens > 0 else float('inf')
     }
 
 
-def check_convergence(eens_values, threshold=0.05, min_scenarios=30):
+def check_convergence(
+        eens_values: List[float],
+        threshold: float = 0.05,
+        min_scenarios: int = 30
+) -> Tuple[bool, Dict]:
     """
-    Check convergence using Billinton & Li (1994) criterion.
+    Check Monte Carlo convergence using β criterion.
 
     Convergence is achieved when:
-        α = σ/(μ√n) < threshold
+        β = σ/(μ√n) < threshold
 
-    where α is the "coefficient of variation" (Eq 3.7) which is actually
-    the coefficient of variation of the MEAN estimate (β or relative SE).
+    where β (conv_beta) is the coefficient of variation of the mean estimate,
+    also known as the relative standard error.
 
     Reference:
         R. Billinton and W. Li, "Reliability Assessment of Electric Power
         Systems Using Monte Carlo Methods," Plenum Press, 1994,
-        Chapter 3, Equations (3.7) and (3.8), page 36-38.
+        Chapter 3, Section 3.2, Equation (3.7) - denoted as α.
+
+    Args:
+        eens_values: List of EENS values
+        threshold: Convergence threshold (default 0.05 = 5% precision)
+        min_scenarios: Minimum scenarios required (default 30)
+
+    Returns:
+        (converged: bool, metrics: dict)
     """
     metrics = calculate_convergence_metrics(eens_values)
 
     if metrics['n_scenarios'] < min_scenarios:
         return False, metrics
 
-    # Check α criterion (we call it beta in our code)
-    converged = metrics['beta'] < threshold
+    # Check convergence using β (conv_beta)
+    converged = metrics['conv_beta'] < threshold
 
     return converged, metrics
 
@@ -695,6 +742,7 @@ def generate_windstorm_library_with_convergence(
                 print(f"    Mean EENS: {current_metrics['mean']:.3f} GWh")
                 print(f"    Std Dev: {current_metrics['std']:.3f} GWh")
                 print(f"    CoV: {current_metrics['cov']:.4f}")
+                print(f"    Convergence criterion β: {current_metrics['conv_beta']:.4f}")
 
                 # Show convergence status
                 if n_dn_scenarios < min_dn_scenarios:
@@ -801,9 +849,12 @@ def generate_windstorm_library_with_convergence(
             "scenario_id_format": "ws_XXXX (4-digit zero-padded)",
 
             "convergence_info": {
-                "method": "coefficient_of_variation",
+                "method": "coefficient_of_variation_of_mean",
+                "criterion_symbol": "β",
+                "criterion_formula": "σ/(μ√n)",
                 "threshold": convergence_threshold,
                 "converged": converged,
+                "final_conv_beta": final_metrics['conv_beta'],
                 "final_cov": final_metrics['cov'],
                 "min_scenarios_required": min_dn_scenarios
             },
@@ -1271,7 +1322,8 @@ if __name__ == "__main__":
         windstorm_preset="windstorm_29_bus_GB_transmission_network",
         convergence_threshold=0.05,  # Coefficient of Variance (CoV)
         min_dn_scenarios=40,
-        max_dn_scenarios=1000,
+        max_dn_scenarios=500,
+        max_generation_attempts=5000,
         initial_batch_size=20,
         base_seed=10000,
         verbose=True,
