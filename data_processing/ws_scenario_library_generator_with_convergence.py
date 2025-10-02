@@ -19,7 +19,7 @@ import random
 import time
 import gc
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 import warnings
 warnings.filterwarnings('ignore')
 import matplotlib.pyplot as plt
@@ -1012,7 +1012,7 @@ def _generate_representative_library_filename(
         f"rep_scn{n_representatives}_"
         f"from{n_source_scenarios}scn_"
         f"{net_alias}_{ws_alias}_"
-        f"s{base_seed}_"
+        f"seed{base_seed}_"
         f"beta{threshold:.3f}.json"
     )
 
@@ -1022,8 +1022,11 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
         library_path: str,
         n_representatives: int = 5,
         output_dir: str = "../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/",
+        save_library: bool = True,
         library_name: Optional[str] = None,
-        verbose: bool = True
+        verbose: bool = True,
+        visualize_pdf: bool = False,
+        save_pdf_plot: bool = False,
 ) -> Tuple[str, Dict]:
     """
     Generate representative windstorm scenarios using quantile-based PDF splitting.
@@ -1041,6 +1044,8 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
         output_dir: Directory to save representative library
         library_name: Output filename (auto-generated if None)
         verbose: Print progress and statistics
+        visualize_pdf: If True, plot the EENS PDF with representative selection
+        save_pdf_plot: If True, save the PDF visualization to file
 
     Returns:
         (output_path, selection_info): Path to saved library and selection statistics
@@ -1070,12 +1075,30 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
     # 2. SORT BY EENS
     # ====================
 
+    # Detect which EENS field name is used in the library
+    # Check first scenario to determine format
+    first_scenario = next(iter(scenarios.values()))
+    if 'eens_dn_gwh' in first_scenario:
+        eens_field = 'eens_dn_gwh'
+        library_format = "new"
+    elif 'eens_dn' in first_scenario:
+        eens_field = 'eens_dn'
+        library_format = "old"
+    else:
+        raise ValueError(
+            "Cannot find EENS field in scenarios. "
+            "Expected either 'eens_dn_gwh' or 'eens_dn' field."
+        )
+
+    if verbose:
+        print(f"Detected library format: {library_format} (EENS field: '{eens_field}')")
+
     # Create list of (scenario_id, eens_value, full_scenario_data)
     scenario_list = []
     for sid, sdata in scenarios.items():
-        if 'eens_dn' not in sdata:
+        if eens_field not in sdata:
             raise ValueError(f"Scenario {sid} missing 'eens_dn' field")
-        scenario_list.append((sid, sdata['eens_dn'], sdata))
+        scenario_list.append((sid, sdata[eens_field], sdata))
 
     # Sort by EENS value (ascending)
     scenario_list.sort(key=lambda x: x[1])
@@ -1092,72 +1115,82 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
         print(f"  Median: {np.median(eens_values):.3f} GWh")
 
     # ====================
-    # 3. QUANTILE-BASED SELECTION
+    # 3. QUANTILE DIVISION AND SCENARIO SELECTION
     # ====================
 
     n_scenarios = len(scenario_list)
 
-    # Calculate quantile boundaries
+    if verbose:
+        print(f"\nDividing into {n_representatives} equal-probability quantiles...")
+
+    # Calculate quantile size
     quantile_size = n_scenarios / n_representatives
 
+    # Calculate quantile boundaries (EENS values at quantile splits)
+    quantile_percentiles = np.linspace(0, 100, n_representatives + 1)
+    quantile_boundaries = [np.percentile(eens_values, p) for p in quantile_percentiles]
+
+    if verbose:
+        print(f"Quantile boundaries (EENS in GWh):")
+        for i, boundary in enumerate(quantile_boundaries):
+            print(f"  Q{i} ({quantile_percentiles[i]:.1f}%): {boundary:.3f} GWh")
+
+    # Select middle scenario from each quantile
     representatives = {}
     selection_info = {
         'quantiles': [],
-        'selected_scenarios': []
+        'method': 'quantile_middle',
+        'n_representatives': n_representatives
     }
 
-    if verbose:
-        print(f"\nSelecting representatives from {n_representatives} quantiles:")
-        print(f"  Each quantile contains ~{quantile_size:.1f} scenarios")
-        print("\nQuantile Selection:")
-
     for i in range(n_representatives):
-        # Define quantile boundaries (using floating point for better distribution)
+        # Determine quantile boundaries (indices)
         start_idx = int(i * quantile_size)
-        end_idx = int((i + 1) * quantile_size) if i < n_representatives - 1 else n_scenarios
+        end_idx = int((i + 1) * quantile_size)
 
-        # Select middle scenario from this quantile
+        # Select middle scenario in this quantile
         middle_idx = (start_idx + end_idx) // 2
 
-        # Get the selected scenario
-        scenario_id, eens_value, scenario_data = scenario_list[middle_idx]
+        original_id, eens_value, scenario_data = scenario_list[middle_idx]
 
         # Create representative ID
         rep_id = f"rep_{i:02d}"
 
-        # Calculate quantile statistics
-        quantile_eens = [x[1] for x in scenario_list[start_idx:end_idx]]
-        quantile_min = min(quantile_eens)
-        quantile_max = max(quantile_eens)
-        quantile_mean = np.mean(quantile_eens)
+        # Calculate relative probability (equal for all representatives)
+        relative_prob = 1.0 / n_representatives
 
-        # Store representative
-        representatives[rep_id] = {
-            'original_id': scenario_id,
-            'scenario_data': scenario_data,
-            'eens_gwh': scenario_data['eens_dn'],
-            'probability': 1.0 / n_representatives,  # Equal probability for each quantile
-            'quantile_info': {
-                'quantile_number': i + 1,
-                'quantile_range': f"{(i / n_representatives) * 100:.0f}-{((i + 1) / n_representatives) * 100:.0f}%",
-                'scenarios_in_quantile': end_idx - start_idx,
-                'eens_range_gwh': [quantile_min, quantile_max],
-                'eens_mean_gwh': quantile_mean,
-                'position_in_quantile': 'middle'
-            }
+        # Store quantile info
+        quantile_info = {
+            'quantile_number': i + 1,
+            'quantile_range_gwh': [eens_values[start_idx], eens_values[min(end_idx, len(eens_values) - 1)]],
+            'percentile_range': [quantile_percentiles[i], quantile_percentiles[i + 1]],
+            'scenarios_in_quantile': end_idx - start_idx,
+            'selected_index': middle_idx
         }
 
-        # Store selection info
+        # Store representative info
+        representatives[rep_id] = {
+            'original_id': original_id,
+            'scenario_data': scenario_data,
+            'eens_gwh': scenario_data[eens_field],
+            'probability': relative_prob,
+            'quantile_info': quantile_info
+        }
+
+        # Add to selection_info
         selection_info['quantiles'].append({
+            'rep_id': rep_id,
+            'original_id': original_id,
+            'eens_gwh': eens_value,
             'quantile': i + 1,
-            'selected_scenario': scenario_id,
-            'selected_eens': eens_value,
-            'quantile_size': end_idx - start_idx
+            'quantile_range': quantile_info['quantile_range_gwh']
         })
 
-        if verbose:
-            print(f"  Q{i + 1} ({quantile_min:.1f}-{quantile_max:.1f} GWh): "
-                  f"Selected {scenario_id} with EENS = {eens_value:.2f} GWh")
+    if verbose:
+        print(f"\nSelected {n_representatives} representative scenarios:")
+        for info in selection_info['quantiles']:
+            print(f"  {info['rep_id']}: {info['original_id']}, "
+                  f"EENS = {info['eens_gwh']:.3f} GWh (Q{info['quantile']})")
 
     # ====================
     # 4. CREATE REPRESENTATIVE LIBRARY
@@ -1172,12 +1205,14 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
 
     representative_library = {
         "metadata": {
+            "generation_date": datetime.now().isoformat(),
             "library_type": "representative_windstorm_scenarios",
             "network_preset": source_metadata.get('network_preset'),
             "windstorm_preset": source_metadata.get('windstorm_preset'),
-            "num_scenarios": n_representatives,
-            "generation_date": datetime.now().isoformat(),
-            "scenario_id_format": "rep_XX (2-digit zero-padded)",
+            "num_representative_scenarios": n_representatives,
+            'base_seed': source_metadata.get('base_seed', None),
+            'equal_probability': True,
+            'probability_per_scenario': 1.0 / n_representatives,
 
             "source_library": {
                 "path": library_path,
@@ -1238,34 +1273,96 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
     representative_library["scenario_probabilities"] = scenario_probabilities
 
     # ====================
-    # 5. SAVE LIBRARY
+    # 5. SAVE LIBRARY (Optional)
     # ====================
 
-    # Generate output filename if not provided
-    if library_name is None:
-        library_name = _generate_representative_library_filename(
-            source_metadata=source_metadata,
-            n_representatives=n_representatives,
-            n_source_scenarios=len(scenarios)
-        )
+    if save_library:
+        # Create output directory
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Generate output filename if not provided
+        if library_name is None:
+            library_name = _generate_representative_library_filename(
+                source_metadata=source_metadata,
+                n_representatives=n_representatives,
+                n_source_scenarios=len(scenarios)
+            )
+
+            if verbose:
+                print(f"\nAuto-generated filename: {library_name}")
+
+        output_path = os.path.join(output_dir, library_name)
+
+        # Save library to disk
+        with open(output_path, 'w') as f:
+            json.dump(representative_library, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+
+        file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
 
         if verbose:
-            print(f"\nAuto-generated filename: {library_name}")
-
-    output_path = os.path.join(output_dir, library_name)
-
-    # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Save library
-    with open(output_path, 'w') as f:
-        json.dump(representative_library, f, indent=2, default=str)
-
-    # Get file size
-    file_size_kb = os.path.getsize(output_path) / 1024
+            print(f"\n✓ Representative library saved to:")
+            print(f"  {output_path}")
+            print(f"  File size: {file_size_mb:.2f} MB")
+    else:
+        if verbose:
+            print(f"\n⚠ Library NOT saved to disk (save_to_disk=False)")
+            print(f"  Library data available in returned dictionary")
 
     # ====================
-    # 6. FINAL REPORT
+    # 5. VISUALIZATION (Optional)
+    # ====================
+
+    if visualize_pdf:
+        if verbose:
+            print("\n" + "=" * 70)
+            print("GENERATING PDF VISUALIZATION")
+            print("=" * 70)
+
+        # Prepare convergence metrics for display
+        convergence_info = source_metadata.get('convergence_info', {})
+        eens_stats = source_metadata.get('eens_statistics', {})
+
+        display_metrics = {
+            'n_scenarios': len(scenarios),
+            'mean': mean_eens,
+            'std': eens_stats.get('std_gwh', np.std(eens_values)),
+            'cov': convergence_info.get('final_cov', np.std(eens_values) / mean_eens),
+            'conv_beta': convergence_info.get('final_conv_beta', 0)
+        }
+
+        # Generate plot save path if requested
+        plot_save_path = None
+        if save_pdf_plot:
+            plot_filename = library_name.replace('.json', '_pdf_visualization.png')
+            plot_save_path = os.path.join(output_dir, plot_filename)
+
+        # Create visualization with customizable elements
+        visualize_eens_pdf_with_representatives(
+            eens_values=eens_values,
+            representatives=representatives,
+            quantile_boundaries=quantile_boundaries,
+            n_representatives=n_representatives,
+            convergence_metrics=display_metrics,
+            title=f"DN EENS Distribution with {n_representatives} Representative Scenarios",
+            save_path=plot_save_path,
+            show_plot=True,
+            # Optional elements - customize as needed
+            show_kde=True,  # KDE smooth curve
+            show_quantile_boundaries=True,  # Orange dashed lines
+            show_representatives=True,  # Red lines for selected scenarios
+            show_representative_labels=False, # Show labels next to each representative line
+            show_mean=False,  # Green mean line
+            show_median=False,  # Purple median line
+            show_cdf=False,  # Bottom CDF subplot
+            show_stats_box=True,  # Statistics text box
+            n_bins=None,  # Number of histogram bins (None for auto)
+            kde_bandwidth=0.2,  # Reduce bandwidth for better fit
+        )
+
+    # ====================
+    # 7. FINAL REPORT
     # ====================
 
     if verbose:
@@ -1276,7 +1373,7 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
         print(f"Expected EENS (relative): {expected_eens:.3f} GWh")
         print(f"Each representative probability (relative): {1.0 / n_representatives:.3f}")
         print(f"\nOutput file: {output_path}")
-        print(f"File size: {file_size_kb:.1f} KB")
+        print(f"File size: {file_size_mb:.1f} MB")
 
         print("\nRepresentative Summary:")
         for i, (rep_id, rep) in enumerate(representatives.items()):
@@ -1298,6 +1395,10 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
 
     return output_path, selection_statistics
 
+
+#########################
+# VISUALIZATION FUNCTIONS
+#########################
 
 def visualize_generated_scenario(
         scenario_data: Dict,
@@ -1409,6 +1510,571 @@ def visualize_generated_scenario(
     plt.show()
     plt.close()
 
+
+def visualize_eens_pdf_with_representatives(
+        eens_values: List[float],
+        representatives: Optional[Dict] = None,
+        quantile_boundaries: Optional[List[float]] = None,
+        n_representatives: int = None,
+        convergence_metrics: Optional[Dict] = None,
+        title: str = "Distribution of DN EENS from Convergence-Based Scenarios",
+        save_path: Optional[str] = None,
+        figsize: Tuple[int, int] = (14, 8),
+        show_plot: bool = True,
+        # NEW: Optional elements control
+        show_kde: bool = True,
+        show_quantile_boundaries: bool = True,
+        show_representatives: bool = True,
+        show_representative_labels: bool = True,
+        show_mean: bool = True,
+        show_median: bool = True,
+        show_cdf: bool = True,
+        show_stats_box: bool = True,
+        n_bins: Optional[int] = None,
+        kde_bandwidth: Optional[float] = None,
+):
+    """
+    Visualize the PDF of DN EENS values with quantile divisions and representative scenarios.
+
+    Args:
+        eens_values: List of EENS values from all scenarios (sorted or unsorted)
+        representatives: Dict of representative scenario info (from quantile selection)
+        quantile_boundaries: List of EENS values at quantile boundaries
+        n_representatives: Number of representatives (for quantile lines if boundaries not provided)
+        convergence_metrics: Dict with convergence statistics (mean, std, cov, etc.)
+        title: Plot title
+        save_path: Path to save figure (if None, don't save)
+        figsize: Figure size (width, height)
+        show_plot: Whether to display the plot
+        show_kde: Show kernel density estimate (smooth PDF curve)
+        show_quantile_boundaries: Show orange dashed lines at quantile boundaries
+        show_representatives: Show red lines for representative scenarios
+        show_mean: Show green dotted line for mean EENS
+        show_median: Show purple dotted line for median EENS
+        show_cdf: Show cumulative distribution function subplot at bottom
+        show_stats_box: Show statistics text box (n, μ, σ, CoV, β)
+        n_bins: Number of histogram bins (auto-calculated if None)
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    # Sort EENS values for proper visualization
+    eens_sorted = sorted(eens_values)
+    n_scenarios = len(eens_sorted)
+
+    # Create figure with subplots (conditional on show_cdf)
+    if show_cdf:
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize,
+                                       gridspec_kw={'height_ratios': [3, 1]})
+    else:
+        fig, ax1 = plt.subplots(1, 1, figsize=(figsize[0], figsize[1] * 0.75))
+        ax2 = None
+
+    # ====================
+    # SUBPLOT 1: Histogram + PDF
+    # ====================
+
+    # Plot histogram
+    if n_bins is None:
+        n_bins = min(50, max(20, n_scenarios // 5))  # Adaptive number of bins
+
+    counts, bin_edges, patches = ax1.hist(
+        eens_sorted,
+        bins=n_bins,
+        density=True,
+        alpha=0.6,
+        color='steelblue',
+        edgecolor='black',
+        label='Empirical PDF'
+    )
+
+    # Plot KDE (kernel density estimate) for smooth PDF
+    if show_kde:
+        try:
+            from scipy.stats import gaussian_kde
+
+            # Determine bandwidth method
+            if kde_bandwidth is None:
+                bw_method = 'scott'  # Default
+            elif isinstance(kde_bandwidth, str):
+                bw_method = kde_bandwidth  # 'scott' or 'silverman'
+            else:
+                bw_method = float(kde_bandwidth)  # Custom numeric value
+
+            kde = gaussian_kde(eens_sorted, bw_method=bw_method)
+            x_kde = np.linspace(min(eens_sorted), max(eens_sorted), 200)
+            y_kde = kde(x_kde)
+
+            # Add bandwidth info to label
+            if isinstance(bw_method, (int, float)):
+                label_text = f'KDE (h={bw_method:.3f})'
+            else:
+                label_text = f'KDE ({bw_method})'
+
+            ax1.plot(x_kde, y_kde, 'r-', linewidth=2, label=label_text, alpha=0.8)
+        except ImportError:
+            if show_plot:
+                print("Warning: scipy not available, skipping KDE plot")
+
+    # Plot quantile boundaries
+    if show_quantile_boundaries:
+        if quantile_boundaries is not None:
+            for i, boundary in enumerate(quantile_boundaries):
+                ax1.axvline(
+                    boundary,
+                    color='orange',
+                    linestyle='--',
+                    linewidth=1.5,
+                    alpha=0.7,
+                    label='Quantile boundary' if i == 0 else ""
+                )
+        elif n_representatives is not None:
+            # Calculate quantile boundaries if not provided
+            quantiles = np.linspace(0, 100, n_representatives + 1)
+            boundaries = np.percentile(eens_sorted, quantiles)
+            for i, boundary in enumerate(boundaries):
+                ax1.axvline(
+                    boundary,
+                    color='orange',
+                    linestyle='--',
+                    linewidth=1.5,
+                    alpha=0.7,
+                    label='Quantile boundary' if i == 0 else ""
+                )
+
+    # Plot representative scenarios
+    if show_representatives and representatives is not None:
+        rep_eens = [rep['eens_gwh'] for rep in representatives.values()]
+        rep_ids = list(representatives.keys())
+
+        # Mark representatives on histogram
+        for i, (rep_id, eens) in enumerate(zip(rep_ids, rep_eens)):
+            ax1.axvline(
+                eens,
+                color='red',
+                linestyle=':',
+                linewidth=2.0,
+                alpha=0.9,
+                label='Representative scenario' if i == 0 else ""
+            )
+
+            # Add text label for representative
+            if show_representative_labels:
+                y_max = ax1.get_ylim()[1]
+                ax1.text(
+                    eens,
+                    y_max * 0.95,
+                    rep_id,
+                    rotation=90,
+                    verticalalignment='top',
+                    horizontalalignment='right',
+                    fontsize=9,
+                    fontweight='bold',
+                    color='red'
+                )
+
+    # Plot statistics lines
+    mean_eens = np.mean(eens_sorted)
+    median_eens = np.median(eens_sorted)
+
+    if show_mean:
+        ax1.axvline(mean_eens, color='green', linestyle=':', linewidth=2,
+                    label=f'Mean: {mean_eens:.3f} GWh', alpha=0.8)
+
+    if show_median:
+        ax1.axvline(median_eens, color='purple', linestyle=':', linewidth=2,
+                    label=f'Median: {median_eens:.3f} GWh', alpha=0.8)
+
+    # Labels and title
+    ax1.set_xlabel('EENS (GWh)', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('Probability Density', fontsize=12, fontweight='bold')
+    ax1.set_title(title, fontsize=14, fontweight='bold', pad=20)
+    ax1.legend(loc='upper right', fontsize=10, framealpha=0.9)
+    ax1.grid(True, alpha=0.3)
+
+    # Add convergence metrics text box
+    if show_stats_box and convergence_metrics is not None:
+        textstr = '\n'.join([
+            f"n = {convergence_metrics.get('n_scenarios', n_scenarios)}",
+            f"μ = {convergence_metrics.get('mean', mean_eens):.3f} GWh",
+            f"σ = {convergence_metrics.get('std', np.std(eens_sorted)):.3f} GWh",
+            f"CoV = {convergence_metrics.get('cov', np.std(eens_sorted) / mean_eens):.4f}",
+            f"β = {convergence_metrics.get('conv_beta', 0):.4f}"
+        ])
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
+        ax1.text(0.02, 0.98, textstr, transform=ax1.transAxes, fontsize=11,
+                 verticalalignment='top', bbox=props, family='monospace')
+
+    # ====================
+    # SUBPLOT 2: Empirical CDF (Optional)
+    # ====================
+
+    if show_cdf and ax2 is not None:
+        # Calculate empirical CDF
+        cdf_x = np.sort(eens_sorted)
+        cdf_y = np.arange(1, len(cdf_x) + 1) / len(cdf_x)
+
+        ax2.plot(cdf_x, cdf_y, 'b-', linewidth=2, label='Empirical CDF')
+        ax2.set_xlabel('EENS (GWh)', fontsize=12, fontweight='bold')
+        ax2.set_ylabel('Cumulative Probability', fontsize=12, fontweight='bold')
+        ax2.set_title('Cumulative Distribution Function', fontsize=12, fontweight='bold')
+        ax2.grid(True, alpha=0.3)
+
+        # Mark quantile boundaries on CDF
+        if show_quantile_boundaries and quantile_boundaries is not None:
+            quantile_probs = np.linspace(0, 1, len(quantile_boundaries))
+            for boundary, prob in zip(quantile_boundaries, quantile_probs):
+                ax2.plot(boundary, prob, 'o', color='orange', markersize=8, alpha=0.7)
+
+        # Mark representatives on CDF
+        if show_representatives and representatives is not None:
+            rep_eens = [rep['eens_gwh'] for rep in representatives.values()]
+            for eens in rep_eens:
+                # Find CDF value at this EENS
+                idx = np.searchsorted(cdf_x, eens)
+                if idx < len(cdf_y):
+                    ax2.plot(eens, cdf_y[idx], 'o', color='red', markersize=10,
+                             alpha=0.9, markeredgewidth=2, markeredgecolor='darkred')
+
+        ax2.legend(loc='lower right', fontsize=10)
+
+    # Tight layout
+    plt.tight_layout()
+
+    # Save figure if path provided
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"  Figure saved to: {save_path}")
+
+    # Show plot
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
+
+    return fig
+
+
+def visualize_scenario_library_pdf(
+        library_path: str,
+        title: Optional[str] = None,
+        save_path: Optional[str] = None,
+        figsize: Tuple[int, int] = (14, 8),
+        show_plot: bool = True,
+        # Optional elements control
+        show_kde: bool = True,
+        show_quantile_boundaries: bool = False,
+        show_representatives: bool = True,  # Auto-detect if library has representatives
+        show_representative_labels: bool = True,
+        show_mean: bool = True,
+        show_median: bool = True,
+        show_cdf: bool = True,
+        show_stats_box: bool = True,
+        n_bins: Optional[int] = None,
+        kde_bandwidth: Optional[float] = None
+):
+    """
+    Visualize the PDF of EENS distribution directly from a scenario library file.
+
+    This is a convenience function that loads a scenario library and visualizes its
+    EENS distribution. Works with both convergence-based and representative libraries.
+
+    Args:
+        library_path: Path to scenario library JSON file
+        title: Plot title (auto-generated if None)
+        save_path: Path to save figure (if None, don't save)
+        figsize: Figure size (width, height)
+        show_plot: Whether to display the plot
+        show_kde: Show kernel density estimate (smooth PDF curve)
+        show_quantile_boundaries: Show quantile boundaries (only for representative libraries)
+        show_representatives: Show representative scenario markers (auto-detected)
+        show_representative_labels: Show text labels for representatives
+        show_mean: Show mean line
+        show_median: Show median line
+        show_cdf: Show CDF subplot
+        show_stats_box: Show statistics text box
+        n_bins: Number of histogram bins (auto if None)
+        kde_bandwidth: KDE bandwidth (None for 'scott', float for custom)
+
+    Returns:
+        matplotlib figure object
+    """
+
+    # ====================
+    # 1. LOAD LIBRARY
+    # ====================
+
+    with open(library_path, 'r') as f:
+        library = json.load(f)
+
+    scenarios = library['scenarios']
+    metadata = library['metadata']
+    library_type = metadata.get('library_type', 'unknown')
+
+    # ====================
+    # 2. EXTRACT EENS VALUES
+    # ====================
+
+    # Detect EENS field name (backward compatibility)
+    first_scenario = next(iter(scenarios.values()))
+    if 'eens_dn_gwh' in first_scenario:
+        eens_field = 'eens_dn_gwh'
+    elif 'eens_dn' in first_scenario:
+        eens_field = 'eens_dn'
+    else:
+        raise ValueError(
+            "Cannot find EENS field in scenarios. "
+            "Expected either 'eens_dn_gwh' or 'eens_dn' field."
+        )
+
+    # Extract EENS values
+    eens_values = [scenario[eens_field] for scenario in scenarios.values()]
+
+    # ====================
+    # 3. DETECT LIBRARY TYPE AND EXTRACT RELEVANT INFO
+    # ====================
+
+    representatives = None
+    quantile_boundaries = None
+    n_representatives = None
+
+    # Check if this is a representative library
+    is_representative_library = 'representative' in library_type.lower()
+
+    if is_representative_library and show_representatives:
+        # Extract representative info
+        representatives = {}
+        for scenario_id, scenario_data in scenarios.items():
+            representatives[scenario_id] = {
+                'eens_gwh': scenario_data[eens_field],
+                'scenario_data': scenario_data
+            }
+
+        n_representatives = len(representatives)
+
+        # Calculate quantile boundaries if requested
+        if show_quantile_boundaries:
+            # Get source library info if available
+            source_info = metadata.get('source_library', {})
+            if 'num_scenarios' in source_info:
+                # Representative library - calculate quantiles from representatives
+                quantile_percentiles = np.linspace(0, 100, n_representatives + 1)
+                quantile_boundaries = [np.percentile(eens_values, p) for p in quantile_percentiles]
+    else:
+        # Convergence-based library - no representatives to show
+        if show_representatives:
+            show_representatives = False  # Override since no representatives exist
+
+    # ====================
+    # 4. PREPARE CONVERGENCE METRICS
+    # ====================
+
+    convergence_info = metadata.get('convergence_info', {})
+    eens_stats = metadata.get('eens_statistics', {})
+
+    convergence_metrics = {
+        'n_scenarios': len(scenarios),
+        'mean': eens_stats.get('mean_gwh', np.mean(eens_values)),
+        'std': eens_stats.get('std_gwh', np.std(eens_values)),
+        'cov': convergence_info.get('final_cov', np.std(eens_values) / np.mean(eens_values)),
+        'conv_beta': convergence_info.get('final_conv_beta', 0)
+    }
+
+    # ====================
+    # 5. GENERATE TITLE
+    # ====================
+
+    if title is None:
+        if is_representative_library:
+            title = f"DN EENS Distribution with {n_representatives} Representative Scenarios"
+        else:
+            n_scenarios = len(scenarios)
+            title = f"DN EENS Distribution from Convergence-Based Scenarios (n={n_scenarios})"
+
+    # ====================
+    # 6. CALL VISUALIZATION FUNCTION
+    # ====================
+
+    fig = visualize_eens_pdf_with_representatives(
+        eens_values=eens_values,
+        representatives=representatives,
+        quantile_boundaries=quantile_boundaries,
+        n_representatives=n_representatives,
+        convergence_metrics=convergence_metrics,
+        title=title,
+        save_path=save_path,
+        figsize=figsize,
+        show_plot=show_plot,
+        show_kde=show_kde,
+        show_quantile_boundaries=show_quantile_boundaries,
+        show_representatives=show_representatives,
+        show_representative_labels=show_representative_labels,
+        show_mean=show_mean,
+        show_median=show_median,
+        show_cdf=show_cdf,
+        show_stats_box=show_stats_box,
+        n_bins=n_bins,
+        kde_bandwidth=kde_bandwidth
+    )
+
+    return fig
+
+#########################
+# COMPARISON FUNCTIONS
+#########################
+
+def compare_original_and_representative_ws_scenarios(
+        original_library_path: str,
+        representative_library_path: str,
+        metrics_to_compare: Union[str, List[str]] = 'all',
+        verbose: bool = True
+) -> Dict:
+    """
+    Compare statistical metrics between original and representative scenario sets.
+
+    Args:
+        original_library_path: Path to original library JSON
+        representative_library_path: Path to representative library JSON
+        metrics_to_compare: 'all' or list from ['mean', 'std', 'variance', 'range', 'percentiles']
+        verbose: Print comparison report
+
+    Returns:
+        Dict with 'original', 'representative', 'errors', and 'library_info' keys
+    """
+
+    # Parse metrics
+    available_metrics = ['mean', 'std', 'variance', 'range', 'percentiles']
+    if metrics_to_compare == 'all':
+        selected_metrics = available_metrics
+    else:
+        invalid = [m for m in metrics_to_compare if m not in available_metrics]
+        if invalid:
+            raise ValueError(f"Invalid metrics: {invalid}. Available: {available_metrics}")
+        selected_metrics = metrics_to_compare
+
+    # Load libraries
+    with open(original_library_path, 'r') as f:
+        orig_lib = json.load(f)
+    with open(representative_library_path, 'r') as f:
+        rep_lib = json.load(f)
+
+    # Detect EENS field name (backward compatibility)
+    first_orig = next(iter(orig_lib['scenarios'].values()))
+    eens_field_orig = 'eens_dn_gwh' if 'eens_dn_gwh' in first_orig else 'eens_dn'
+
+    first_rep = next(iter(rep_lib['scenarios'].values()))
+    eens_field_rep = 'eens_dn_gwh' if 'eens_dn_gwh' in first_rep else 'eens_dn'
+
+    # Extract EENS values
+    eens_orig = np.array([s[eens_field_orig] for s in orig_lib['scenarios'].values()])
+    eens_rep = np.array([s[eens_field_rep] for s in rep_lib['scenarios'].values()])
+
+    # Initialize results
+    results = {
+        'library_info': {
+            'n_original': len(eens_orig),
+            'n_representative': len(eens_rep),
+            'reduction_factor': len(eens_orig) / len(eens_rep)
+        },
+        'original': {},
+        'representative': {},
+        'errors': {}
+    }
+
+    # Calculate metrics
+    if 'mean' in selected_metrics:
+        mean_orig = np.mean(eens_orig)
+        mean_rep = np.mean(eens_rep)
+        results['original']['mean'] = mean_orig
+        results['representative']['mean'] = mean_rep
+        results['errors']['mean_abs'] = abs(mean_rep - mean_orig)
+        results['errors']['mean_rel_%'] = abs(mean_rep - mean_orig) / mean_orig * 100
+
+    if 'std' in selected_metrics:
+        std_orig = np.std(eens_orig, ddof=1)
+        std_rep = np.std(eens_rep, ddof=1)
+        results['original']['std'] = std_orig
+        results['representative']['std'] = std_rep
+        results['errors']['std_abs'] = abs(std_rep - std_orig)
+        results['errors']['std_rel_%'] = abs(std_rep - std_orig) / std_orig * 100
+
+    if 'variance' in selected_metrics:
+        var_orig = np.var(eens_orig, ddof=1)
+        var_rep = np.var(eens_rep, ddof=1)
+        results['original']['variance'] = var_orig
+        results['representative']['variance'] = var_rep
+        results['errors']['variance_abs'] = abs(var_rep - var_orig)
+        results['errors']['variance_rel_%'] = abs(var_rep - var_orig) / var_orig * 100
+
+    if 'range' in selected_metrics:
+        results['original']['min'] = np.min(eens_orig)
+        results['original']['max'] = np.max(eens_orig)
+        results['original']['range'] = results['original']['max'] - results['original']['min']
+        results['representative']['min'] = np.min(eens_rep)
+        results['representative']['max'] = np.max(eens_rep)
+        results['representative']['range'] = results['representative']['max'] - results['representative']['min']
+        results['errors']['range_coverage_%'] = results['representative']['range'] / results['original']['range'] * 100
+
+    if 'percentiles' in selected_metrics:
+        percentiles = [10, 25, 50, 75, 90]
+        results['original']['percentiles'] = {f'p{p}': np.percentile(eens_orig, p) for p in percentiles}
+        results['representative']['percentiles'] = {f'p{p}': np.percentile(eens_rep, p) for p in percentiles}
+        results['errors']['percentiles_rel_%'] = {
+            f'p{p}': abs(
+                results['representative']['percentiles'][f'p{p}'] - results['original']['percentiles'][f'p{p}'])
+                     / results['original']['percentiles'][f'p{p}'] * 100
+            for p in percentiles
+        }
+
+    # Print report
+    if verbose:
+        _print_report(results, selected_metrics)
+
+    return results
+
+
+def _print_report(results: Dict, metrics: List[str]):
+    """Print comparison report."""
+
+    info = results['library_info']
+    orig = results['original']
+    rep = results['representative']
+    err = results['errors']
+
+    print("\n" + "=" * 80)
+    print("COMPARISON: Original vs Representative Scenarios")
+    print("=" * 80)
+    print(f"\n  Original:        {info['n_original']} scenarios")
+    print(f"  Representative:  {info['n_representative']} scenarios")
+    print(f"  Reduction:       {info['reduction_factor']:.1f}x")
+
+    print(f"\n  {'Metric':<20} {'Original':<15} {'Representative':<15} {'Error'}")
+    print("  " + "-" * 70)
+
+    if 'mean' in metrics:
+        print(f"  {'Mean (GWh)':<20} {orig['mean']:<15.3f} {rep['mean']:<15.3f} {err['mean_rel_%']:>6.2f}%")
+
+    if 'std' in metrics:
+        print(f"  {'Std Dev (GWh)':<20} {orig['std']:<15.3f} {rep['std']:<15.3f} {err['std_rel_%']:>6.2f}%")
+
+    if 'variance' in metrics:
+        print(
+            f"  {'Variance (GWh²)':<20} {orig['variance']:<15.3f} {rep['variance']:<15.3f} {err['variance_rel_%']:>6.2f}%")
+
+    if 'range' in metrics:
+        print(f"  {'Min (GWh)':<20} {orig['min']:<15.3f} {rep['min']:<15.3f}")
+        print(f"  {'Max (GWh)':<20} {orig['max']:<15.3f} {rep['max']:<15.3f}")
+        print(f"  {'Range coverage':<20} {orig['range']:<15.3f} {rep['range']:<15.3f} {err['range_coverage_%']:>6.1f}%")
+
+    if 'percentiles' in metrics:
+        print(f"\n  Percentiles:")
+        for p in [10, 25, 50, 75, 90]:
+            print(f"    {'P' + str(p):<18} {orig['percentiles'][f'p{p}']:<15.3f} "
+                  f"{rep['percentiles'][f'p{p}']:<15.3f} {err['percentiles_rel_%'][f'p{p}']:>6.2f}%")
+
+    print("=" * 80 + "\n")
+
+
 #########################
 # SCRIPT ENTRY POINT
 #########################
@@ -1419,10 +2085,10 @@ if __name__ == "__main__":
     """
 
     # Example 1: Standard convergence-based generation
-    print("\n" + "="*80)
-    print("EXAMPLE 1: Standard Convergence-Based Generation")
-    print("="*80)
-
+    # print("\n" + "="*80)
+    # print("EXAMPLE 1: Standard Convergence-Based Generation")
+    # print("="*80)
+    #
     # output_path, metrics = generate_windstorm_library_with_convergence(
     #     network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
     #     windstorm_preset="windstorm_29_bus_GB_transmission_network",
@@ -1445,7 +2111,41 @@ if __name__ == "__main__":
     print("=" * 80)
 
     rep_output_path, selection_info = generate_representative_ws_scenarios_by_splitting_pdf(
-        library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.050_215scenarios.json",
-        n_representatives=5,
+        library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_985scenarios.json",
+        output_dir="../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/",
+        save_library=True,
+        n_representatives=10,
         verbose=True,
+        visualize_pdf=True,
+        save_pdf_plot=False,
     )
+
+    # EXAMPLE 3: Visualize Representative Library PDF
+    # print("\n" + "=" * 80)
+    # print("EXAMPLE 3: Visualize Representative Library PDF")
+    # print("=" * 80)
+    #
+    # visualize_scenario_library_pdf(
+    #     library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_985scenarios.json",
+    #     # library_path="../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/rep_scn10_from985scn_29BusGB-Kearsley_29GB_s10000_beta0.020.json",
+    #     show_kde=True,
+    #     kde_bandwidth=0.25,
+    #     show_quantile_boundaries=True,  # Show quantile boundaries
+    #     show_representatives=True,  # Show representative markers
+    #     show_representative_labels=True,  # Show labels
+    #     show_mean=False,
+    #     show_median=False,
+    #     show_cdf=False,
+    #     n_bins=40
+    # )
+
+    # Example 4: Compare original and representative scenario libraries
+    # print("\n" + "=" * 80)
+    # print("EXAMPLE 4: Compare All Metrics")
+    # print("=" * 80)
+    #
+    # results_all = compare_original_and_representative_ws_scenarios(
+    #     original_library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_985scenarios.json",
+    #     representative_library_path="../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/rep_scn2_from985scn_29BusGB-Kearsley_29GB_s10000_beta0.020.json",
+    #     metrics_to_compare='all'
+    # )
