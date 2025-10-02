@@ -934,6 +934,90 @@ def generate_windstorm_library_with_convergence(
     return output_path, final_metrics
 
 
+#########################
+# HELPER FUNCTIONS FOR FILENAMES
+#########################
+
+def _get_network_alias(network_preset: str) -> str:
+    """
+    Get shortened network alias for filename.
+
+    Args:
+        network_preset: Full network preset name
+
+    Returns:
+        Abbreviated network name
+    """
+    aliases = {
+        "29_bus_GB_transmission_network_with_Kearsley_GSP_group": "29BusGB-Kearsley",
+        "GB_Transmission_Network_29_Bus": "29BusGB",
+        # TODO: Add more aliases as needed
+    }
+    return aliases.get(network_preset, network_preset)
+
+
+def _get_windstorm_alias(windstorm_preset: str) -> str:
+    """
+    Get shortened windstorm alias for filename.
+
+    Args:
+        windstorm_preset: Full windstorm preset name
+
+    Returns:
+        Abbreviated windstorm name
+    """
+    aliases = {
+        "windstorm_GB_transmission_network": "GB",
+        "windstorm_29_bus_GB_transmission_network": "29GB",
+        # TODO: Add more aliases as needed
+    }
+    return aliases.get(windstorm_preset, windstorm_preset)
+
+
+def _generate_representative_library_filename(
+        source_metadata: Dict,
+        n_representatives: int,
+        n_source_scenarios: int
+) -> str:
+    """
+    Generate descriptive filename for representative library.
+
+    Format: rep_scn{N}_from{M}scn_{net}_{ws}_s{seed}_beta{threshold}.json
+
+    Example: rep_scn5_from21scn_29BusGB-Kearsley_29GB_s10000_beta0.200.json
+
+    Args:
+        source_metadata: Metadata from source convergence-based library
+        n_representatives: Number of representative scenarios
+        n_source_scenarios: Number of scenarios in source library
+
+    Returns:
+        Generated filename string
+    """
+    # Extract info from source metadata
+    network_preset = source_metadata.get('network_preset', 'unknown')
+    windstorm_preset = source_metadata.get('windstorm_preset', 'unknown')
+    base_seed = source_metadata.get('base_seed', 0)
+
+    # Get convergence threshold (beta)
+    convergence_info = source_metadata.get('convergence_info', {})
+    threshold = convergence_info.get('threshold', 0.0)
+
+    # Get aliases
+    net_alias = _get_network_alias(network_preset)
+    ws_alias = _get_windstorm_alias(windstorm_preset)
+
+    # Build filename
+    filename = (
+        f"rep_scn{n_representatives}_"
+        f"from{n_source_scenarios}scn_"
+        f"{net_alias}_{ws_alias}_"
+        f"s{base_seed}_"
+        f"beta{threshold:.3f}.json"
+    )
+
+    return filename
+
 def generate_representative_ws_scenarios_by_splitting_pdf(
         library_path: str,
         n_representatives: int = 5,
@@ -1159,9 +1243,14 @@ def generate_representative_ws_scenarios_by_splitting_pdf(
 
     # Generate output filename if not provided
     if library_name is None:
-        # Extract network name from source if possible
-        network_name = source_metadata.get('network_preset', 'network').replace('/', '_')
-        library_name = f"representative_quantile_{n_representatives}scenarios_{network_name}.json"
+        library_name = _generate_representative_library_filename(
+            source_metadata=source_metadata,
+            n_representatives=n_representatives,
+            n_source_scenarios=len(scenarios)
+        )
+
+        if verbose:
+            print(f"\nAuto-generated filename: {library_name}")
 
     output_path = os.path.join(output_dir, library_name)
 
@@ -1356,7 +1445,7 @@ if __name__ == "__main__":
     print("=" * 80)
 
     rep_output_path, selection_info = generate_representative_ws_scenarios_by_splitting_pdf(
-        library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.200_21scenarios.json",
+        library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.050_215scenarios.json",
         n_representatives=5,
         verbose=True,
     )
