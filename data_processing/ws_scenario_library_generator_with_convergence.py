@@ -2092,10 +2092,10 @@ if __name__ == "__main__":
     # output_path, metrics = generate_windstorm_library_with_convergence(
     #     network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
     #     windstorm_preset="windstorm_29_bus_GB_transmission_network",
-    #     convergence_threshold=0.2,  # convergence criterion - β
-    #     min_dn_scenarios=20,
-    #     max_dn_scenarios=500,
-    #     max_generation_attempts=5000,
+    #     convergence_threshold=0.02,  # convergence criterion - β
+    #     min_dn_scenarios=100,
+    #     max_dn_scenarios=2000,
+    #     max_generation_attempts=30000,
     #     initial_batch_size=20,
     #     base_seed=10000,
     #     verbose=True,
@@ -2111,7 +2111,7 @@ if __name__ == "__main__":
     print("=" * 80)
 
     rep_output_path, selection_info = generate_representative_ws_scenarios_by_splitting_pdf(
-        library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_985scenarios.json",
+        library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_1391scenarios.json",
         output_dir="../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/",
         save_library=True,
         n_representatives=10,

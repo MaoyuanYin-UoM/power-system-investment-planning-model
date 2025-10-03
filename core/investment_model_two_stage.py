@@ -952,7 +952,7 @@ class InvestmentClass():
                 hrdn = model.fixed_hrdn_shift[l] * model.line_hrdn_binary[l]
             else:
                 hrdn = 0
-            return model.shifted_gust_speed[sc, l, t] >= model.gust_speed[sc, t] - hrdn
+            return model.shifted_gust_speed[sc, l, t] == model.gust_speed[sc, t] - hrdn
 
         model.Constraint_ShiftedGust = pyo.Constraint(model.Set_slt_lines, rule=shifted_gust_rule)
 
