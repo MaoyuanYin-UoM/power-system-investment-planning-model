@@ -2579,6 +2579,9 @@ def compare_original_and_representative_ws_scenarios(
     """
     Compare statistical metrics between original and representative scenario sets.
 
+    Now correctly handles weighted statistics for representative scenarios with
+    non-uniform probabilities (e.g., from interval-based selection).
+
     Args:
         original_library_path: Path to original library JSON
         representative_library_path: Path to representative library JSON
@@ -2614,14 +2617,32 @@ def compare_original_and_representative_ws_scenarios(
 
     # Extract EENS values
     eens_orig = np.array([s[eens_field_orig] for s in orig_lib['scenarios'].values()])
-    eens_rep = np.array([s[eens_field_rep] for s in rep_lib['scenarios'].values()])
+
+    # Extract representative EENS values AND probabilities
+    rep_scenarios = rep_lib['scenarios']
+    rep_probabilities_dict = rep_lib.get('scenario_probabilities', {})
+
+    # Build aligned arrays for representative scenarios
+    eens_rep_list = []
+    prob_rep_list = []
+    for scenario_id, scenario_data in rep_scenarios.items():
+        eens_rep_list.append(scenario_data[eens_field_rep])
+        # Get probability (default to equal probability if not found)
+        prob_rep_list.append(rep_probabilities_dict.get(scenario_id, 1.0 / len(rep_scenarios)))
+
+    eens_rep = np.array(eens_rep_list)
+    prob_rep = np.array(prob_rep_list)
+
+    # Normalize probabilities (should sum to 1.0, but ensure it)
+    prob_rep = prob_rep / prob_rep.sum()
 
     # Initialize results
     results = {
         'library_info': {
             'n_original': len(eens_orig),
             'n_representative': len(eens_rep),
-            'reduction_factor': len(eens_orig) / len(eens_rep)
+            'reduction_factor': len(eens_orig) / len(eens_rep),
+            'representative_uses_weighted_stats': True  # Flag to indicate weighted calculations
         },
         'original': {},
         'representative': {},
@@ -2630,24 +2651,39 @@ def compare_original_and_representative_ws_scenarios(
 
     # Calculate metrics
     if 'mean' in selected_metrics:
+        # Original: unweighted mean (equal probabilities)
         mean_orig = np.mean(eens_orig)
-        mean_rep = np.mean(eens_rep)
+
+        # Representative: WEIGHTED mean
+        mean_rep = np.sum(prob_rep * eens_rep)
+
         results['original']['mean'] = mean_orig
         results['representative']['mean'] = mean_rep
         results['errors']['mean_abs'] = abs(mean_rep - mean_orig)
         results['errors']['mean_rel_%'] = abs(mean_rep - mean_orig) / mean_orig * 100
 
     if 'std' in selected_metrics:
+        # Original: unweighted std
         std_orig = np.std(eens_orig, ddof=1)
-        std_rep = np.std(eens_rep, ddof=1)
+
+        # Representative: WEIGHTED std
+        mean_rep = np.sum(prob_rep * eens_rep)  # Recalculate if mean wasn't computed
+        variance_rep = np.sum(prob_rep * (eens_rep - mean_rep) ** 2)
+        std_rep = np.sqrt(variance_rep)
+
         results['original']['std'] = std_orig
         results['representative']['std'] = std_rep
         results['errors']['std_abs'] = abs(std_rep - std_orig)
         results['errors']['std_rel_%'] = abs(std_rep - std_orig) / std_orig * 100
 
     if 'variance' in selected_metrics:
+        # Original: unweighted variance
         var_orig = np.var(eens_orig, ddof=1)
-        var_rep = np.var(eens_rep, ddof=1)
+
+        # Representative: WEIGHTED variance
+        mean_rep = np.sum(prob_rep * eens_rep)
+        var_rep = np.sum(prob_rep * (eens_rep - mean_rep) ** 2)
+
         results['original']['variance'] = var_orig
         results['representative']['variance'] = var_rep
         results['errors']['variance_abs'] = abs(var_rep - var_orig)
@@ -2665,10 +2701,25 @@ def compare_original_and_representative_ws_scenarios(
     if 'percentiles' in selected_metrics:
         percentiles = [10, 25, 50, 75, 90]
         results['original']['percentiles'] = {f'p{p}': np.percentile(eens_orig, p) for p in percentiles}
-        results['representative']['percentiles'] = {f'p{p}': np.percentile(eens_rep, p) for p in percentiles}
+
+        # Representative: WEIGHTED percentiles (approximate using sorted cumulative probabilities)
+        sorted_indices = np.argsort(eens_rep)
+        sorted_eens = eens_rep[sorted_indices]
+        sorted_probs = prob_rep[sorted_indices]
+        cumulative_probs = np.cumsum(sorted_probs)
+
+        rep_percentiles = {}
+        for p in percentiles:
+            target_prob = p / 100.0
+            # Find the EENS value at this cumulative probability
+            idx = np.searchsorted(cumulative_probs, target_prob)
+            if idx >= len(sorted_eens):
+                idx = len(sorted_eens) - 1
+            rep_percentiles[f'p{p}'] = sorted_eens[idx]
+
+        results['representative']['percentiles'] = rep_percentiles
         results['errors']['percentiles_rel_%'] = {
-            f'p{p}': abs(
-                results['representative']['percentiles'][f'p{p}'] - results['original']['percentiles'][f'p{p}'])
+            f'p{p}': abs(rep_percentiles[f'p{p}'] - results['original']['percentiles'][f'p{p}'])
                      / results['original']['percentiles'][f'p{p}'] * 100
             for p in percentiles
         }
@@ -2753,23 +2804,23 @@ if __name__ == "__main__":
     # )
 
     # Example 2: Generate representative scenarios using quantile-based PDF splitting
-    print("\n" + "=" * 80)
-    print("EXAMPLE 2: Representative Scenario Selection")
-    print("=" * 80)
-
-    rep_output_path, selection_info = generate_representative_ws_scenarios(
-        library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_1391scenarios.json",
-        output_dir="../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/",
-        save_library=True,
-        n_representatives=10,
-        selection_method='equal_interval',
-        eens_min=None,  # Auto-detect
-        eens_max=None,  # Auto-detect
-        handle_empty_intervals='skip',
-        verbose=True,
-        visualize_pdf=True,
-        save_pdf_plot=False,
-    )
+    # print("\n" + "=" * 80)
+    # print("EXAMPLE 2: Representative Scenario Selection")
+    # print("=" * 80)
+    #
+    # rep_output_path, selection_info = generate_representative_ws_scenarios(
+    #     library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_1391scenarios.json",
+    #     output_dir="../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/",
+    #     save_library=True,
+    #     n_representatives=10,
+    #     selection_method='equal_interval',
+    #     eens_min=None,  # Auto-detect
+    #     eens_max=None,  # Auto-detect
+    #     handle_empty_intervals='skip',
+    #     verbose=True,
+    #     visualize_pdf=True,
+    #     save_pdf_plot=False,
+    # )
 
     # EXAMPLE 3: Visualize Representative Library PDF
     # print("\n" + "=" * 80)
@@ -2791,12 +2842,12 @@ if __name__ == "__main__":
     # )
 
     # Example 4: Compare original and representative scenario libraries
-    # print("\n" + "=" * 80)
-    # print("EXAMPLE 4: Compare All Metrics")
-    # print("=" * 80)
-    #
-    # results_all = compare_original_and_representative_ws_scenarios(
-    #     original_library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_985scenarios.json",
-    #     representative_library_path="../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/rep_scn2_from985scn_29BusGB-Kearsley_29GB_s10000_beta0.020.json",
-    #     metrics_to_compare='all'
-    # )
+    print("\n" + "=" * 80)
+    print("EXAMPLE 4: Compare All Metrics")
+    print("=" * 80)
+
+    results_all = compare_original_and_representative_ws_scenarios(
+        original_library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_1391scenarios.json",
+        representative_library_path="../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/rep_scn10_interval_from1391scn_29BusGB-Kearsley_29GB_seed10000_beta0.020.json",
+        metrics_to_compare='all'
+    )

@@ -11,6 +11,8 @@ from datetime import datetime
 import math
 import json
 import os
+from pyomo.contrib.iis import write_iis  # Pyomo IIS tool (uses solver APIs under the hood)
+from datetime import datetime
 
 from factories.windstorm_factory import make_windstorm
 from factories.network_factory import make_network
@@ -952,7 +954,7 @@ class InvestmentClass():
                 hrdn = model.fixed_hrdn_shift[l] * model.line_hrdn_binary[l]
             else:
                 hrdn = 0
-            return model.shifted_gust_speed[sc, l, t] == model.gust_speed[sc, t] - hrdn
+            return model.shifted_gust_speed[sc, l, t] >= model.gust_speed[sc, t] - hrdn
 
         model.Constraint_ShiftedGust = pyo.Constraint(model.Set_slt_lines, rule=shifted_gust_rule)
 
@@ -1960,6 +1962,7 @@ class InvestmentClass():
             write_lp: bool = False,
             write_result: bool = False,
             result_path: str = None,
+            log_file_path: str = None,
             additional_notes: str = None,
             **solver_options
     ):
@@ -1987,11 +1990,25 @@ class InvestmentClass():
 
         # --- solver-specific options -------------------------------------------------
         if solver_name.lower() == "gurobi":
-            default_opts = {"MIPGap": mip_gap,
-                            "MIPGapAbs": mip_gap_abs,
-                            "TimeLimit": time_limit,
-                            "NumericFocus": numeric_focus,
-                            }
+            # Create log file path if not specified
+            if log_file_path is None:
+                from pathlib import Path
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                log_dir = Path(__file__).parent.parent / "Optimization_Results" / "Solver_Logs"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                log_file_path = str(log_dir / f"gurobi_log_{timestamp}.log")
+
+            default_opts = {
+                "MIPGap": mip_gap,
+                "MIPGapAbs": mip_gap_abs,
+                "TimeLimit": time_limit,
+                "NumericFocus": numeric_focus,
+                "LogFile": log_file_path,
+                "LogToConsole": 1,
+                "DisplayInterval": 5,
+            }
+            print(f"Writing detailed Gurobi log to: {log_file_path}")
+
         elif solver_name.lower() == "cbc":
             default_opts = {
                 "ratioGap": mip_gap,
@@ -2000,6 +2017,7 @@ class InvestmentClass():
                 "presolve": "on",
                 "cuts": "on",
             }
+
         elif solver_name.lower() == "glpk":
             default_opts = {
                 "mipgap": mip_gap,
@@ -2034,6 +2052,58 @@ class InvestmentClass():
             print("No feasible solution found.")
             best_obj = None
             mip_gap_out = None
+
+        if term_cond == pyo.TerminationCondition.infeasible:
+            print("\n" + "=" * 60)
+            print("MODEL IS INFEASIBLE - Computing IIS...")
+            print("=" * 60)
+
+            try:
+                # --- paths (absolute, under project root) ---------------------------
+                current_file = Path(__file__).resolve()
+                project_root = current_file.parent.parent
+                lp_dir = project_root / "Optimization_Results" / "LP_Models"
+                iis_dir = project_root / "Optimization_Results" / "IIS"
+                lp_dir.mkdir(parents=True, exist_ok=True)
+                iis_dir.mkdir(parents=True, exist_ok=True)
+
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                lp_path = lp_dir / f"infeasible_{ts}.lp"
+                iis_path = iis_dir / f"iis_{ts}.ilp"
+
+                # --- write the LP snapshot with readable names ----------------------
+                model.write(str(lp_path), io_options={"symbolic_solver_labels": True})
+                print(f"Wrote LP snapshot to: {lp_path}")
+
+                # --- preferred: use Pyomo’s IIS writer (Gurobi/CPLEX/Xpress supported) ---
+                out_file = write_iis(model, str(iis_path), solver="gurobi")
+                print(f"✓ IIS written to: {out_file}")
+                print("Open the .ilp in a text editor to see conflicting constraints/bounds.")
+
+            except Exception as e:
+                # Fallback: call gurobi_cl on the LP to compute IIS
+                print(f"Pyomo IIS utility failed ({e}). Falling back to gurobi_cl...")
+                try:
+                    import subprocess
+                    cmd = [
+                        "gurobi_cl",
+                        str(lp_path),  # model file
+                        "IISMethod=-1",  # choose IIS algorithm (optional)
+                        f"ResultFile={iis_path}"  # .ilp output
+                    ]
+                    print("Running:", " ".join(cmd))
+                    res = subprocess.run(cmd, capture_output=True, text=True)
+                    if res.stdout:
+                        print(res.stdout[-1000:])  # tail of gurobi_cl output for context
+
+                    if iis_path.exists():
+                        print(f"✓ IIS written to: {iis_path}")
+                    else:
+                        print("✗ IIS file not created. Try running the above command manually in a terminal.")
+                except Exception as ee:
+                    print(f"Fallback IIS attempt failed: {ee}")
+
+
 
         # --- write results if requested ---------------------------------------
         if write_result:
