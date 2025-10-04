@@ -553,7 +553,7 @@ def make_network(name: str) -> NetworkClass:
         # (line hardening is modelled as a fixed fragility rightward shift, with cost proportional to the line length)
         ncon.data.net.fixed_hrdn_shift = [15.0] * len(ncon.data.net.bch)
         # Hardening cost rate
-        ncon.data.net.hrdn_cost_rate = [2e6] * len(ncon.data.net.bch)  # £50k/km for DN lines
+        ncon.data.net.hrdn_cost_rate = [1e5] * len(ncon.data.net.bch)  # £500k/km for DN OHLs
         # Compute hardening cost
         ncon.data.net.cost_bch_hrdn_fixed = []
         for i, length in enumerate(ncon.data.net.bch_length_km):
@@ -575,10 +575,10 @@ def make_network(name: str) -> NetworkClass:
         # 11.  Fragility data
         # -----------------------------------------------------------
         num_bch = len(ncon.data.net.bch)
-        ncon.data.frg.mu = [3.18] * num_bch
-        ncon.data.frg.sigma = [0.17] * num_bch
-        ncon.data.frg.thrd_1 = [10] * num_bch
-        ncon.data.frg.thrd_2 = [40] * num_bch
+        ncon.data.frg.mu = [3.50] * num_bch
+        ncon.data.frg.sigma = [0.23] * num_bch
+        ncon.data.frg.thrd_1 = [15] * num_bch
+        ncon.data.frg.thrd_2 = [65] * num_bch
         ncon.data.frg.shift_f = [0.0] * num_bch
 
         net = NetworkClass(ncon)
@@ -962,10 +962,10 @@ def make_network(name: str) -> NetworkClass:
         # 10.  Fragility data (uniform defaults)
         # -----------------------------------------------------------
         num_bch = len(ncon.data.net.bch)
-        ncon.data.frg.mu = [3.42] * num_bch
-        ncon.data.frg.sigma = [0.10] * num_bch
-        ncon.data.frg.thrd_1 = [20] * num_bch
-        ncon.data.frg.thrd_2 = [50] * num_bch
+        ncon.data.frg.mu = [3.88] * num_bch
+        ncon.data.frg.sigma = [0.11] * num_bch
+        ncon.data.frg.thrd_1 = [35] * num_bch
+        ncon.data.frg.thrd_2 = [65] * num_bch
         ncon.data.frg.shift_f = [0.0] * num_bch
 
 
