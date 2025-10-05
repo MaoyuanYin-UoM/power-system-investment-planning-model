@@ -89,7 +89,7 @@ def calculate_dn_eens_no_investment(
             numeric_focus=numeric_focus,
             write_lp_on_failure=write_lp_on_failure,
             write_ilp_on_failure=write_ilp_on_failure,
-            write_xlsx=True,
+            write_xlsx=False,
         )
 
         # Convert MWh to GWh
