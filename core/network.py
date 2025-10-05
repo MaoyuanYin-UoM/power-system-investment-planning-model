@@ -1236,7 +1236,7 @@ class NetworkClass:
             bgn_hr = event["bgn_hr"]
             duration = event["duration"]
             for t in range(bgn_hr, bgn_hr + duration):
-                all_timesteps.add(t + 1)  # 1-indexed
+                all_timesteps.add(t)  # 0-indexed
 
         # Add repair hours if needed
         ttr_max = 0
@@ -1248,7 +1248,7 @@ class NetworkClass:
             max_timestep = max(all_timesteps) if all_timesteps else 0
             for t in range(max_timestep + 1, min(max_timestep + ttr_max + 1, 8761)):
                 all_timesteps.add(t)
-            print(f"Extended time horizon by {ttr_max} hours for repairs")
+            # print(f"Extended time horizon by {ttr_max} hours for repairs")
         else:
             # If no TTR found, use the maximum possible from windstorm preset
             ws = make_windstorm(windstorm_preset)
@@ -1579,13 +1579,26 @@ class NetworkClass:
         # Time to repair
         ttr_data = {}
         bch_ttr = single_ws_scenario.get("bch_ttr", [])
+        events = single_ws_scenario.get("events", [])
 
-        for l in Set_bch_lines:
-            l_idx = l - 1
-            if l_idx < len(bch_ttr):
-                ttr_data[l] = bch_ttr[l_idx]
-            else:
-                ttr_data[l] = 24  # Default TTR
+        if len(events) > 0 and "bch_ttr" in events[0]:
+            # Get bch_ttr from the first event (should be same across all events in scenario)
+            bch_ttr = events[0]["bch_ttr"]
+            for l in Set_bch_lines:
+                l_idx = l - 1
+                if l_idx < len(bch_ttr):
+                    ttr_data[l] = bch_ttr[l_idx]
+                else:
+                    ttr_data[l] = 24  # Default TTR
+        else:
+            # Fallback: try scenario root level (for backward compatibility)
+            bch_ttr = single_ws_scenario.get("bch_ttr", [])
+            for l in Set_bch_lines:
+                l_idx = l - 1
+                if l_idx < len(bch_ttr):
+                    ttr_data[l] = bch_ttr[l_idx]
+                else:
+                    ttr_data[l] = 24  # Default TTR
 
         model.ttr = pyo.Param(model.Set_bch_lines, initialize=ttr_data)
 
@@ -2113,38 +2126,53 @@ class NetworkClass:
 
         # Repair timing constraint
         def repair_timing_rule(model, l, t):
-            """Repair must occur exactly TTR timesteps after failure"""
-            t_idx = Set_ts.index(t)
-            ttr = model.ttr[l]
+            """Repair must happen exactly TTR timesteps after failure"""
+            ttr = pyo.value(model.ttr[l])
 
-            # Check if we're far enough into the scenario
-            if t_idx >= ttr:
-                # Look back exactly TTR timesteps
-                t_fail_idx = t_idx - ttr
-                t_fail = Set_ts[t_fail_idx]
-                return model.repair_applies[l, t] >= model.fail_occurs[l, t_fail]
+            # Get current timestep index
+            t_idx = Set_ts.index(t)
+
+            # Calculate the index TTR steps back
+            failure_idx = t_idx - ttr
+
+            # Check if that index is valid
+            if failure_idx >= 0:
+                # Get the actual timestep at that index
+                t_failure = Set_ts[failure_idx]
+                # If there was a failure at that timestep, repair must happen now
+                return model.repair_applies[l, t] >= model.fail_occurs[l, t_failure]
             else:
-                # Can't have repairs in first TTR timesteps
+                # Can't look back that far - no repair allowed
                 return model.repair_applies[l, t] == 0
 
         model.Constraint_RepairTiming = pyo.Constraint(model.Set_lt_lines, rule=repair_timing_rule)
 
         # No early repair constraint
         def no_early_repair_rule(model, l, t):
-            """Prevent repairs before TTR has elapsed"""
-            t_idx = Set_ts.index(t)
-            ttr = model.ttr[l]
+            """Repair cannot happen before TTR timesteps have passed"""
+            ttr = pyo.value(model.ttr[l])
 
-            if t_idx >= ttr:
-                # Sum failures in the window (t-ttr+1, t-1)
-                recent_failures_sum = sum(
-                    model.fail_occurs[l, Set_ts[tau_idx]]
-                    for tau_idx in range(max(0, t_idx - ttr + 1), t_idx)
-                    if tau_idx != t_idx - ttr  # Exclude the one exactly TTR ago
-                )
-                return model.repair_applies[l, t] <= 1 - recent_failures_sum
+            # Get current timestep index
+            t_idx = Set_ts.index(t)
+
+            # Check the window of indices from (t_idx - ttr + 1) to (t_idx - 1)
+            # These are failures that are too recent to allow repair at t
+            forbidden_failure_times = []
+            for tau_idx in range(max(0, t_idx - ttr + 1), t_idx):
+                tau = Set_ts[tau_idx]
+                if (l, tau) in model.Set_lt_lines:
+                    forbidden_failure_times.append(tau)
+
+            if len(forbidden_failure_times) > 0:
+                # Cannot repair if any of these failures occurred
+                recent_failures = sum(model.fail_occurs[l, tau] for tau in forbidden_failure_times)
+                return model.repair_applies[l, t] <= 1 - recent_failures
             else:
-                return model.repair_applies[l, t] == 0
+                # No recent failures to check - but still prevent repairs in first TTR timesteps
+                if t_idx < ttr:
+                    return model.repair_applies[l, t] == 0
+                else:
+                    return pyo.Constraint.Skip
 
         model.Constraint_NoEarlyRepair = pyo.Constraint(model.Set_lt_lines, rule=no_early_repair_rule)
 
@@ -2265,6 +2293,8 @@ class NetworkClass:
         Raises:
             RuntimeError: If solver fails to find optimal solution
         """
+
+        from datetime import datetime
 
         print(f"Solving OPF model with {solver_name}...")
 

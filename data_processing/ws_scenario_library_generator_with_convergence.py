@@ -89,6 +89,7 @@ def calculate_dn_eens_no_investment(
             numeric_focus=numeric_focus,
             write_lp_on_failure=write_lp_on_failure,
             write_ilp_on_failure=write_ilp_on_failure,
+            write_xlsx=True,
         )
 
         # Convert MWh to GWh
@@ -801,7 +802,8 @@ def generate_windstorm_library_with_convergence(
 
                 if verbose:
                     print(f"  Next batch size: {current_batch_size}")
-                    print(f"  Continuing generation (CoV={metrics['cov']:.4f} > {convergence_threshold})...")
+                    print(f"  Continuing generation (convergence_metric={metrics['convergence_metric']:.4f} > {convergence_threshold})")
+                    print(f"  (CoV: {metrics['cov']:.4f})")
 
         # Check if reached limits
         if n_dn_scenarios >= max_dn_scenarios:
@@ -2829,8 +2831,8 @@ if __name__ == "__main__":
         network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
         windstorm_preset="windstorm_29_bus_GB_transmission_network",
         convergence_threshold=0.05 ,  # convergence criterion - β
-        min_dn_scenarios=100,
-        max_dn_scenarios=2000,
+        min_dn_scenarios=1,
+        max_dn_scenarios=2,
         max_generation_attempts=30000,
         initial_batch_size=20,
         base_seed=10000,
@@ -2847,7 +2849,8 @@ if __name__ == "__main__":
     # print("=" * 80)
     #
     # rep_output_path, selection_info = generate_representative_ws_scenarios(
-    #     library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_1834scenarios.json",
+    #     # library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_1834scenarios.json",
+    #     library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.050_1scenarios.json",
     #     output_dir="../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/",
     #     save_library=True,
     #     n_representatives=1,
