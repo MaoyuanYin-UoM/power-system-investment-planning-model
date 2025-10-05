@@ -15,6 +15,7 @@ from pathlib import Path
 
 from core.config import NetConfig
 from core.windstorm import WindClass
+from factories.windstorm_factory import make_windstorm
 
 
 class Object(object):
@@ -1201,6 +1202,7 @@ class NetworkClass:
     def build_combined_opf_model_under_ws_scenarios(self,
                                                     single_ws_scenario: dict,
                                                     scenario_probability: float = 1.0,
+                                                    windstorm_preset: str = "windstorm_29_bus_GB_transmission_network",
                                                     ):
         """
         Build a simplified OPF model for a single windstorm scenario without investment decisions.
@@ -1237,8 +1239,22 @@ class NetworkClass:
                 all_timesteps.add(t + 1)  # 1-indexed
 
         # Add repair hours if needed
-        ttr_max = max(single_ws_scenario.get("bch_ttr", [0]))
+        ttr_max = 0
+        for event in single_ws_scenario.get("events", []):
+            if "bch_ttr" in event:
+                ttr_max = max(ttr_max, max(event["bch_ttr"]))
+
         if ttr_max > 0:
+            max_timestep = max(all_timesteps) if all_timesteps else 0
+            for t in range(max_timestep + 1, min(max_timestep + ttr_max + 1, 8761)):
+                all_timesteps.add(t)
+            print(f"Extended time horizon by {ttr_max} hours for repairs")
+        else:
+            # If no TTR found, use the maximum possible from windstorm preset
+            ws = make_windstorm(windstorm_preset)
+            ttr_max = ws.data.WS.event.ttr[1]  # Maximum from windstorm_factory
+            print(f"Warning: No maximum TTR data found in events, using default from the windstorm preset: {ttr_max} hours")
+
             max_timestep = max(all_timesteps) if all_timesteps else 0
             for t in range(max_timestep + 1, min(max_timestep + ttr_max + 1, 8761)):
                 all_timesteps.add(t)

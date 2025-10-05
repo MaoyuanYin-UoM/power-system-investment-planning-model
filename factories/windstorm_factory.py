@@ -114,7 +114,7 @@ def make_windstorm(name: str) -> WindClass:
         wcon.data.WS.event.prop_uniform_bounds = [30, 60]  # (km/h)
 
         wcon.data.WS.event.lng = [12, 48]  # lower and upper bounds for windstorm duration
-        wcon.data.WS.event.ttr = [24, 120]  # lower and upper bounds for line repair (time to restoration)
+        wcon.data.WS.event.ttr = [24, 72]  # lower and upper bounds for line repair (time to restoration)
 
         # fragility modelling:  (deprecated) (fragility data moved to NetConfig)
         wcon.data.frg = Object()

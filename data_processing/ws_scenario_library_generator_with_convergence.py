@@ -1285,7 +1285,7 @@ def _select_representatives_by_equal_intervals(
                 print(f"  Probability: {relative_prob:.4f}")
 
         # Create representative ID
-        rep_id = f"rep_{actual_rep_count:02d}"
+        rep_id = f"rep_{actual_rep_count+1:02d}"  # +1 to start from 01
         actual_rep_count += 1
 
         # Store interval info
@@ -1638,20 +1638,28 @@ def generate_representative_ws_scenarios(
             quantile_boundaries=quantile_boundaries_viz,  # FIXED: method-specific
             n_representatives=len(representatives),  # FIXED: use actual count
             convergence_metrics=display_metrics,
-            title=f"DN EENS Distribution with {len(representatives)} Representative Scenarios ({selection_method})",
             save_path=plot_save_path,
             show_plot=True,
             # Optional elements - customize as needed
             show_kde=False,
             show_quantile_boundaries=True,
             show_representatives=True,
-            show_representative_labels=False,
+            show_representative_labels=True,
             show_mean=False,
             show_median=False,
             show_cdf=False,
             show_stats_box=True,
-            n_bins=None,
+            n_bins=60,
             kde_bandwidth=0.2,
+            # Optional parameters - customize figure appearances
+            title=f"DN EENS Probability Distribution with {len(representatives)} Representative Scenarios",
+            figsize=(10, 9),
+            title_fontsize=17,
+            label_fontsize=16,
+            legend_fontsize=15,
+            tick_fontsize=14,
+            stats_fontsize=15,
+            rep_label_fontsize=13,
         )
 
     return output_path, selection_info
@@ -2159,7 +2167,7 @@ def visualize_eens_pdf_with_representatives(
         save_path: Optional[str] = None,
         figsize: Tuple[int, int] = (14, 8),
         show_plot: bool = True,
-        # NEW: Optional elements control
+        # Optional elements control
         show_kde: bool = True,
         show_quantile_boundaries: bool = True,
         show_representatives: bool = True,
@@ -2170,6 +2178,13 @@ def visualize_eens_pdf_with_representatives(
         show_stats_box: bool = True,
         n_bins: Optional[int] = None,
         kde_bandwidth: Optional[float] = None,
+        # NEW: Typography and sizing controls
+        title_fontsize: int = 14,
+        label_fontsize: int = 12,
+        legend_fontsize: int = 10,
+        tick_fontsize: int = 10,
+        stats_fontsize: int = 11,
+        rep_label_fontsize: int = 9,
 ):
     """
     Visualize the PDF of DN EENS values with quantile divisions and representative scenarios.
@@ -2182,16 +2197,31 @@ def visualize_eens_pdf_with_representatives(
         convergence_metrics: Dict with convergence statistics (mean, std, cov, etc.)
         title: Plot title
         save_path: Path to save figure (if None, don't save)
-        figsize: Figure size (width, height)
+        figsize: Figure size (width, height) in inches
         show_plot: Whether to display the plot
+
+        # Display options
         show_kde: Show kernel density estimate (smooth PDF curve)
         show_quantile_boundaries: Show orange dashed lines at quantile boundaries
         show_representatives: Show red lines for representative scenarios
+        show_representative_labels: Show text labels for representatives
         show_mean: Show green dotted line for mean EENS
         show_median: Show purple dotted line for median EENS
         show_cdf: Show cumulative distribution function subplot at bottom
         show_stats_box: Show statistics text box (n, μ, σ, CoV, β)
         n_bins: Number of histogram bins (auto-calculated if None)
+        kde_bandwidth: KDE bandwidth (None for 'scott', float for custom, or 'silverman')
+
+        # Typography options
+        title_fontsize: Font size for main title
+        label_fontsize: Font size for axis labels
+        legend_fontsize: Font size for legend
+        tick_fontsize: Font size for tick labels
+        stats_fontsize: Font size for statistics box text
+        rep_label_fontsize: Font size for representative scenario labels
+
+    Returns:
+        matplotlib figure object
     """
     import matplotlib.pyplot as plt
     from matplotlib.patches import Rectangle
@@ -2254,17 +2284,17 @@ def visualize_eens_pdf_with_representatives(
             if show_plot:
                 print("Warning: scipy not available, skipping KDE plot")
 
-    # Plot quantile boundaries
-    if show_quantile_boundaries:
-        # Determine boundary type from representatives (if available)
-        boundary_label = 'Interval boundary'  # Default
-        if representatives is not None and len(representatives) > 0:
-            first_rep = next(iter(representatives.values()))
-            if 'quantile_info' in first_rep:
-                boundary_label = 'Quantile boundary'
-            elif 'interval_info' in first_rep:
-                boundary_label = 'Interval boundary'
+    # Determine boundary label based on representatives (auto-detect method)
+    boundary_label = 'Interval boundary'  # Default
+    if representatives is not None and len(representatives) > 0:
+        first_rep = next(iter(representatives.values()))
+        if 'quantile_info' in first_rep:
+            boundary_label = 'Quantile boundary'
+        elif 'interval_info' in first_rep:
+            boundary_label = 'Interval boundary'
 
+    # Plot quantile/interval boundaries
+    if show_quantile_boundaries:
         if quantile_boundaries is not None:
             for i, boundary in enumerate(quantile_boundaries):
                 ax1.axvline(
@@ -2273,7 +2303,7 @@ def visualize_eens_pdf_with_representatives(
                     linestyle='--',
                     linewidth=1.5,
                     alpha=0.7,
-                    label=boundary_label if i == 0 else ""  # FIXED: dynamic label
+                    label=boundary_label if i == 0 else ""
                 )
         elif n_representatives is not None:
             # Calculate quantile boundaries if not provided
@@ -2286,7 +2316,7 @@ def visualize_eens_pdf_with_representatives(
                     linestyle='--',
                     linewidth=1.5,
                     alpha=0.7,
-                    label=boundary_label if i == 0 else ""  # FIXED: dynamic label
+                    label=boundary_label if i == 0 else ""
                 )
 
     # Plot representative scenarios
@@ -2308,14 +2338,19 @@ def visualize_eens_pdf_with_representatives(
             # Add text label for representative
             if show_representative_labels:
                 y_max = ax1.get_ylim()[1]
+                # Get the relative probability for this representative
+                rep_info = representatives[rep_id]
+                relative_prob = rep_info.get('probability', 1.0 / len(representatives))
+                # Format label with relative probability
+                label_text = f'Relative prob. = {relative_prob:.3f}'
                 ax1.text(
                     eens,
                     y_max * 0.95,
-                    rep_id,
+                    label_text,
                     rotation=90,
                     verticalalignment='top',
                     horizontalalignment='right',
-                    fontsize=9,
+                    fontsize=rep_label_fontsize,
                     fontweight='bold',
                     color='red'
                 )
@@ -2333,11 +2368,12 @@ def visualize_eens_pdf_with_representatives(
                     label=f'Median: {median_eens:.3f} GWh', alpha=0.8)
 
     # Labels and title
-    ax1.set_xlabel('EENS (GWh)', fontsize=12, fontweight='bold')
-    ax1.set_ylabel('Probability Density', fontsize=12, fontweight='bold')
-    ax1.set_title(title, fontsize=14, fontweight='bold', pad=20)
-    ax1.legend(loc='upper right', fontsize=10, framealpha=0.9)
+    ax1.set_xlabel('EENS (GWh)', fontsize=label_fontsize, fontweight='bold')
+    ax1.set_ylabel('Probability Density', fontsize=label_fontsize, fontweight='bold')
+    ax1.set_title(title, fontsize=title_fontsize, fontweight='bold', pad=20)
+    ax1.legend(loc='upper right', fontsize=legend_fontsize, framealpha=0.9)
     ax1.grid(True, alpha=0.3)
+    ax1.tick_params(axis='both', labelsize=tick_fontsize)
 
     # Add convergence metrics text box
     if show_stats_box and convergence_metrics is not None:
@@ -2349,8 +2385,9 @@ def visualize_eens_pdf_with_representatives(
             f"β = {convergence_metrics.get('conv_beta', 0):.4f}"
         ])
         props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
-        ax1.text(0.02, 0.98, textstr, transform=ax1.transAxes, fontsize=11,
-                 verticalalignment='top', bbox=props, family='monospace')
+        ax1.text(0.98, 0.5, textstr, transform=ax1.transAxes, fontsize=stats_fontsize,
+                 verticalalignment='center', horizontalalignment='right',  # CHANGED alignment
+                 bbox=props, family='monospace')
 
     # ====================
     # SUBPLOT 2: Empirical CDF (Optional)
@@ -2362,10 +2399,11 @@ def visualize_eens_pdf_with_representatives(
         cdf_y = np.arange(1, len(cdf_x) + 1) / len(cdf_x)
 
         ax2.plot(cdf_x, cdf_y, 'b-', linewidth=2, label='Empirical CDF')
-        ax2.set_xlabel('EENS (GWh)', fontsize=12, fontweight='bold')
-        ax2.set_ylabel('Cumulative Probability', fontsize=12, fontweight='bold')
-        ax2.set_title('Cumulative Distribution Function', fontsize=12, fontweight='bold')
+        ax2.set_xlabel('EENS (GWh)', fontsize=label_fontsize, fontweight='bold')
+        ax2.set_ylabel('Cumulative Probability', fontsize=label_fontsize, fontweight='bold')
+        ax2.set_title('Cumulative Distribution Function', fontsize=title_fontsize, fontweight='bold')
         ax2.grid(True, alpha=0.3)
+        ax2.tick_params(axis='both', labelsize=tick_fontsize)
 
         # Mark quantile boundaries on CDF
         if show_quantile_boundaries and quantile_boundaries is not None:
@@ -2383,7 +2421,7 @@ def visualize_eens_pdf_with_representatives(
                     ax2.plot(eens, cdf_y[idx], 'o', color='red', markersize=10,
                              alpha=0.9, markeredgewidth=2, markeredgecolor='darkred')
 
-        ax2.legend(loc='lower right', fontsize=10)
+        ax2.legend(loc='lower right', fontsize=legend_fontsize)
 
     # Tight layout
     plt.tight_layout()
@@ -2783,25 +2821,25 @@ if __name__ == "__main__":
     """
 
     # Example 1: Standard convergence-based generation
-    # print("\n" + "="*80)
-    # print("EXAMPLE 1: Standard Convergence-Based Generation")
-    # print("="*80)
-    #
-    # output_path, metrics = generate_windstorm_library_with_convergence(
-    #     network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
-    #     windstorm_preset="windstorm_29_bus_GB_transmission_network",
-    #     convergence_threshold=0.02,  # convergence criterion - β
-    #     min_dn_scenarios=100,
-    #     max_dn_scenarios=2000,
-    #     max_generation_attempts=30000,
-    #     initial_batch_size=20,
-    #     base_seed=10000,
-    #     verbose=True,
-    #     visualize_scenarios=True,
-    #     write_lp_on_failure=False,
-    #     write_ilp_on_failure=False,
-    #     output_dir="../Scenario_Database/Scenarios_Libraries/Convergence_Based/",
-    # )
+    print("\n" + "="*80)
+    print("EXAMPLE 1: Standard Convergence-Based Generation")
+    print("="*80)
+
+    output_path, metrics = generate_windstorm_library_with_convergence(
+        network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
+        windstorm_preset="windstorm_29_bus_GB_transmission_network",
+        convergence_threshold=0.05 ,  # convergence criterion - β
+        min_dn_scenarios=100,
+        max_dn_scenarios=2000,
+        max_generation_attempts=30000,
+        initial_batch_size=20,
+        base_seed=10000,
+        verbose=True,
+        visualize_scenarios=True,
+        write_lp_on_failure=False,
+        write_ilp_on_failure=False,
+        output_dir="../Scenario_Database/Scenarios_Libraries/Convergence_Based/",
+    )
 
     # Example 2: Generate representative scenarios using quantile-based PDF splitting
     # print("\n" + "=" * 80)
@@ -2809,10 +2847,10 @@ if __name__ == "__main__":
     # print("=" * 80)
     #
     # rep_output_path, selection_info = generate_representative_ws_scenarios(
-    #     library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_1391scenarios.json",
+    #     library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_1834scenarios.json",
     #     output_dir="../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/",
     #     save_library=True,
-    #     n_representatives=10,
+    #     n_representatives=1,
     #     selection_method='equal_interval',
     #     eens_min=None,  # Auto-detect
     #     eens_max=None,  # Auto-detect
@@ -2842,12 +2880,12 @@ if __name__ == "__main__":
     # )
 
     # Example 4: Compare original and representative scenario libraries
-    print("\n" + "=" * 80)
-    print("EXAMPLE 4: Compare All Metrics")
-    print("=" * 80)
-
-    results_all = compare_original_and_representative_ws_scenarios(
-        original_library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_1391scenarios.json",
-        representative_library_path="../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/rep_scn10_interval_from1391scn_29BusGB-Kearsley_29GB_seed10000_beta0.020.json",
-        metrics_to_compare='all'
-    )
+    # print("\n" + "=" * 80)
+    # print("EXAMPLE 4: Compare All Metrics")
+    # print("=" * 80)
+    #
+    # results_all = compare_original_and_representative_ws_scenarios(
+    #     original_library_path="../Scenario_Database/Scenarios_Libraries/Convergence_Based/ws_library_29_bus_GB_transmission_network_with_Kearsley_GSP_group_convergence_cov0.020_1391scenarios.json",
+    #     representative_library_path="../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/rep_scn8_interval_from1391scn_29BusGB-Kearsley_29GB_seed10000_beta0.020.json",
+    #     metrics_to_compare='all'
+    # )
