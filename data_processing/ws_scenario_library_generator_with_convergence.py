@@ -755,12 +755,12 @@ def generate_windstorm_library_with_convergence(
                     print(
                         f"    Status: Need {min_dn_scenarios - n_dn_scenarios} more scenarios before convergence check")
                 else:
-                    if current_metrics['cov'] < convergence_threshold:
+                    if current_metrics['conv_beta'] < convergence_threshold:
                         print(
-                            f"    Status: ✓ CoV below threshold ({current_metrics['cov']:.4f} < {convergence_threshold})")
+                            f"    Status: ✓ β below threshold ({current_metrics['conv_beta']:.4f} < {convergence_threshold})")
                     else:
                         print(
-                            f"    Status: CoV above threshold ({current_metrics['cov']:.4f} > {convergence_threshold})")
+                            f"    Status: β above threshold ({current_metrics['conv_beta']:.4f} > {convergence_threshold})")
         else:
             if verbose:
                 print(f"\n  Current Statistics (after batch {iteration}):")
@@ -841,7 +841,7 @@ def generate_windstorm_library_with_convergence(
         print(f"Efficiency gain from quick check: {final_metrics['efficiency_gain']:.1%}")
         print(f"Convergence status: {'CONVERGED' if converged else 'NOT CONVERGED'}")
         if converged:
-            print(f"  Final CoV: {final_metrics['cov']:.4f} (threshold: {convergence_threshold:.4f})")
+            print(f"  Final CoV: {final_metrics['conv_beta']:.4f} (threshold: {convergence_threshold:.4f})")
         print("=" * 70 + "\n")
 
     # Prepare complete library structure (same format as ws_scenario_library_generator.py)
@@ -2830,9 +2830,9 @@ if __name__ == "__main__":
     output_path, metrics = generate_windstorm_library_with_convergence(
         network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
         windstorm_preset="windstorm_29_bus_GB_transmission_network",
-        convergence_threshold=0.05 ,  # convergence criterion - β
-        min_dn_scenarios=1,
-        max_dn_scenarios=2,
+        convergence_threshold=0.08 ,  # convergence criterion - β
+        min_dn_scenarios=100,
+        max_dn_scenarios=2000,
         max_generation_attempts=30000,
         initial_batch_size=20,
         base_seed=10000,
