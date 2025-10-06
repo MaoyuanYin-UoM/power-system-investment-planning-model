@@ -802,7 +802,7 @@ def generate_windstorm_library_with_convergence(
 
                 if verbose:
                     print(f"  Next batch size: {current_batch_size}")
-                    print(f"  Continuing generation (convergence_metric={metrics['convergence_metric']:.4f} > {convergence_threshold})")
+                    print(f"  Continuing generation (convergence_metric={metrics['beta']:.4f} > {convergence_threshold})")
                     print(f"  (CoV: {metrics['cov']:.4f})")
 
         # Check if reached limits
