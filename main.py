@@ -35,7 +35,7 @@ from core.investment_model_two_stage import *
 # Seeds with windstorms passing the Kearsley group:
 # --> for 1-ws scenarios, seed=112
 # --> for 5-ws scenarios, seed=104
-path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Clustered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_5000scn_s10000_filt_b1_h1_buf15_eens_k6.json"
+path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/rep_scn1_interval_from101scn_29BusGB-Kearsley_29GB_seed10000_beta0.080.json"
 # path_normal_scenario = "Scenario_Database/Scenarios_for_Old_Two_Stage_Model/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json"
 
 # resilience_thresholds = [
@@ -99,7 +99,9 @@ resilience_metric_thresholds = [
 ]
 
 additional_notes = """
-
+dg_install_capacity_max=10
+hrdn_cost_rate=1e6
+fixed_hrdn_shift=15
 """
 
 for resilience_metric_threshold in resilience_metric_thresholds:

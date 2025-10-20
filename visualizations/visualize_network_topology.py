@@ -128,11 +128,11 @@ def plot_network_buses(ax, net,
 
         if lvl == "T":
             color = tn_node_color
-            label = "Transmission Bus" if not tn_buses_plotted and show_legend else None
+            label = "Transmission bus" if not tn_buses_plotted and show_legend else None
             tn_buses_plotted = True
         else:
             color = dn_node_color
-            label = "Distribution Bus" if not dn_buses_plotted and show_legend else None
+            label = "Distribution bus" if not dn_buses_plotted and show_legend else None
             dn_buses_plotted = True
 
         ax.scatter(lon, lat, c=color, s=node_size, alpha=alpha,
@@ -948,20 +948,20 @@ if __name__ == "__main__":
     visualize_network_topology(
         network_preset="29_bus_GB_transmission_network_with_Kearsley_GSP_group",
         show_buses=True,
-        label_buses=True,
+        label_buses=False,
         tn_branch_color='green',
         dn_branch_color='orange',
         tn_bus_color='darkgreen',
         dn_bus_color='darkorange',
         branch_lw=1.5,
-        bus_size=50,
-        title_fontsize=16,
-        xlabel_fontsize=14,
-        ylabel_fontsize=14,
-        tick_fontsize=12,
-        legend_fontsize=14,
-        legend_loc='center left',
-        figsize=(10, 10),
+        bus_size=40,
+        title_fontsize=18,
+        xlabel_fontsize=17,
+        ylabel_fontsize=17,
+        tick_fontsize=14,
+        legend_fontsize=14.5,
+        legend_loc='lower left',
+        figsize=(9, 7.5),
         custom_title="Network Topology Visualisation",
         # Add interconnection arrows
         interconnection_buses=[5, 10, 11, 26, 27],  # Your IC buses
@@ -970,8 +970,8 @@ if __name__ == "__main__":
         ic_arrow_width=3,
         ic_arrow_length=0.5,
         ic_arrow_directions={
-            5: -135,  # Adjust arrow angles)
-            10: 0,
+            5: -135,  # Adjust arrow angles
+            10: 45,
             11: 180,
             26: 0,
             27: -45
@@ -979,14 +979,14 @@ if __name__ == "__main__":
         # Inset
         show_dn_inset=True,
         inset_position='upper right',
-        inset_size=0.30,
+        inset_size=0.32,
         inset_borderpad=1.5,  # Gap from edges (points)
         inset_lw_scale=0.8,  # Line width 80% of main
         inset_bus_scale=0.7,  # Bus size 70% of main
         # inset_padding_scale=0.5,  # Padding 50% of main
         inset_show_title=True,  # Show title in inset
-        inset_title="DN: Kearsley GSP Group",  # Custom title text
-        inset_title_fontsize=12,  # Title font size
+        inset_title="Distribution Network",  # Custom title text
+        inset_title_fontsize=14,  # Title font size
         show_grid=True,
         figure_margins={  # Manual margins with inset
             'left': 0.08,

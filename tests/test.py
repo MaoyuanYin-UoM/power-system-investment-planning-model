@@ -1,3 +1,4 @@
+from data_processing import ws_scenario_generation
 from visualizations.visualization import *
 
 # wcon = WindConfig()
@@ -470,3 +471,5 @@ from visualizations.visualization import *
 #                        colorbar_label_fontsize = 14,
 #                        colorbar_tick_fontsize = 12,
 #                        )
+
+make_network("29_bus_GB_transmission_network_with_Kearsley_GSP_group")

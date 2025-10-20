@@ -62,15 +62,15 @@ def compute_eens_for_scenarios(
                 single_ws_scenario=scenarios[scenario_id]
             )
 
-            eens = net.solve_combined_opf_model_under_ws_scenarios(
+            eens_dn = net.solve_combined_opf_model_under_ws_scenarios(
                 model=model,
                 solver_name=solver,
-                mip_gap=5e-3,
-                time_limit=60
+                mip_gap=1e-8,
+                time_limit=300
             )
 
-            eens_values[scenario_id] = float(eens)
-            print(f" -> EENS: {eens:.2f} MWh")
+            eens_values[scenario_id] = float(eens_dn)
+            print(f" -> EENS: {eens_dn:.2f} MWh")
 
         except Exception as e:
             print(f" -> FAILED: {str(e)[:50]}...")
@@ -291,8 +291,8 @@ def main():
     """
 
     # Step 1: Compute EENS for filtered scenarios
-    filtered_path = "../Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_1000scn_s50000_filt_b1_h1_buf15.json"
-    enhanced_path = "../Scenario_Database/Scenarios_Libraries/EENS_Enhanced_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_1000scn_s50000_filt_b1_h1_buf15_eens.json"
+    filtered_path = "../Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_1000scn_s10000_filt_b1_h1_buf15.json"
+    enhanced_path = "../Scenario_Database/Scenarios_Libraries/EENS_Enhanced_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_1000scn_s10000_filt_b1_h1_buf15_eens.json"
 
     print("STEP 1: Computing EENS for scenarios...")
     enhanced_path = compute_eens_for_scenarios(
@@ -305,7 +305,7 @@ def main():
     print("\nSTEP 2: Clustering scenarios...")
     selected_scenarios, probabilities = cluster_scenarios_by_eens(
         eens_enhanced_library_path=enhanced_path,
-        n_clusters=10
+        n_clusters=6
     )
 
     print(f"\n{'=' * 60}")

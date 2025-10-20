@@ -79,23 +79,23 @@ def extract_data_from_excel_files(file_paths: List[str],
 # Example usage and test function
 def test_extract_data_function():
     """Test function to demonstrate usage."""
-    results_dir = '../Optimization_Results/Investment_Model/6ws_5000scn_seed10000_(latest)/dg_max_capacity_100MW'
+    results_dir = '../Optimization_Results/Investment_Model/dgmax100_hrdncost2e5_hrdnshift15_normalprob0.99_rep4_scn214_allgustspeed-5'
 
-    filenames = ['results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_inf_20250929_105613.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_1.10e4_20250929_111840.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_1.00e4_20250929_123443.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_9.00e3_20250929_135215.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_8.00e3_20250929_143636.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_7.00e3_20250929_154055.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_6.00e3_20250929_163447.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_5.00e3_20250929_180328.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_4.00e3_20250929_194421.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_3.00e3_20250929_211510.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_2.00e3_20250929_224409.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_1.00e3_20250930_011359.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_8.00e2_20250930_070759.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_6.00e2_20250930_091940.xlsx',
-                  'results_network_29BusGB-Kearsley_5000_ws_seed_10000_resilience_threshold_4.00e2_20250930_125546.xlsx',
+    filenames = ['results_network_29BusGB-Kearsley_4_ws_resilience_threshold_inf_20251006_172934.xlsx',
+                  # 'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_8.00e3_20251006_182453.xlsx',
+                  # 'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_7.00e3_20251006_182710.xlsx',
+                  'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_6.00e3_20251006_190016.xlsx',
+                  'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_5.00e3_20251007_050230.xlsx',
+                  # 'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_4.00e3_20251006_183643.xlsx',
+                  'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_3.00e3_20251007_044249.xlsx',
+                  'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_2.00e3_20251007_053512.xlsx',
+                  'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_1.00e3_20251007_061853.xlsx',
+                  'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_8.00e2_20251006_192209.xlsx',
+                  'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_6.00e2_20251006_194454.xlsx',
+                  'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_4.00e2_20251006_200254.xlsx',
+                  'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_2.00e2_20251006_202744.xlsx',
+                  'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_1.00e2_20251006_203925.xlsx',
+                  'results_network_29BusGB-Kearsley_4_ws_resilience_threshold_0.00e0_20251006_204733.xlsx',
                   ]
 
     file_paths = [os.path.join(results_dir, filename) for filename in filenames]

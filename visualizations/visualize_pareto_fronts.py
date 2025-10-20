@@ -350,9 +350,9 @@ def plot_pareto_front_from_excel(
                                             lw=0.5))
 
         # Set labels and title
-        ax.set_xlabel('EENS in DN across all windstorm scenarios (GWh)',
+        ax.set_xlabel('Total EENS in DN across all windstorm scenarios (GWh)',
                       fontsize=label_fontsize)
-        ax.set_ylabel('Investment Costs (£ Million)', fontsize=label_fontsize)
+        ax.set_ylabel('Total investment costs (£ Million)', fontsize=label_fontsize)
 
         # Set title - use custom title if provided as string, otherwise default
         if isinstance(custom_titles, str):
@@ -649,22 +649,23 @@ if __name__ == "__main__":
     # Example 6: Single plot with all customizations
     # ----------------------------------------------
     fig, ax = plot_pareto_front_from_excel(
-        excel_path="Post-processed_Data_for_Plots/investment_costs_vs_resilience_metrics_6scn_updated_network_presets_(29-Sep-2025)_dgmaxcapacity100.xlsx",
+        # excel_path="Post-processed_Data_for_Plots/dgmax100_hrdncost2e5_hrdnshift15_normalprob0.99_rep4_fromscn214.xlsx",
+        excel_path="Post-processed_Data_for_Plots/dgmax100_hrdncost2e5_hrdnshift15_normalprob0.99_rep4_fromscn214_allgustspeed+10.xlsx",
         plot_types=['total_investment', 'line_hardening', 'dg_installation'],
         overlay_plots=True,
         overlay_line_styles=['-', '-', '-', '-'],  # Solid, dashed, dash-dot, dotted
         overlay_colors=['#2E7D32', '#1976D2', '#F57C00'],
-        custom_titles='Cost-Resilience Pareto Front',
+        custom_titles='Cost-Resilience Pareto Front (High Gust Speeds)',
         show_threshold_labels=True,
         annotation_spacing=1,  # Show all labels
-        title_fontsize=16,
-        label_fontsize=14,
-        tick_fontsize=12,
-        legend_fontsize=13,
+        title_fontsize=19,
+        label_fontsize=19,
+        tick_fontsize=17,
+        legend_fontsize=18,
         annotation_fontsize=12,
-        line_width=2.5,
-        marker_size=80,
-        figure_size=(8, 6)
+        line_width=2.6,
+        marker_size=60,
+        figure_size=(10, 6)
         # save_path='Images_and_Plots/line_hardening_analysis.png',
     )
 

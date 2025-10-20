@@ -102,11 +102,11 @@ def draw_network(ax, net, tn_color="darkgreen", dn_color="orange", lw=1.2, alpha
 
         if lvl in ("T", "T-D"):
             color = tn_color
-            label = "Transmission Branch" if not tn_plotted else None
+            label = "Transmission branch" if not tn_plotted else None
             tn_plotted = True
         else:
             color = dn_color
-            label = "Distribution Branch" if not dn_plotted else None
+            label = "Distribution branch" if not dn_plotted else None
             dn_plotted = True
 
         ax.plot([p[0], q[0]], [p[1], q[1]], color=color, lw=lw, alpha=alpha, label=label)
@@ -129,7 +129,8 @@ def plot_ws_scenarios(
     plot_envelopes: bool = True,
     multi_on_one_axis: bool = True,
     show_per_scenario_legend: bool = False,
-    normal_scenario_prob: Optional[float] = None,  # ADD THIS NEW PARAMETER
+    normal_scenario_prob: Optional[float] = None,
+    scenario_probs: Optional[List[float]] = None,  # overwrite the scenario probabilities shown in the legend
     figsize: Tuple[int, int] = (11, 9),
     title: Optional[str] = None,
     circle_alpha: float = 0.18,
@@ -248,16 +249,25 @@ def plot_ws_scenarios(
             # Extract scenario number from ID (e.g., "ws_0001" -> 1)
             scenario_num = idx + 1  # Simple 1-based numbering
 
-            # Get probability for this scenario (default to equal probability if not found)
-            relative_prob = scenario_probabilities.get(scn_id, 1.0 / len(scenario_ids))
-
-            # Calculate absolute probability if normal_scenario_prob is provided
-            if normal_scenario_prob is not None:
-                # Absolute probability = (1 - normal_scenario_prob) * relative_prob
-                prob = (1 - normal_scenario_prob) * relative_prob
+            # Determine probability to display
+            if scenario_probs is not None:
+                # Use user-provided probability if available
+                if idx < len(scenario_probs):
+                    prob = scenario_probs[idx]
+                else:
+                    # Fallback if list is too short
+                    prob = 1.0 / len(scenario_ids)
             else:
-                # Use relative probability as before
-                prob = relative_prob
+                # Original logic: get probability from data
+                relative_prob = scenario_probabilities.get(scn_id, 1.0 / len(scenario_ids))
+
+                # Calculate absolute probability if normal_scenario_prob is provided
+                if normal_scenario_prob is not None:
+                    # Absolute probability = (1 - normal_scenario_prob) * relative_prob
+                    prob = (1 - normal_scenario_prob) * relative_prob
+                else:
+                    # Use relative probability as before
+                    prob = relative_prob
 
             # Add legend handle with scenario number and probability
             legend_label = f"Scenario {scenario_num}, p = {prob:.5f}"
@@ -298,17 +308,17 @@ def plot_ws_scenarios(
     cur_handles, cur_labels = ax.get_legend_handles_labels()
     seen = set()
     for h, lab in zip(cur_handles, cur_labels):
-        if lab and lab not in seen and lab in ("Transmission Branch", "Distribution Branch"):
+        if lab and lab not in seen and lab in ("Transmission branch", "Distribution branch"):
             legend_handles.append(Line2D([0], [0], color=h.get_color(), lw=2, label=lab))
             seen.add(lab)
 
     # 1) Windstorm Path (generic)
-    legend_handles.append(Line2D([0], [0], color="#1f77b4", lw=2, marker="o", label="Windstorm Path"))
+    legend_handles.append(Line2D([0], [0], color="#1f77b4", lw=2, marker="o", label="Windstorm track"))
 
     # 2) Storm radius (as a circle marker, filled)
     legend_handles.append(Line2D([0], [0], linestyle="None", marker="o", ms=9,
                                  markerfacecolor="#1f77b4", markeredgecolor="none",
-                                 alpha=0.35, label="Storm radius"))
+                                 alpha=0.35, label="Hourly storm radius"))
 
     # 3) Storm Envelope (filled patch)
     legend_handles.append(FancyBboxPatch((0, 0), 1, 1,
@@ -316,7 +326,7 @@ def plot_ws_scenarios(
                                          linewidth=0,
                                          facecolor="#1f77b4",
                                          alpha=0.22,
-                                         label="Storm Envelope"))
+                                         label="Hourly storm reach"))
 
     # 4） Per scenario data
     legend_handles.extend(per_scn_handles)
@@ -362,8 +372,8 @@ def plot_single_event(ws_library_path: str,
 if __name__ == "__main__":
     # Example: plot 10 scenarios from a filtered library on one canvas.
     # Adjust the path below to your library.
-    # ws_library = "../Scenario_Database/Scenarios_Libraries/Clustered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_5000scn_s10000_filt_b1_h1_buf15_eens_k10.json"
-    ws_library = "../Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_29GB_1000scn_s10000_filt_b1_h1_buf15.json"
+    # ws_library = "../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/rep_scn6_interval_from620scn_29BusGB-Kearsley_29GB_seed10000_beta0.030.json"
+    ws_library = "../Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/rep_scn6_interval_from214scn_29BusGB-Kearsley_29GB_seed10000_beta0.050.json"
 
     plot_ws_scenarios(
         ws_library_path=ws_library,
@@ -373,12 +383,13 @@ if __name__ == "__main__":
         multi_on_one_axis=True,  # plot all scenarios together
         show_per_scenario_legend=True,  # keep legend compact
         normal_scenario_prob=0.99,
-        figsize=(10, 10),
+        scenario_probs=[0.00335, 0.00161, 0.00171, 0.00184, 0.00132, 0.00016],
+        figsize=(10, 8),
         title="Windstorm Scenarios Visualisation",
         # Font size parameters (optional - will use defaults if not specified)
-        title_fontsize=16,  # Font size for title
-        xlabel_fontsize=14,  # Font size for x-axis label
-        ylabel_fontsize=14,  # Font size for y-axis label
-        tick_fontsize=12,  # Font size for axis ticks
-        legend_fontsize=13,  # Font size for legend
+        title_fontsize=18,  # Font size for title
+        xlabel_fontsize=16,  # Font size for x-axis label
+        ylabel_fontsize=16,  # Font size for y-axis label
+        tick_fontsize=15,  # Font size for axis ticks
+        legend_fontsize=16,  # Font size for legend
     )

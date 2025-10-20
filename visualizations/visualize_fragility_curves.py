@@ -327,17 +327,31 @@ def add_info_textbox(ax: plt.Axes,
 
 
 def create_piecewise_breakpoints(thrd_1: float, thrd_2: float, shift_f: float,
-                                 num_pieces: int = 6) -> Tuple[List[float], List[float]]:
+                                 num_pieces: int = 6, wind_speed_max: float = 120) -> Tuple[List[float], List[float]]:
     """
     Create breakpoints for piecewise linearization matching the implementation
     in piecewise_linearize_fragility.
 
-    Returns:
-        Tuple of (breakpoints, effective_thresholds)
+    Parameters
+    ----------
+    thrd_1 : float
+        Lower threshold
+    thrd_2 : float
+        Upper threshold
+    shift_f : float
+        Base shift amount
+    num_pieces : int
+        Number of pieces in transition region
+    wind_speed_max : float
+        Maximum wind speed for the global upper bound (default: 120)
+
+    Returns
+    -------
+    Tuple of (breakpoints, effective_thresholds)
     """
     # Define bounds
     global_min = 0
-    global_max = 70
+    global_max = wind_speed_max
 
     # Effective thresholds after shift
     effective_th1 = thrd_1 + shift_f
@@ -441,8 +455,8 @@ def visualize_fragility_curves(
 
     # Axes and labels
     custom_title: Optional[str] = None,
-    xlabel: str = 'Wind Speed (m/s)',
-    ylabel: str = 'Failure Probability',
+    xlabel: str = 'Wind gust speed (m/s)',
+    ylabel: str = 'Failure probability',
     xlim: Optional[Tuple[float, float]] = None,
     ylim: Tuple[float, float] = (-0.05, 1.05),
 
@@ -882,6 +896,10 @@ def visualize_fragility_curves(
                 else:
                     network_labels.append(preset.replace('_', ' ').split()[0])
 
+        # Store first network's thresholds for plotting later
+        first_net_thrd_1, first_net_thrd_2, first_net_shift_f = None, None, None
+        first_net_color = None
+
         # Plot each network's fragility curve
         for i, (preset, label, color) in enumerate(zip(network_presets, network_labels, network_colors)):
             # Load parameters for this network
@@ -903,6 +921,13 @@ def visualize_fragility_curves(
             else:
                 raise ValueError(f"Network preset '{preset}' doesn't have fragility data")
 
+            # Store first network's threshold values for later plotting
+            if i == 0:
+                first_net_thrd_1 = net_thrd_1
+                first_net_thrd_2 = net_thrd_2
+                first_net_shift_f = net_shift_f
+                first_net_color = color
+
             # Calculate smooth fragility curve
             pof_values = calculate_fragility_pof(wind_speeds, net_mu, net_sigma,
                                                  net_thrd_1, net_thrd_2, net_shift_f)
@@ -919,7 +944,7 @@ def visualize_fragility_curves(
             if show_piecewise:
                 # Create breakpoints
                 breakpoints, effective_thresholds = create_piecewise_breakpoints(
-                    net_thrd_1, net_thrd_2, net_shift_f, num_pieces
+                    net_thrd_1, net_thrd_2, net_shift_f, num_pieces, wind_speed_max
                 )
 
                 # Calculate probabilities at breakpoints
@@ -934,36 +959,27 @@ def visualize_fragility_curves(
                         linestyle=piecewise_linestyle,
                         marker=piecewise_marker,
                         markersize=piecewise_markersize,
-                        label=f'{label} (piecewise, {num_pieces + 2} pieces)',
+                        label=f'{label} ({num_pieces + 2} pieces)',
                         alpha=piecewise_alpha)
 
-                # Optional: Add subtle vertical lines at breakpoints in transition region
-                if show_thresholds:
-                    for bp in breakpoints[1:-1]:  # Skip global min and max
-                        if effective_thresholds[0] <= bp <= effective_thresholds[1]:
-                            ax.axvline(bp, color=color, linestyle=':',
-                                       linewidth=0.5, alpha=0.3)
+                # REMOVED: No threshold plotting inside the loop
 
-            # Add threshold lines if requested
-            if show_thresholds:
-                # Add labels only for the first network's thresholds to avoid legend clutter
-                threshold_label_1 = 'Lower threshold' if i == 0 else None
-                threshold_label_2 = 'Upper threshold' if i == 0 else None
+        # Add threshold lines AFTER all curves are plotted (so they appear at the end of legend)
+        if show_thresholds and first_net_thrd_1 is not None:
+            # Use the first network's thresholds
+            ax.axvline(first_net_thrd_1 + first_net_shift_f,
+                       color=first_net_color,
+                       linestyle='--',
+                       linewidth=threshold_linewidth * 0.5,
+                       alpha=threshold_alpha * 0.5,
+                       label='Lower threshold')
 
-                # Use more subtle styling for thresholds to avoid clutter
-                ax.axvline(net_thrd_1 + net_shift_f,
-                           color=color,
-                           linestyle='--',
-                           linewidth=threshold_linewidth * 0.5,
-                           alpha=threshold_alpha * 0.5,
-                           label=threshold_label_1)
-
-                ax.axvline(net_thrd_2 + net_shift_f,
-                           color=color,
-                           linestyle='--',
-                           linewidth=threshold_linewidth * 0.5,
-                           alpha=threshold_alpha * 0.5,
-                           label=threshold_label_2)
+            ax.axvline(first_net_thrd_2 + first_net_shift_f,
+                       color=first_net_color,
+                       linestyle='--',
+                       linewidth=threshold_linewidth * 0.5,
+                       alpha=threshold_alpha * 0.5,
+                       label='Upper threshold')
 
         if custom_title is None:
             if show_piecewise:
@@ -1190,10 +1206,11 @@ if __name__ == "__main__":
             "Manchester_distribution_network_Kearsley",
         ],
 
-        show_thresholds=True,
+        network_colors=['green', 'orange'],
+        show_thresholds=False,
         threshold_linewidth=3,
 
-        custom_title='Fragility Curve Visualisation',
+        custom_title='Fragility Curves Visualisation',
         curve_linewidth=2,
 
         # Enable piecewise visualization
@@ -1204,14 +1221,15 @@ if __name__ == "__main__":
         piecewise_marker='o',
         piecewise_markersize=5,
 
-        title_fontsize=16,
-        xlabel_fontsize=14,
-        ylabel_fontsize=14,
-        legend_fontsize=12,
-        legend_loc='center right',
+        title_fontsize=17,
+        xlabel_fontsize=16,
+        ylabel_fontsize=16,
+        tick_fontsize=14,
+        legend_fontsize=15,
+        legend_loc='upper left',
         legend_handlelength=1.5,
-        figsize=(8, 6),
-        wind_speed_max=70
+        figsize=(8, 4.5),
+        wind_speed_max=80
     )
 
 

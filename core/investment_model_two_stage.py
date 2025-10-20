@@ -314,8 +314,9 @@ class InvestmentClass():
                     # Get max TTR for this event
                     if "bch_ttr" in event:
                         max_ttr = max(event["bch_ttr"])
+                        print(f"max_ttr = {max_ttr}")
                     else:
-                        max_ttr = 0
+                        max_ttr = ws.data.WS.event.ttr[1]
 
                     # Add all affected hours (event + repair window)
                     for hr in range(bgn_hr, bgn_hr + duration + max_ttr):

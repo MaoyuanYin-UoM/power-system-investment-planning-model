@@ -27,16 +27,16 @@ net = make_network("29_bus_GB_transmission_network_with_Kearsley_GSP_group")
 #                                                   )
 
 # Use 'solve_combined_opf_in_chunks' method solve the opf in multiple runs (each for a chunk)
-results = net.solve_combined_opf_in_chunks(
-    total_timesteps=8760,
-    chunk_size=168,  # Weekly chunks
-    solver='gurobi',
-    mip_gap=1e-8,
-    mip_gap_abs=1e3,
-    time_limit_per_chunk=300,  # 5 minutes per chunk
-    out_dir="../Optimization_Results/Combined_DC_and_Linearized_AC",
-    analyze_load_shedding=True
-)
+# results = net.solve_combined_opf_in_chunks(
+#     total_timesteps=8760,
+#     chunk_size=168,  # Weekly chunks
+#     solver='gurobi',
+#     mip_gap=1e-8,
+#     mip_gap_abs=1e3,
+#     time_limit_per_chunk=300,  # 5 minutes per chunk
+#     out_dir="../Optimization_Results/Combined_DC_and_Linearized_AC",
+#     analyze_load_shedding=True
+# )
 
 
 # ------------------------------------------------------------------
