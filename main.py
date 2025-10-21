@@ -1,33 +1,18 @@
-from core.investment_model_two_stage import *
-
-# path_ws_scenarios = "Scenario_Database/Extracted_Windstorm_Scenarios/1_ws_scenarios_GB29-Kearsley_network_seed_104.json"
-#
-# inv = InvestmentClass()
-# model = inv.build_investment_model(path_all_ws_scenarios=path_ws_scenarios,
-#                                    resilience_metric_threshold=None)
-# results = inv.solve_investment_model(model, write_lp=False, write_result=True,
-#                                      # result_path='Optimization_Results/Investment_Model/results_selected_variable.csv',
-#                                      mip_gap=5e-3,
-#                                      time_limit=300
-#                                      )
-
 # =====================
-# Loop with different windstorm scenarios
+# Version Selection
+# =====================
+USE_OLD_VERSION = True  # Set to True for continuous hardening (old version), False for binary hardening + DG + ESS (new version)
 
-# paths = ["Scenario_Database/Extracted_Windstorm_Scenarios/1_ws_scenarios_GB29-Kearsley_network_seed_104.json",
-#          "Scenario_Database/Extracted_Windstorm_Scenarios/5_ws_scenarios_GB29-Kearsley_network_seed_101.json",
-#          "Scenario_Database/Extracted_Windstorm_Scenarios/5_ws_scenarios_GB29-Kearsley_network_seed_102.json",
-#          ]
-#
-# for path in paths:
-#     inv = InvestmentClass()
-#     model = inv.build_investment_model(path_all_ws_scenarios=path,
-#                                        resilience_metric_threshold=None)
-#     results = inv.solve_investment_model(model, write_lp=False, write_result=True,
-#                                          # result_path='Optimization_Results/Investment_Model/results_selected_variable.csv',
-#                                          mip_gap=1e-2,
-#                                          time_limit=300
-#                                          )
+# Import both versions
+from core.investment_model_two_stage import InvestmentClass as InvestmentClassNew
+from core.investment_model_two_stage_old import InvestmentClassOld
+
+# Select which version to use
+InvestmentClass = InvestmentClassOld if USE_OLD_VERSION else InvestmentClassNew
+
+print(f"\n{'='*60}")
+print(f"Using: {'OLD VERSION (continuous hardening only)' if USE_OLD_VERSION else 'NEW VERSION (binary hardening + DG + ESS)'}")
+print(f"{'='*60}\n")
 
 # =====================
 # Loop with different resilience level thresholds
@@ -35,22 +20,8 @@ from core.investment_model_two_stage import *
 # Seeds with windstorms passing the Kearsley group:
 # --> for 1-ws scenarios, seed=112
 # --> for 5-ws scenarios, seed=104
-path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/rep_scn1_interval_from101scn_29BusGB-Kearsley_29GB_seed10000_beta0.080.json"
+path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/rep_scn2_interval_from620scn_29BusGB-Kearsley_29GB_seed10000_beta0.030.json"
 # path_normal_scenario = "Scenario_Database/Scenarios_for_Old_Two_Stage_Model/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json"
-
-# resilience_thresholds = [
-#     None,
-#     1e9,
-#     9e8,
-#     8e8,
-#     7e8,
-#     6e8,
-#     5e8,
-#     4e8,
-#     3e8,
-#     2.5e8,
-#     2.3e8
-# ]
 
 resilience_metric_thresholds = [
     None,
@@ -99,10 +70,15 @@ resilience_metric_thresholds = [
 ]
 
 additional_notes = """
-dg_install_capacity_max=10
-hrdn_cost_rate=1e6
-fixed_hrdn_shift=15
+OLD_VERSION_INVESTMENT_MODEL = True
+bch_hrdn_limits = [0.0, 30.0]
 """
+
+# additional_notes = """
+# dg_install_capacity_max=10
+# hrdn_cost_rate=1e6
+# fixed_hrdn_shift=15
+# """
 
 for resilience_metric_threshold in resilience_metric_thresholds:
     inv = InvestmentClass()
@@ -155,3 +131,8 @@ for resilience_metric_threshold in resilience_metric_thresholds:
 #                                          mip_gap_abs=1e4,
 #                                          time_limit=10800
 #                                          )
+
+# =====================
+# Test comment lines to check auto-accept mode
+# This is a redundant line for testing purposes
+# =====================
