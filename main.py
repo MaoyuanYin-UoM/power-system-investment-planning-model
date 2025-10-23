@@ -1,17 +1,36 @@
 # =====================
 # Version Selection
 # =====================
-USE_OLD_VERSION = True  # Set to True for continuous hardening (old version), False for binary hardening + DG + ESS (new version)
+MODEL_VERSION = "old_no_ess"  # Options: "new", "old", "old_no_ess"
+# - "new": Binary hardening + DG + ESS (investment_model_two_stage.py)
+# - "old": Continuous hardening with ESS operations (investment_model_two_stage_linehrdn_only.py)
+# - "old_no_ess": Continuous hardening without ESS (investment_model_two_stage_linehrdn_only_without_ess.py)
 
-# Import both versions
+# Import all three versions
 from core.investment_model_two_stage import InvestmentClass as InvestmentClassNew
-from core.investment_model_two_stage_old import InvestmentClassOld
+from core.investment_model_two_stage_linehrdn_only import InvestmentClassOld
+from core.investment_model_two_stage_linehrdn_only_without_ess import InvestmentClassOld as InvestmentClassOldNoESS
 
 # Select which version to use
-InvestmentClass = InvestmentClassOld if USE_OLD_VERSION else InvestmentClassNew
+version_map = {
+    "new": InvestmentClassNew,
+    "old": InvestmentClassOld,
+    "old_no_ess": InvestmentClassOldNoESS
+}
+
+if MODEL_VERSION not in version_map:
+    raise ValueError(f"Invalid MODEL_VERSION: {MODEL_VERSION}. Must be one of {list(version_map.keys())}")
+
+InvestmentClass = version_map[MODEL_VERSION]
+
+version_descriptions = {
+    "new": "NEW VERSION (binary hardening + DG + ESS)",
+    "old": "OLD VERSION (continuous hardening with ESS)",
+    "old_no_ess": "OLD VERSION (continuous hardening without ESS)"
+}
 
 print(f"\n{'='*60}")
-print(f"Using: {'OLD VERSION (continuous hardening only)' if USE_OLD_VERSION else 'NEW VERSION (binary hardening + DG + ESS)'}")
+print(f"Using: {version_descriptions[MODEL_VERSION]}")
 print(f"{'='*60}\n")
 
 # =====================

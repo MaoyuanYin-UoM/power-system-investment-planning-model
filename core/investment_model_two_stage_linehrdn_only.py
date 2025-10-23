@@ -1,3 +1,22 @@
+"""
+OLD VERSION of Two-Stage Stochastic Investment Planning Model
+
+This is a fallback version that uses CONTINUOUS hardening variables instead of binary.
+
+Key differences from the new version (investment_model_two_stage.py):
+1. Line hardening: Continuous shift amount (hrdn_shift) with bounds [0, max_shift]
+   - New version uses: Binary decision (harden or not) with fixed shift amount
+   - Old version uses: Continuous optimization of shift amount
+2. Investment options: Only line hardening (no DG or ESS installation)
+3. Cost model: Proportional to hardening amount (cost_rate * hrdn_shift)
+   - New version uses: Fixed cost per hardened line
+
+Usage:
+    from core.investment_model_two_stage_old import InvestmentClassOld
+    inv = InvestmentClassOld()
+    model = inv.build_investment_model(...)
+"""
+
 import numpy as np
 import pandas as pd
 import pyomo.environ as pyo
@@ -21,7 +40,7 @@ class Object(object):
     pass
 
 
-class InvestmentClass():
+class InvestmentClassOld():
 
     def __init__(self, obj=None):
         # Get default values from InvestmentConfig
@@ -43,11 +62,15 @@ class InvestmentClass():
                                investment_budget: float = None,
                                solver_for_normal_opf: str = 'gurobi'):
         """
-        Build a Pyomo MILP model for resilience enhancement investment planning (line hardening)
+        Build a Pyomo MILP model for resilience enhancement investment planning (line hardening only)
         against windstorms, using the form of stochastic programming over multiple scenarios.
 
+        OLD VERSION: This model uses continuous hardening variables (not binary).
+        - Only line hardening investment (no DG or ESS)
+        - Continuous hardening shift amount (instead of fixed binary decision)
+        - Cost proportional to hardening amount
 
-        * 1st-stage:   line-hardening shift  Δv_l  ( identical for TN & DN )
+        * 1st-stage:   continuous line-hardening shift  x_hrdn_l  (in m/s, identical for TN & DN)
         * 2nd-stage:   scenario-wise DC OPF on TN  +  Linearized AC OPF on DN
                        with windstorm-driven stochastic failures / repairs.
         """
@@ -265,36 +288,18 @@ class InvestmentClass():
             Set_gen_exst_ren = []
             Set_gen_exst_nren = Set_gen_exst  # All generators are non-renewable
 
-        # - Existing ESS
+        # OLD VERSION: DG and ESS installation removed - only existing ESS kept for operations
         Set_ess_exst = Set_ess
 
-        # Set of buses where DG can be installed
-        Set_bus_dg_available = [b for b in Set_bus if net.data.net.dg_installation_availability[b - 1] == 1]
-        Set_bus_ess_available = [b for b in Set_bus if net.data.net.ess_installation_availability[b - 1] == 1]
-
-        # - New generators
-        # Create virtual generator IDs for new DG installations (one per available bus)
-        new_gen_to_bus_map = {}
-        Set_gen_new_nren = []  # In accordance with network_factory.py, new DGs are all gas type (i.e., non-renewbale)
-
-        for idx, b in enumerate(Set_bus_dg_available, start=1):
-            Set_gen_new_nren.append(idx)
-            new_gen_to_bus_map[idx] = b
-
-        # Renewable new generators (empty for now, for future extension)
-        Set_gen_new_ren = []  # Currently no renewable DG installations planned
-
-        # Combined set of all new generators
-        Set_gen_new = Set_gen_new_nren + Set_gen_new_ren
-
-        # - New ESS
-        # Create virtual ESS IDs for new ESS installations (one per available bus)
-        new_ess_to_bus_map = {}
+        # No new DG or ESS installations in old version
+        Set_gen_new_nren = []
+        Set_gen_new_ren = []
+        Set_gen_new = []
         Set_ess_new = []
-
-        for idx, b in enumerate(Set_bus_ess_available, start=1):
-            Set_ess_new.append(idx)
-            new_ess_to_bus_map[idx] = b
+        Set_bus_dg_available = []
+        Set_bus_ess_available = []
+        new_gen_to_bus_map = {}
+        new_ess_to_bus_map = {}
 
         # scenario-specific timestep sets (absolute hour indices from the year)
         Set_ts_scn = {}
@@ -677,10 +682,30 @@ class InvestmentClass():
                                    initialize={l: net.data.net.cost_bch_repair[l - 1]
                                                for l in range(1, len(net.data.net.bch) + 1)},
                                    within=pyo.NonNegativeReals)
-        model.line_hrdn_cost_fixed = pyo.Param(model.Set_bch_hrdn_lines,
-                                               initialize={l: net.data.net.cost_bch_hrdn_fixed[l - 1]
-                                                           for l in model.Set_bch_hrdn_lines},
-                                               within=pyo.NonNegativeReals)
+
+        # OLD VERSION: Proportional hardening cost (per m/s) instead of fixed cost
+        # Cost model: Total cost = hrdn_cost_rate_old (£/km/(m/s)) × line_length (km) × shift_amount (m/s)
+        # Check for hrdn_cost_rate_old (cost per km per m/s), then multiply by line length
+        if hasattr(net.data.net, 'hrdn_cost_rate_old'):
+            # Multiply rate by line length to get cost per m/s for each line
+            hrdn_cost_rate_dict = {
+                l: net.data.net.hrdn_cost_rate_old[l - 1] * net.data.net.bch_length_km[l - 1]
+                for l in model.Set_bch_hrdn_lines
+            }
+        else:
+            reference_shift = net.data.net.bch_hrdn_limits[1]  # Use max shift as reference
+            print(f"  WARNING: 'hrdn_cost_rate_old' not found. Deriving cost rate from 'cost_bch_hrdn_fixed' / {reference_shift} m/s")
+            hrdn_cost_rate_dict = {
+                l: net.data.net.cost_bch_hrdn_fixed[l - 1] / reference_shift
+                for l in model.Set_bch_hrdn_lines
+            }
+
+        model.line_hrdn_cost_rate = pyo.Param(
+            model.Set_bch_hrdn_lines,
+            initialize=hrdn_cost_rate_dict,
+            within=pyo.NonNegativeReals,
+            doc="Cost per m/s of hardening shift (= rate × line_length)"
+        )
         model.dg_install_cost = pyo.Param(model.Set_gen_new_nren,
                                           initialize={g: net.data.net.dg_install_cost[new_gen_to_bus_map[g] - 1]
                                                       for g in Set_gen_new_nren})
@@ -690,11 +715,18 @@ class InvestmentClass():
         model.investment_budget = pyo.Param(initialize=net.data.investment_budget
                                                        if net.data.investment_budget else 1e10)
 
-        # 3.12) Line hardening related parameters
-        model.fixed_hrdn_shift = pyo.Param(
+        # 3.12) Line hardening related parameters (OLD VERSION: continuous bounds instead of fixed shift)
+        model.hrdn_shift_min = pyo.Param(
             model.Set_bch_hrdn_lines,
-            initialize={l: net.data.net.fixed_hrdn_shift[l - 1] for l in model.Set_bch_hrdn_lines},
-            within=pyo.NonNegativeReals
+            initialize={l: net.data.bch_hrdn_limits[0] for l in model.Set_bch_hrdn_lines},
+            within=pyo.NonNegativeReals,
+            doc="Minimum hardening shift (m/s)"
+        )
+        model.hrdn_shift_max = pyo.Param(
+            model.Set_bch_hrdn_lines,
+            initialize={l: net.data.bch_hrdn_limits[1] for l in model.Set_bch_hrdn_lines},
+            within=pyo.NonNegativeReals,
+            doc="Maximum hardening shift (m/s)"
         )
 
         # 3.13) Other parameters
@@ -792,8 +824,13 @@ class InvestmentClass():
         print("Defining decision variables...")
 
         # 4.1) First-stage decision variables:
-        # - Line hardening (continuous, m/s)
-        model.line_hrdn_binary = pyo.Var(model.Set_bch_hrdn_lines, within=pyo.Binary)
+        # - Line hardening (OLD VERSION: continuous shift amount in m/s, not binary)
+        model.hrdn_shift = pyo.Var(
+            model.Set_bch_hrdn_lines,
+            within=pyo.NonNegativeReals,
+            bounds=lambda model, l: (model.hrdn_shift_min[l], model.hrdn_shift_max[l]),
+            doc="Continuous hardening shift amount (m/s)"
+        )
 
         # - (Gas) DG installation capacity (continuous, MW)
         model.dg_install_capacity = pyo.Var(
@@ -934,10 +971,12 @@ class InvestmentClass():
 
         # 5.1) Budget
         def investment_budget_rule(model):
-            """Total investment cost must not exceed budget"""
-            total_line_hrdn_cost = sum(model.line_hrdn_binary[l] * model.line_hrdn_cost_fixed[l]
+            """Total investment cost must not exceed budget (OLD VERSION: only hardening, continuous cost)"""
+            # OLD VERSION: Continuous hardening - cost proportional to shift amount
+            total_line_hrdn_cost = sum(model.hrdn_shift[l] * model.line_hrdn_cost_rate[l]
                                        for l in model.Set_bch_hrdn_lines)
 
+            # DG and ESS removed in old version (sets are empty, so these sums = 0)
             total_dg_install_cost = sum(model.dg_install_capacity[g] * model.dg_install_cost[g]
                                         for g in model.Set_gen_new_nren)
 
@@ -948,11 +987,11 @@ class InvestmentClass():
 
         model.Constraint_InvestmentBudget = pyo.Constraint(rule=investment_budget_rule)
 
-        # 5.2) Shifted gust speed (i.e. Line hardening) -- Note: only dn lines hardening are considered
+        # 5.2) Shifted gust speed (i.e. Line hardening) -- OLD VERSION: continuous hardening shift
         def shifted_gust_rule(model, sc, l, t):
-            # Binary hardening with branch-specific fixed shift
+            # OLD VERSION: Continuous hardening shift (not binary * fixed)
             if l in model.Set_bch_hrdn_lines:
-                hrdn = model.fixed_hrdn_shift[l] * model.line_hrdn_binary[l]
+                hrdn = model.hrdn_shift[l]  # Continuous shift amount
             else:
                 hrdn = 0
             return model.shifted_gust_speed[sc, l, t] >= model.gust_speed[sc, t] - hrdn
@@ -1695,15 +1734,14 @@ class InvestmentClass():
 
         # Code total investment cost as an expression
         def total_inv_cost_rule(model):
-            # Line hardening cost
-            line_hrdn_cost = sum(model.line_hrdn_cost_fixed[l] * model.line_hrdn_binary[l]
+            # OLD VERSION: Continuous hardening cost (proportional to shift amount)
+            line_hrdn_cost = sum(model.line_hrdn_cost_rate[l] * model.hrdn_shift[l]
                                  for l in model.Set_bch_hrdn_lines)
 
-            # New DG installation cost
+            # DG and ESS removed in old version (sets are empty, so these sums = 0)
             dg_install_cost = sum(model.dg_install_cost[g] * model.dg_install_capacity[g]
                                   for g in model.Set_gen_new_nren)
 
-            # New ESS installation cost
             ess_install_cost = sum(model.ess_install_cost[e] * model.ess_install_capacity[e]
                                    for e in model.Set_ess_new)
 
@@ -1797,7 +1835,8 @@ class InvestmentClass():
         print("Defining additional expressions...")
 
         def total_inv_cost_line_hrdn_rule(model):
-            return sum(model.line_hrdn_cost_fixed[l] * model.line_hrdn_binary[l]
+            # OLD VERSION: Continuous hardening cost
+            return sum(model.line_hrdn_cost_rate[l] * model.hrdn_shift[l]
                        for l in model.Set_bch_hrdn_lines)
 
         model.total_inv_cost_line_hrdn_expr = pyo.Expression(rule=total_inv_cost_line_hrdn_rule)
@@ -2180,7 +2219,7 @@ class InvestmentClass():
         Export values of selected variables and expressions to a multi-sheet .xlsx workbook.
         """
         important = (
-            "line_hrdn_binary",
+            "hrdn_shift",  # OLD VERSION: continuous hardening variable (not binary)
             "dg_install_capacity",
             "ess_install_capacity",
 
