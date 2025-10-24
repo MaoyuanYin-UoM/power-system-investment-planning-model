@@ -1693,6 +1693,8 @@ class InvestmentClassOld():
             result_path: str = None,
             log_file_path: str = None,
             additional_notes: str = None,
+            print_gap_callback: bool = False,
+            gap_print_interval: float = 10.0,  # seconds between prints
             **solver_options
     ):
         """
@@ -1718,50 +1720,117 @@ class InvestmentClassOld():
         opt = SolverFactory(solver_name)
 
         # --- solver-specific options -------------------------------------------------
-        if solver_name.lower() == "gurobi":
-            # Create log file path if not specified
-            if log_file_path is None:
-                from pathlib import Path
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                log_dir = Path(__file__).parent.parent / "Optimization_Results" / "Solver_Logs"
-                log_dir.mkdir(parents=True, exist_ok=True)
-                log_file_path = str(log_dir / f"gurobi_log_{timestamp}.log")
+        # If we want a precise live gap, use the Gurobi persistent interface so we can attach a callback.
+        use_persistent = (solver_name.lower() == "gurobi") and print_gap_callback
 
-            default_opts = {
-                "MIPGap": mip_gap,
-                "MIPGapAbs": mip_gap_abs,
-                "TimeLimit": time_limit,
-                "NumericFocus": numeric_focus,
-                "MIPFocus": mip_focus,
-                "Method": method,
-                "Heuristics": heuristics,
-                "LogFile": log_file_path,
-                "LogToConsole": 1,
-                "DisplayInterval": 5,
-            }
-            print(f"Writing detailed Gurobi log to: {log_file_path}")
+        if use_persistent:
+            # --- Persistent solver so we can register a Gurobi callback
+            opt = pyo.SolverFactory("gurobi_persistent")
+            opt.set_instance(model)
 
-        elif solver_name.lower() == "cbc":
-            default_opts = {
-                "ratioGap": mip_gap,
-                "seconds": time_limit,
-                "threads": 0,
-                "presolve": "on",
-                "cuts": "on",
-            }
+            # Map your options into real Gurobi params on the persistent solver
+            def set_param(k, v):
+                try:
+                    opt.set_gurobi_param(k, v)
+                except Exception:
+                    # Fallback: some names differ slightly; ignore unknowns
+                    pass
 
-        elif solver_name.lower() == "glpk":
-            default_opts = {
-                "mipgap": mip_gap,
-                "tmlim": time_limit,  # Time limit in seconds
-            }
+            # Default Gurobi options (keep your existing ones)
+            # We mirror the options you already set in the non-persistent branch.
+            set_param("MIPGap", mip_gap)
+            set_param("MIPGapAbs", mip_gap_abs)
+            set_param("TimeLimit", time_limit)
+            set_param("NumericFocus", numeric_focus)
+            set_param("MIPFocus", mip_focus)
+            set_param("Method", method)
+            set_param("Heuristics", heuristics)
+            set_param("DisplayInterval", 1)  # show frequent updates
+            if log_file_path is not None:
+                set_param("LogFile", log_file_path)
+                set_param("LogToConsole", 1)
+
+            # -------------------------
+            # Register the progress callback
+            # -------------------------
+            import math
+            import gurobipy as gp
+
+            last_print_time = {"t": -1e9}  # mutable closure to throttle prints
+
+            def _progress_cb(cb_m, cb_opt, cb_where):
+                # Pyomo persistent callback signature: (pyomo_model, solver_interface, where)
+                # Use cb_opt.cbGet(...) to query runtime / best / bound.
+                if cb_where == gp.GRB.Callback.MIP:
+                    runtime = cb_opt.cbGet(gp.GRB.Callback.RUNTIME)
+
+                    # throttle printing
+                    if runtime - last_print_time["t"] < max(0.1, float(gap_print_interval)):
+                        return
+
+                    best = cb_opt.cbGet(gp.GRB.Callback.MIP_OBJBST)
+                    bnd = cb_opt.cbGet(gp.GRB.Callback.MIP_OBJBND)
+
+                    gap = None
+                    if best not in (None, gp.GRB.INFINITY) and not (math.isinf(best) or math.isnan(best)):
+                        if bnd not in (None,) and not (math.isinf(bnd) or math.isnan(bnd)):
+                            denom = max(1e-16, abs(best))
+                            gap = abs(best - bnd) / denom
+
+                    if gap is not None:
+                        # e.g., Gap=0.00000087%
+                        print(f"[{runtime:8.1f}s] Best={best:.10g}  Bound={bnd:.10g}  Gap={gap:.8%}")
+
+                    last_print_time["t"] = runtime
+
+            opt.set_callback(_progress_cb)
+
         else:
-            default_opts = {}
-            print(f"Warning: Using solver '{solver_name}' with default options")
+            # --- Your existing non-persistent path (unchanged) ---
+            opt = SolverFactory(solver_name)
 
-        default_opts.update(solver_options)
-        for k, v in default_opts.items():
-            opt.options[k] = v
+            if solver_name.lower() == "gurobi":
+                # Create log file path if not specified (kept from your code)
+                if log_file_path is None:
+                    from pathlib import Path
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    log_dir = Path(__file__).parent.parent / "Optimization_Results" / "Solver_Logs"
+                    log_dir.mkdir(parents=True, exist_ok=True)
+                    log_file_path = str(log_dir / f"gurobi_log_{timestamp}.log")
+
+                default_opts = {
+                    "MIPGap": mip_gap,
+                    "MIPGapAbs": mip_gap_abs,
+                    "TimeLimit": time_limit,
+                    "NumericFocus": numeric_focus,
+                    "MIPFocus": mip_focus,
+                    "Method": method,
+                    "Heuristics": heuristics,
+                    "LogFile": log_file_path,
+                    "LogToConsole": 1,
+                    "DisplayInterval": 5,
+                }
+                print(f"Writing detailed Gurobi log to: {log_file_path}")
+            elif solver_name.lower() == "cbc":
+                default_opts = {
+                    "ratioGap": mip_gap,
+                    "seconds": time_limit,
+                    "threads": 0,
+                    "presolve": "on",
+                    "cuts": "on",
+                }
+            elif solver_name.lower() == "glpk":
+                default_opts = {
+                    "mipgap": mip_gap,
+                    "tmlim": time_limit,
+                }
+            else:
+                default_opts = {}
+                print(f"Warning: Using solver '{solver_name}' with default options")
+
+            default_opts.update(solver_options)
+            for k, v in default_opts.items():
+                opt.options[k] = v
 
         # --- solve -----------------------------------------------------------
         results = opt.solve(model, tee=True)

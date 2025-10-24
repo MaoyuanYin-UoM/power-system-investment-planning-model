@@ -43,7 +43,7 @@ path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Representative
 # path_normal_scenario = "Scenario_Database/Scenarios_for_Old_Two_Stage_Model/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json"
 
 resilience_metric_thresholds = [
-    # None,
+    None,
     # 1.75e4,
     # 1.7e4,
     # 1.6e4,
@@ -52,7 +52,7 @@ resilience_metric_thresholds = [
     # 1.25e4,
     # 1.3e4,
     # 1.2e4,
-    1.1e4,
+    # 1.1e4,
     # 1e4,
     # 9e3,
     # 8e3,
@@ -85,7 +85,7 @@ resilience_metric_thresholds = [
     # 2.2e2,
     # 2e2,
     # 1e2,
-    # 0
+    0
 ]
 
 additional_notes = """
@@ -121,6 +121,8 @@ for resilience_metric_threshold in resilience_metric_thresholds:
                                          mip_focus=3,
                                          heuristics=0.35,
                                          additional_notes=additional_notes,
+                                         print_gap_callback=True,
+                                         gap_print_interval=10,
                                          )
 
 
