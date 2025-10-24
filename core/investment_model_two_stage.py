@@ -1963,6 +1963,8 @@ class InvestmentClass():
             mip_focus: int = 0,
             method: int = -1,
             heuristics: float = 0.2,
+            cuts: int = 1,
+            presolve: int = -1,
             write_lp: bool = False,
             write_result: bool = False,
             result_path: str = None,
@@ -2020,6 +2022,8 @@ class InvestmentClass():
             set_param("MIPFocus", mip_focus)
             set_param("Method", method)
             set_param("Heuristics", heuristics)
+            set_param("Cuts", cuts)
+            set_param("Presolve", presolve)
             set_param("DisplayInterval", 1)  # show frequent updates
             if log_file_path is not None:
                 set_param("LogFile", log_file_path)
