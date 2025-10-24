@@ -92,12 +92,11 @@ additional_notes = """
 OLD_VERSION_INVESTMENT_MODEL = True;
 bch_hrdn_limits = [0.0, 100.0];
 mip_gap = 1e-8,
-numeric_focus = 2,
-mip_focus = 2,
-mip_focus = 2,
+numeric_focus = 1,
+mip_focus = 3,
 method = 1,
-heuristics = 0.15,
-cuts = 2,
+heuristics = 0.10,
+cuts = 3,
 presolve = 2,
 """
 
@@ -118,19 +117,20 @@ for resilience_metric_threshold in resilience_metric_thresholds:
                                          write_lp=False,
                                          write_result=True,
                                          solver_name='gurobi',
+                                         log_file_path=None,
                                          result_path=None,
                                          mip_gap=1e-8,
                                          mip_gap_abs=1e3,
                                          time_limit=36000,
-                                         numeric_focus=2,
-                                         mip_focus=2,
+                                         numeric_focus=1,
+                                         mip_focus=3,
                                          method=1,
-                                         heuristics=0.15,
-                                         cuts=2,
+                                         heuristics=0.10,
+                                         cuts=3,
                                          presolve=2,
                                          additional_notes=additional_notes,
                                          print_gap_callback=True,
-                                         gap_print_interval=10,
+                                         gap_print_interval=60,
                                          )
 
 

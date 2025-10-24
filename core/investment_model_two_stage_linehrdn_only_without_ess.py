@@ -1750,9 +1750,19 @@ class InvestmentClassOld():
             set_param("Cuts", cuts)
             set_param("Presolve", presolve)
             set_param("DisplayInterval", 1)  # show frequent updates
-            if log_file_path is not None:
-                set_param("LogFile", log_file_path)
-                set_param("LogToConsole", 1)
+
+            # Create default log file path if not provided
+            if log_file_path is None:
+                from pathlib import Path
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                log_dir = Path(__file__).parent.parent / "Optimization_Results" / "Solver_Logs"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                log_file_path = str(log_dir / f"gurobi_log_{timestamp}.log")
+                print(f"Writing detailed Gurobi log to: {log_file_path}")
+
+            # Set the log file parameter
+            set_param("LogFile", log_file_path)
+            set_param("LogToConsole", 1)
 
             # -------------------------
             # Register the progress callback
@@ -1801,6 +1811,8 @@ class InvestmentClassOld():
                     log_dir = Path(__file__).parent.parent / "Optimization_Results" / "Solver_Logs"
                     log_dir.mkdir(parents=True, exist_ok=True)
                     log_file_path = str(log_dir / f"gurobi_log_{timestamp}.log")
+                    print("debug message")
+                    print(f"log_file_path: {log_file_path}")
 
                 default_opts = {
                     "MIPGap": mip_gap,
