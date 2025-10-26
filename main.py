@@ -39,7 +39,7 @@ print(f"{'='*60}\n")
 # Seeds with windstorms passing the Kearsley group:
 # --> for 1-ws scenarios, seed=112
 # --> for 5-ws scenarios, seed=104
-path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/rep_scn2_interval_from214scn_29BusGB-Kearsley_29GB_seed10000_beta0.050.json"
+path_ws_scenario_library = "Scenario_Database/Scenarios_Libraries/Representatives_from_Convergence_Based/rep_scn4_interval_from214scn_29BusGB-Kearsley_29GB_seed10000_beta0.050.json"
 # path_normal_scenario = "Scenario_Database/Scenarios_for_Old_Two_Stage_Model/Normal_Scenarios/normal_operation_scenario_network_29BusGB-KearsleyGSPGroup_8760hrs.json"
 
 resilience_metric_thresholds = [
@@ -90,9 +90,10 @@ resilience_metric_thresholds = [
 
 additional_notes = """
 OLD_VERSION_INVESTMENT_MODEL = True;
-bch_hrdn_limits = [0.0, 100.0];
+TN_OHL_harden_allowed = Yes;
+bch_hrdn_limits = [0.0, 50.0];
 mip_gap = 1e-8,
-numeric_focus = 1,
+numeric_focus = 2,
 mip_focus = 3,
 method = 1,
 heuristics = 0.10,
@@ -122,7 +123,7 @@ for resilience_metric_threshold in resilience_metric_thresholds:
                                          mip_gap=1e-8,
                                          mip_gap_abs=1e3,
                                          time_limit=36000,
-                                         numeric_focus=1,
+                                         numeric_focus=2,
                                          mip_focus=3,
                                          method=1,
                                          heuristics=0.10,

@@ -53,7 +53,7 @@ class InvestmentClassOld():
     def build_investment_model(self,
                                network_name: str = "29_bus_GB_transmission_network_with_Kearsley_GSP_group",
                                windstorm_name: str = "windstorm_29_bus_GB_transmission_network",
-                               path_ws_scenario_library: str = "Scenario_Database/Scenarios_Libraries/Filtered_Scenario_Libraries/ws_library_29BusGB-KearsleyGSP_GB_100scn_s10000_filt_b10_h2_buf15.json",
+                               path_ws_scenario_library: str = None,
                                include_normal_scenario: bool = True,
                                normal_scenario_prob: float = 0.99,
                                use_representative_days: bool = True,

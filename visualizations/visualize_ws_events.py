@@ -163,9 +163,8 @@ def plot_ws_scenarios(
         scenarios = {f"ws_{i:04d}": sc for i, sc in enumerate(scenarios)}
     scenario_ids = list(scenarios.keys())
 
-    # Network & windstorm objects (for axis extents + consistent style)
+    # Get network object
     net = make_network(meta.get("network_preset", "29_bus_GB_transmission_network_with_Kearsley_GSP_group"))
-    ws = make_windstorm(meta.get("windstorm_preset", "windstorm_GB_transmission_network"))
 
     # Figure/axis
     fig, ax = plt.subplots(figsize=figsize)
